@@ -133,7 +133,7 @@ GENERAL_SPECS: tuple[Spec, ...] = (
              "否则浏览器不回传 cookie，表现为登录后立刻被踢回登录页。",
         labels=("开启（HTTPS 环境）", "关闭（内网 HTTP）"),
     ),
-    # 站点熔断：search_round 每轮从 config 实时读阈值，改了下一轮即生效。
+    # 站点熔断：订阅引擎每轮从 config 实时读阈值，改了下一轮即生效。
     Spec(
         "circuit_fail_threshold", "熔断触发：连续失败次数", "int", SCOPE_HOT,
         "search.circuit_fail_threshold",

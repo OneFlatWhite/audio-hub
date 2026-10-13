@@ -4,8 +4,9 @@ v0.1 用最简规则（PRD §5）：关键词包含 + 体积区间。
 v0.2 再上完整归一化打分与待审队列。
 v0.6 增「订阅型」匹配（match_subscription / match_for_subscriptions）：按 sub_type
 （artist / album / audiobook / keyword）命中，再过 include / exclude / free_only / 体积 /
-preferred_quality / min_seeders 这一套按订阅配的过滤器。旧的 match_candidates 原样保留，
-search_round 仍用它；订阅引擎（subscription.engine）用新入口。
+preferred_quality / min_seeders 这一套按订阅配的过滤器。订阅引擎（subscription.engine）
+只走新入口；旧的 match_candidates 已随 search_round 一并删除，score_candidate 保留为
+旧评分构成的参考实现（Dispatcher.dispatch 旧入口的 MatchResult 仍在使用其字段）。
 
 核心原则（PRD §6.2）：**误抓的代价高于漏抓**。
 误抓会计入下载量与 H&R，且污染曲库；漏抓只是下次再试。
@@ -22,8 +23,7 @@ from typing import Any, Literal
 from loguru import logger
 
 from ..adapters.base import DiscountType, MediaCategory, NormalizedTorrent
-from ..models import ParsedTitle, SeriesEntry, SubType, WatchEntry
-from ..series.tracker import extract_part_no
+from ..models import ParsedTitle, SubType, WatchEntry
 from .title_parser import QUALITY_WEIGHTS, album_key_for, normalize_key, parse
 
 Confidence = Literal["high", "medium", "low"]
@@ -78,26 +78,6 @@ class MatchResult:
     detail: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
-class MatchRoundResult:
-    """一轮匹配的聚合结果。"""
-    accepted: list[MatchResult] = field(default_factory=list)
-    review: list[MatchResult] = field(default_factory=list)
-    rejected: list[MatchResult] = field(default_factory=list)
-
-    @property
-    def total(self) -> int:
-        return len(self.accepted) + len(self.review) + len(self.rejected)
-
-    def stats(self) -> dict[str, int]:
-        return {
-            "accepted": len(self.accepted),
-            "review": len(self.review),
-            "rejected": len(self.rejected),
-            "total": self.total,
-        }
-
-
 # ── 有声书格式权重（与音乐音质阶梯是两套标准）──────────────
 # PRD §6.2：有声书 M4B > 多文件 MP3。MP3 对有声书是正常格式，
 # 不应按音乐的音质阶梯扣分，否则有声书永远达不到 high 置信度。
@@ -126,24 +106,6 @@ def detect_audiobook_format(text: str) -> tuple[str, float]:
         if pattern.search(text):
             return label, weight
     return "unknown", 0.0
-
-
-def _match_watch_terms(entry: WatchEntry, torrent: NormalizedTorrent) -> list[str]:
-    """返回订阅项在该候选标题中命中的词（query + aliases）。"""
-    haystack = torrent.title_normalized
-    if not haystack:
-        haystack = torrent.title.lower()
-
-    terms = [entry.query] + list(entry.aliases)
-    hits = []
-    for term in terms:
-        t = term.strip().lower()
-        if not t:
-            continue
-        # 归一化后的比对（繁简差异已在 normalize_title 处理）
-        if t in haystack:
-            hits.append(term)
-    return hits
 
 
 def score_candidate(
@@ -200,193 +162,10 @@ def score_candidate(
     return round(min(score, 1.0), 4), confidence, quality
 
 
-def match_candidates(
-    candidates: list[NormalizedTorrent],
-    entries: list[WatchEntry],
-    known_hashes: set[str] | None = None,
-    min_size_bytes: int = 200 * 1024**2,
-    max_size_bytes: int | None = None,
-    *,
-    series_index: dict[int, SeriesEntry] | None = None,
-    known_parts: dict[int, set[int]] | None = None,
-) -> MatchRoundResult:
-    """对候选列表执行完整匹配流程。
-
-    流程：类型判别 → 硬排除 → 体积区间 → 订阅词命中 → 打分 → 连载分卷去重 → 置信度分流
-
-    Args:
-        candidates: 搜索层输出的候选
-        entries: 启用的订阅项
-        known_hashes: 已处理过的 info_hash（来自 DB torrents 表）
-        min_size_bytes: 最小体积，默认 200MB（排除单曲/碎片）
-        max_size_bytes: 最大体积，None = 不限（用户为 VIP，不担心空间）
-        series_index: series.id → SeriesEntry，提供自定义分集规则；
-            缺省时连载订阅用默认规则解析（见 series.tracker.build_series_context）
-        known_parts: series.id → 已登记 part_no 集合；命中即按重复拒绝。
-            本函数是同步纯函数，两者都由调用方在轮次开始时读库传入。
-    """
-    known = known_hashes or set()
-    series_index = series_index or {}
-    known_parts = known_parts or {}
-    result = MatchRoundResult()
-    seen_this_round: set[str] = set()
-    # 同一轮内同一连载同一分集只放行一个（多站点同时放出同一部时）
-    seen_parts_this_round: dict[int, set[int]] = {}
-
-    # 按音乐/有声书分别索引订阅项，避免跨类型误匹配
-    music_entries = [e for e in entries if e.kind.value == "music"]
-    book_entries = [e for e in entries if e.kind.value == "audiobook"]
-
-    for torrent in candidates:
-        # ── 去重：全局 info_hash ──
-        key = torrent.info_hash or f"{torrent.site}:{torrent.title_normalized}"
-        if key in known:
-            continue                      # 已处理过，静默跳过（不记 rejected，避免噪声）
-        if key in seen_this_round:
-            continue
-        seen_this_round.add(key)
-
-        # ── 硬排除：视频/演唱会 ──
-        if torrent.category == MediaCategory.VIDEO or _HARD_EXCLUDE.search(torrent.title):
-            result.rejected.append(MatchResult(
-                torrent=torrent, watch_entry=entries[0] if entries else None,
-                action="reject", confidence="high", score=0.0, quality="n/a",
-                reject_reason="video_or_concert",
-            ))
-            continue
-
-        # ── 体积区间 ──
-        if torrent.size_bytes and torrent.size_bytes < min_size_bytes:
-            result.rejected.append(MatchResult(
-                torrent=torrent, watch_entry=entries[0] if entries else None,
-                action="reject", confidence="high", score=0.0, quality="n/a",
-                reject_reason=f"too_small({torrent.size_bytes})",
-            ))
-            continue
-        if max_size_bytes and torrent.size_bytes > max_size_bytes:
-            result.rejected.append(MatchResult(
-                torrent=torrent, watch_entry=entries[0] if entries else None,
-                action="reject", confidence="high", score=0.0, quality="n/a",
-                reject_reason=f"too_large({torrent.size_bytes})",
-            ))
-            continue
-
-        # ── 类型路由：选对应类型的订阅项集合 ──
-        if torrent.category == MediaCategory.AUDIOBOOK:
-            pool = book_entries
-        elif torrent.category == MediaCategory.MUSIC:
-            pool = music_entries
-        else:
-            # UNKNOWN 类型：对两类订阅都试，但最高只给 medium（进待审）
-            pool = entries
-
-        if not pool:
-            result.rejected.append(MatchResult(
-                torrent=torrent, watch_entry=entries[0] if entries else None,
-                action="reject", confidence="high", score=0.0, quality="unknown",
-                reject_reason=f"no_watchlist_for_{torrent.category.value}",
-            ))
-            continue
-
-        # ── 订阅词命中：取命中最好的一个订阅项 ──
-        best: tuple[list[str], WatchEntry] | None = None
-        for entry in pool:
-            # 用户自定义正则优先
-            if entry.regex:
-                try:
-                    if re.search(entry.regex, torrent.title, re.IGNORECASE):
-                        best = ([entry.query], entry)
-                        break
-                except re.error as e:
-                    logger.warning(f"订阅项 {entry.id} 正则无效，已忽略: {e}")
-                    continue
-
-            hits = _match_watch_terms(entry, torrent)
-            if hits and (best is None or len(hits) > len(best[0])):
-                best = (hits, entry)
-
-        if best is None:
-            result.rejected.append(MatchResult(
-                torrent=torrent, watch_entry=pool[0],
-                action="reject", confidence="high", score=0.0, quality="n/a",
-                reject_reason="no_watchlist_hit",
-            ))
-            continue
-
-        hits, entry = best
-        score, confidence, quality = score_candidate(entry, torrent, hits)
-
-        # UNKNOWN 类型强制降级到 medium（宁漏勿错）
-        if torrent.category == MediaCategory.UNKNOWN and confidence == "high":
-            confidence = "medium"
-
-        match = MatchResult(
-            torrent=torrent, watch_entry=entry, action="review",
-            confidence=confidence, score=score, quality=quality,
-            matched_terms=hits,
-        )
-
-        # ── 连载分卷：解析分集号 + 分卷级去重 ──
-        # 挂在置信度分流之前：重复分卷无论置信度多高都不该进待审 / 派发；
-        # 解析失败不拦截（宁漏勿错只针对误抓，漏解析仍可人工处理），只记 detail。
-        if entry.series_id is not None:
-            series = series_index.get(entry.series_id)
-            pattern = series.part_pattern if series else None
-            part_no = extract_part_no(torrent.title, pattern)
-            match.series_id = entry.series_id
-            if part_no is None:
-                match.detail["part_unparsed"] = True
-            else:
-                match.part_no = part_no
-                dup_known = part_no in known_parts.get(entry.series_id, ())
-                dup_round = part_no in seen_parts_this_round.get(entry.series_id, ())
-                if dup_known or dup_round:
-                    match.action = "reject"
-                    match.reject_reason = (
-                        f"duplicate_part(series={entry.series_id},part={part_no})"
-                    )
-                    result.rejected.append(match)
-                    continue
-                seen_parts_this_round.setdefault(entry.series_id, set()).add(part_no)
-
-        # ── 分流：置信度 + 订阅项的 min_confidence 门槛 ──
-        threshold = _CONFIDENCE_RANK.get(entry.min_confidence, 2)
-        actual = _CONFIDENCE_RANK.get(confidence, 0)
-
-        if actual >= threshold and entry.auto_download:
-            match.action = "accept"
-            result.accepted.append(match)
-        else:
-            match.action = "review"
-            if actual < threshold:
-                match.reject_reason = f"confidence_below_threshold({confidence}<{entry.min_confidence})"
-            else:
-                match.reject_reason = "auto_download_disabled"
-            result.review.append(match)
-
-    _log_summary(result, len(candidates))
-    return result
-
-
-def _log_summary(result: MatchRoundResult, input_count: int) -> None:
-    s = result.stats()
-    logger.info(
-        f"匹配完成：输入 {input_count} → 采纳 {s['accepted']} / 待审 {s['review']} / "
-        f"拒绝 {s['rejected']}"
-    )
-    # 拒绝原因分布，用于规则迭代（PRD §13.7）
-    if result.rejected:
-        reasons: dict[str, int] = {}
-        for m in result.rejected:
-            base = m.reject_reason.split("(")[0]
-            reasons[base] = reasons.get(base, 0) + 1
-        logger.debug(f"拒绝原因分布: {reasons}")
-
-
 # ── v0.6 订阅型匹配（subscription.engine 的入口）───────────────
 
 _MB = 1024 ** 2
-#: 未配 min_size_mb 时沿用 match_candidates 的默认下限（排除单曲 / 碎片）
+#: 未配 min_size_mb 时的默认下限 200MB（排除单曲 / 碎片）
 DEFAULT_MIN_SIZE_BYTES = 200 * _MB
 #: lossless_only 拒绝的有损档；hires_only 只放行的高解档
 _LOSSY_TAGS = frozenset({"mp3"})
@@ -499,7 +278,7 @@ def match_sub_type(watch: WatchEntry, torrent: NormalizedTorrent, parsed: Parsed
             return hits
         return _hit_terms(_terms(watch.author), title_n)
 
-    # keyword（与旧 _match_watch_terms 同义，但比对用去标点的键，容忍空格 / 全半角差异）
+    # keyword：query / aliases / 正则 在标题里（比对用去标点的键，容忍空格 / 全半角差异）
     return _hit_terms(_terms(watch.query, watch.aliases), title_n)
 
 

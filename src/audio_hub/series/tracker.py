@@ -76,15 +76,13 @@ def extract_part_no(title: str, pattern: str | None = None) -> int | None:
     return None
 
 
-# ── matcher 用的只读上下文 ─────────────────────────────────────
+# ── 旧 match_candidates 用的只读上下文 ─────────────────────────
+# v0.6 订阅引擎改用 album_key（含 volN）+ has_album 做分卷去重，不再走这里；
+# SeriesContext / build_series_context 暂保留给仍按旧方式比对分集的调用方与测试。
 
 @dataclass
 class SeriesContext:
-    """一轮匹配所需的连载快照：规则 + 已登记分集号。
-
-    matcher 是同步纯函数，不能查库；由调用方在轮次开始时用
-    build_series_context 一次读出，再以关键字参数传入 match_candidates。
-    """
+    """一轮匹配所需的连载快照：规则 + 已登记分集号（旧 matcher 路径的只读上下文）。"""
     #: series.id → SeriesEntry（取 part_pattern / status）
     series_index: dict[int, SeriesEntry] = field(default_factory=dict)
     #: series.id → 已登记的 part_no 集合（分卷去重）

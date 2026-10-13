@@ -6,6 +6,12 @@ dispatcher.py 的真实装配与持久化，且**不向任何 PT 站点发起网
 与 test_pipeline_dryrun.py 的区别：
 - 那个测试验证 pipeline 三个模块的逻辑正确性（内存态）
 - 本测试验证「一轮流水线后数据真的落库了」（持久化 + 幂等 + 重启恢复）
+
+v0.6：生产路径是订阅引擎（subscription.engine），rss_capture /
+subscription_search 两个 job 分别以 runner.run_rss_capture_once /
+run_subscription_search_once 为入口；runner.run_once() 是「RSS 捕获 + 派发 +
+完成轮询」的手动触发入口。dry_run 下引擎把命中建成 scored 任务（不派发），
+summary 里「应派发」的计数是 accepted，dispatched 恒为 0。
 """
 
 from __future__ import annotations
@@ -91,17 +97,18 @@ def build_runner(app_config, db, torrents) -> tuple[PipelineRunner, InjectedAdap
 class TestFullPipelinePersistence:
     @pytest.mark.asyncio
     async def test_round_persists_task_and_fingerprint(self, app_config, db):
-        """一轮流水线后，task 与去重指纹必须真的落库。"""
+        """一轮 RSS 捕获后，task 与去重指纹必须真的落库。"""
         entry = WatchEntry(id=str(uuid.uuid4()), query="周杰伦",
                            kind=WatchKind.MUSIC, min_confidence="medium")
         await repo.add_watch_entry(db, entry)
 
         torrents = [make_torrent("周杰伦 范特西 FLAC")]
         runner, _ = build_runner(app_config, db, torrents)
-        summary = await runner.run_once()
+        summary = await runner.run_rss_capture_once()
 
         assert summary["candidates"] == 1
-        assert summary["dispatched"] == 1
+        assert summary["accepted"] == 1, "dry_run 下的「应派发」计数"
+        assert summary["dispatched"] == 0, "dry_run 不真派发（v0.6 引擎只建 scored 任务）"
         assert summary["dry_run"] is True
 
         # DB 侧验证：task 已写入
@@ -116,7 +123,7 @@ class TestFullPipelinePersistence:
 
     @pytest.mark.asyncio
     async def test_second_round_dedupes(self, app_config, db):
-        """第二轮同一候选不应重复派发（幂等）。"""
+        """第二轮同一候选不应重复派发（幂等）：订阅引擎按 subscription_hits 去重。"""
         entry = WatchEntry(id=str(uuid.uuid4()), query="周杰伦",
                            kind=WatchKind.MUSIC, min_confidence="medium")
         await repo.add_watch_entry(db, entry)
@@ -124,18 +131,20 @@ class TestFullPipelinePersistence:
         t = make_torrent("周杰伦 范特西 FLAC", info_hash="fixed_hash")
         runner, _ = build_runner(app_config, db, [t])
 
-        s1 = await runner.run_once()
-        s2 = await runner.run_once()
+        s1 = await runner.run_rss_capture_once()
+        s2 = await runner.run_rss_capture_once()
 
-        assert s1["dispatched"] == 1
-        assert s2["dispatched"] == 0, "第二轮应被 info_hash 去重"
+        assert s1["accepted"] == 1
+        assert s2["candidates"] == 1
+        assert s2["accepted"] == 0, "第二轮应被 subscription_hits 去重"
+        assert len(await repo.list_hits(db, entry.id)) == 1, "已决策过的种子不再入账"
 
         by_state = await repo.count_tasks_by_state(db)
         assert sum(by_state.values()) == 1, "不应产生重复 task"
 
     @pytest.mark.asyncio
     async def test_video_never_persisted_as_accepted(self, app_config, db):
-        """v0.1 核心验收：视频绝不进入采纳路径。"""
+        """v0.1 核心验收：视频绝不进入采纳路径，也不落 task。"""
         entry = WatchEntry(id=str(uuid.uuid4()), query="周杰伦",
                            kind=WatchKind.MUSIC, min_confidence="medium")
         await repo.add_watch_entry(db, entry)
@@ -146,10 +155,14 @@ class TestFullPipelinePersistence:
             make_torrent("周杰伦 演唱会 2024 REMUX", category=MediaCategory.MUSIC),
         ]
         runner, _ = build_runner(app_config, db, torrents)
-        summary = await runner.run_once()
+        summary = await runner.run_rss_capture_once()
 
-        assert summary["dispatched"] == 1, "只有真正的音乐专辑被采纳"
+        assert summary["accepted"] == 1, "只有真正的音乐专辑被采纳"
         assert summary["rejected"] == 2, "两条视频均被拒绝"
+        # 被拒绝的候选不落 task、不进指纹表
+        by_state = await repo.count_tasks_by_state(db)
+        assert sum(by_state.values()) == 1
+        assert len(await repo.get_known_hashes(db)) == 1
 
     @pytest.mark.asyncio
     async def test_review_items_persisted_without_dispatch(self, app_config, db):
@@ -170,17 +183,30 @@ class TestFullPipelinePersistence:
 
     @pytest.mark.asyncio
     async def test_search_fallback_recorded(self, app_config, db):
-        """search 返回空时应 fallback 到 RSS，且被记录。"""
+        """RSS 兜底（v0.6 的降级形态）：search 空返回的站，由独立的 rss_capture 兜住。
+
+        v0.6 把旧「search 失败 → 轮内 fallback 到 RSS」拆成两个 job：
+        subscription_search 只做主动搜索，rss_capture 持续拉 RSS——NexusPHP
+        search 参数被忽略（返回空）的站点，订阅命中由 RSS 捕获保证。
+        """
         entry = WatchEntry(id=str(uuid.uuid4()), query="周杰伦",
                            kind=WatchKind.MUSIC, min_confidence="medium")
         await repo.add_watch_entry(db, entry)
 
         torrents = [make_torrent("周杰伦 范特西 FLAC")]
         runner, adapter = build_runner(app_config, db, torrents)
-        summary = await runner.run_once()
 
-        assert "fakesite" in summary["fallback_used"], "应记录 fallback"
+        # 主动搜索：适配器 search 返回空（模拟 NexusPHP 忽略参数）→ 无命中
+        search = await runner.run_subscription_search_once()
+        assert search["due"] == 1 and search["searched"] == 1
+        assert search["hits"] == 0
+
+        # RSS 捕获兜住同一候选
+        capture = await runner.run_rss_capture_once()
         assert adapter.call_count == 1, "fetch_rss 应被调用一次"
+        assert capture["sites_polled"] == ["fakesite"]
+        assert capture["accepted"] == 1
+        assert len(await repo.get_known_hashes(db)) == 1
 
     @pytest.mark.asyncio
     async def test_empty_watchlist_noop(self, app_config, db):
@@ -290,7 +316,7 @@ class TestRealDispatchResolvesDownloadUrl:
 
     @pytest.mark.asyncio
     async def test_dry_run_never_resolves(self, app_config, db):
-        """dry-run 不应调用 resolve_download_url（不发 genDlToken 请求）。"""
+        """dry-run 不应调用 resolve_download_url（不发 genDlToken 请求），也不真派发。"""
         entry = WatchEntry(id=str(uuid.uuid4()), query="周杰伦",
                            kind=WatchKind.MUSIC, min_confidence="medium")
         await repo.add_watch_entry(db, entry)
@@ -301,7 +327,8 @@ class TestRealDispatchResolvesDownloadUrl:
 
         summary = await runner.run_once()
 
-        assert summary["dispatched"] == 1
+        assert summary["accepted"] == 1, "dry_run 下决策为「应派发」"
+        assert summary["dispatched"] == 0, "dry_run 不进入派发链路"
         assert adapter.resolved == []
 
 
@@ -448,30 +475,44 @@ class TestArchiving:
 
 class TestSchedulerConfig:
     def test_poll_interval_floor(self, app_config):
-        """轮询间隔低于安全下限时应被提升（PRD §8.5 账号安全）。"""
+        """触网站点的轮询间隔低于安全下限时应被提升（PRD §8.5 账号安全）。
+
+        v0.6：poll_interval_minutes 驱动 completion_poll；rss_capture 有独立的
+        5 分钟下限（MIN_SITE_INTERVAL_MINUTES）。
+        """
         from audio_hub.scheduler import build_scheduler
 
         cfg = app_config.model_copy(update={"poll_interval_minutes": 1})
+        cfg.search.rss_interval_minutes = 1
         runner = PipelineRunner(None, cfg, qb_client=None)
         sched = build_scheduler(runner, cfg)
         try:
-            job = sched.get_job("pipeline_round")
+            job = sched.get_job("completion_poll")
             assert job is not None
             # 1 分钟应被提升到 5 分钟下限
             assert job.trigger.interval.total_seconds() >= 300
+            # 触网站点的 RSS 捕获同样受 5 分钟下限约束
+            rss_job = sched.get_job("rss_capture")
+            assert rss_job is not None
+            assert rss_job.trigger.interval.total_seconds() >= 300
         finally:
             # build_scheduler 只配置未 start，shutdown 会抛 SchedulerNotRunningError
             sched.remove_all_jobs()
 
     def test_max_instances_one(self, app_config):
-        """max_instances=1，与 runner 内部防重入双重保险。"""
+        """全部 job max_instances=1 + coalesce，与 runner 内部防重入双重保险。"""
         from audio_hub.scheduler import build_scheduler
         runner = PipelineRunner(None, app_config, qb_client=None)
         sched = build_scheduler(runner, app_config)
         try:
-            job = sched.get_job("pipeline_round")
-            assert job.max_instances == 1
-            assert job.coalesce is True
+            # v0.6 job 清单：旧 pipeline_round 已拆成 capture / search / 完成轮询等
+            assert sched.get_job("pipeline_round") is None
+            for job_id in ("rss_capture", "subscription_search", "completion_poll",
+                           "site_auth_check", "seeding_check"):
+                job = sched.get_job(job_id)
+                assert job is not None, f"缺少 job {job_id}"
+                assert job.max_instances == 1
+                assert job.coalesce is True
         finally:
             sched.remove_all_jobs()
 
@@ -480,6 +521,7 @@ class TestSchedulerConfig:
         """调度器能在运行中的事件循环里启动与关闭（验证 lifespan 路径可用）。
 
         AsyncIOScheduler.start() 要求已存在运行中的 loop，故本用例必须是 async。
+        DummyRunner 只有 run_once：completion_poll 回落到它，触网 job 不注册。
         """
         from audio_hub.scheduler import build_scheduler
 
@@ -499,7 +541,7 @@ class TestSchedulerConfig:
         try:
             sched.start()
             assert sched.running is True
-            assert sched.get_job("pipeline_round") is not None
+            assert sched.get_job("completion_poll") is not None
         finally:
             if sched.running:
                 sched.shutdown(wait=False)
@@ -515,7 +557,7 @@ class TestSchedulerConfig:
 # ── 连载追踪接入（v0.4 模块 C × scheduler）──────────────────────────────────
 
 class TestSeriesTrackingIntegration:
-    """订阅项绑定连载后，runner 一轮应打通：上下文构建 → 分卷去重 → series_parts 登记。"""
+    """订阅项绑定连载后，一轮 RSS 捕获应打通：分卷级去重（album_key 含 volN）→ series_parts 登记。"""
 
     async def _bind_series(self, db, *, total_parts=None) -> tuple[WatchEntry, int]:
         from audio_hub.models import SeriesEntry
@@ -532,21 +574,22 @@ class TestSeriesTrackingIntegration:
 
     @pytest.mark.asyncio
     async def test_dry_run_round_registers_parts_and_rejects_duplicate(self, app_config, db):
-        """一轮 dry-run：两个不同分集落入 series_parts，同轮重复分集被拒。"""
+        """一轮 dry-run 捕获：两个不同分集落入 series_parts，同轮重复分集被组内择优拒掉。"""
         _, series_id = await self._bind_series(db)
 
         torrents = [
             make_torrent("三体 第1集 有声书 M4B", category=MediaCategory.AUDIOBOOK),
             make_torrent("三体 第2集 有声书 M4B", category=MediaCategory.AUDIOBOOK),
-            # 另一份第 1 集（不同 info_hash，模拟多站点同时放出）→ 应被分卷去重拒掉
+            # 另一份第 1 集（不同 info_hash，模拟多站点同时放出）→ 同一 album_key（三体|vol1）
+            # 组内择优后按 SKIPPED_DUP 入账（v0.6：重复版本不再记 rejected）
             make_torrent("三体 第1集 有声书 FLAC", category=MediaCategory.AUDIOBOOK),
         ]
         runner, _ = build_runner(app_config, db, torrents)
-        summary = await runner.run_once()
+        summary = await runner.run_rss_capture_once()
 
         assert summary["candidates"] == 3
-        assert summary["dispatched"] == 2
-        assert summary["rejected"] == 1
+        assert summary["accepted"] == 2
+        assert summary["skipped_dup"] == 1
 
         parts = await repo.list_series_parts(db, series_id)
         assert [p.part_no for p in parts] == [1, 2]
@@ -561,21 +604,22 @@ class TestSeriesTrackingIntegration:
 
     @pytest.mark.asyncio
     async def test_second_round_rejects_already_registered_part(self, app_config, db):
-        """第二轮出现已登记分集的新副本（新 info_hash），应被 known_parts 拒掉。"""
+        """第二轮出现已登记分集的新副本（新 info_hash），应被「已拥有该分卷」拒掉。"""
         _, series_id = await self._bind_series(db)
 
         runner, adapter = build_runner(app_config, db, [
             make_torrent("三体 第1集 有声书 M4B", category=MediaCategory.AUDIOBOOK),
         ])
-        s1 = await runner.run_once()
-        assert s1["dispatched"] == 1
+        s1 = await runner.run_rss_capture_once()
+        assert s1["accepted"] == 1
 
         adapter._torrents = [
             make_torrent("三体 第1集 有声书 FLAC", category=MediaCategory.AUDIOBOOK),
         ]
-        s2 = await runner.run_once()
-        assert s2["dispatched"] == 0
-        assert s2["rejected"] == 1
+        s2 = await runner.run_rss_capture_once()
+        assert s2["accepted"] == 0
+        # v0.6：album_key 含分卷号（三体|vol1），已拥有 → SKIPPED_DUP(already_owned)
+        assert s2["skipped_dup"] == 1
 
         parts = await repo.list_series_parts(db, series_id)
         assert [p.part_no for p in parts] == [1]
@@ -601,8 +645,8 @@ class TestSeriesTrackingIntegration:
         notifier = CollectNotifier()
         runner = PipelineRunner(db, app_config, qb_client=None, notifier=notifier)
         runner.adapters = {"fakesite": adapter}
-        summary = await runner.run_once()
-        assert summary["dispatched"] == 2
+        summary = await runner.run_rss_capture_once()
+        assert summary["accepted"] == 2
 
         series = await repo.get_series(db, series_id)
         assert series.status == "completed"
@@ -650,10 +694,10 @@ class TestSiteCircuitBreaker:
         runner.adapters = {"brokensite": broken, "fakesite": healthy}
 
         for i in range(3):
-            summary = await runner.run_once()
+            summary = await runner.run_rss_capture_once()
             assert "brokensite" in summary["site_errors"], f"第 {i + 1} 轮应记录站点错误"
             assert summary["skipped_circuit"] == [], f"第 {i + 1} 轮不应已熔断"
-        # 未预期异常不走 RSS fallback：每轮只碰适配器一次
+        # 未预期异常不重试：每轮只碰适配器一次（v0.6 无 search→RSS 轮内降级）
         assert broken.calls == 3
 
         st = await repo.get_site_stats(db, "brokensite")
@@ -671,7 +715,7 @@ class TestSiteCircuitBreaker:
         assert ok["circuit_open_until"] is None
 
         # 第 4 轮：还在熔断期，适配器不被碰，也不再计入请求数
-        s4 = await runner.run_once()
+        s4 = await runner.run_rss_capture_once()
         assert s4["skipped_circuit"] == ["brokensite"]
         assert "brokensite" not in s4["site_errors"]
         assert broken.calls == 3
@@ -701,19 +745,8 @@ class TestSiteCircuitBreaker:
         runner = PipelineRunner(db, app_config, qb_client=None, notifier=LogNotifier())
         runner.adapters = {"brokensite": broken}
 
-        await runner.run_once()
+        await runner.run_rss_capture_once()
         assert await repo.is_circuit_open(db, "brokensite")
-        s2 = await runner.run_once()
+        s2 = await runner.run_rss_capture_once()
         assert s2["skipped_circuit"] == ["brokensite"]
         assert broken.calls == 1
-
-    @pytest.mark.asyncio
-    async def test_search_round_without_db_stays_pure(self, app_config, db):
-        """不传 db 时 search_round 不写任何 site_stats（内存态测试与脚本的旧调用方式不变）。"""
-        from audio_hub.pipeline.search import search_round
-
-        entry = WatchEntry(id=str(uuid.uuid4()), query="x", kind=WatchKind.MUSIC)
-        result = await search_round({"brokensite": BrokenAdapter("brokensite")}, [entry])
-        assert "brokensite" in result.site_errors
-        assert result.skipped_circuit == []
-        assert await repo.list_site_stats(db) == {}

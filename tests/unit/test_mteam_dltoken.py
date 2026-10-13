@@ -388,3 +388,47 @@ class TestDispatcherResolvesDirectLink:
         assert len(result.failed) == 1
         assert "RuntimeError" in result.failed[0][1]
         assert qb.calls[0]["urls"] == "https://ok/x"
+
+
+# ── 派发守卫（原 test_pipeline_dryrun.py，旧 search_round 删除后迁来）───────
+
+class TestDispatcherGuards:
+    @pytest.mark.asyncio
+    async def test_defensive_block_video_in_dispatch(self):
+        """即使 matcher 漏判，dispatcher 也应防御性拦截 VIDEO（下载前最后关口）。"""
+        video = make_mteam_torrent("1", title="某演唱会 BluRay").model_copy(
+            update={"category": MediaCategory.VIDEO}
+        )
+        # 手动构造一个被错误标为 accept 的 VIDEO
+        m = MatchResult(torrent=video, action="accept", confidence="high",
+                        score=1.0, quality="n/a")
+        dispatcher = Dispatcher(qb_config(), client=None, dry_run=False)
+        result = await dispatcher.dispatch([m])
+        assert len(result.failed) == 1
+        assert "defensive_block" in result.failed[0][1]
+
+    @pytest.mark.asyncio
+    async def test_no_candidates_dispatch_noop(self):
+        dispatcher = Dispatcher(qb_config(), client=None, dry_run=True)
+        assert (await dispatcher.dispatch([])).ok_count == 0
+        assert (await dispatcher.dispatch_tasks([])).ok_count == 0
+
+    @pytest.mark.asyncio
+    async def test_dry_run_dispatch_tasks_never_touches_client(self):
+        """dry-run 下 dispatch_tasks（v0.6 生产入口）即使持有 client 也不应调用它。"""
+        from audio_hub.models import Task, TaskState
+
+        class ExplodingClient:
+            def torrents_add(self, *a, **kw):
+                raise AssertionError("dry-run 不应调用 qb！")
+
+        dispatcher = Dispatcher(qb_config(), client=ExplodingClient(), dry_run=True)
+        task = Task(
+            info_hash="d" * 40, site="mteam", title="周杰伦 七里香 FLAC",
+            state=TaskState.DISCOVERED,
+            download_url="https://api.m-team.cc/api/torrent/genDlToken?id=1",
+            size_bytes=700 * 1024**2,
+        )
+        result = await dispatcher.dispatch_tasks([task])
+        assert result.ok_count == 1   # 没抛异常即证明未调用 qb
+        assert result.dry_run is True

@@ -40,43 +40,6 @@ DEFAULT_MAX_CONCURRENCY = 2
 MIN_SITE_INTERVAL_MINUTES = 5
 
 
-def _build_task(
-    m,
-    *,
-    state: TaskState,
-    config,
-    reject_reason: str | None = None,
-    error_message: str | None = None,
-) -> Task:
-    """把 MatchResult 映射为持久化 Task（旧 search_round 路径 / 测试仍在用）。
-
-    集中处理，确保 download_url / quality / site_category 等 v2 字段
-    在所有创建路径（派发成功 / 失败 / 待审）都被写入 —— 否则 /review
-    采纳待审项后拿不到下载链接，无法真实派发。
-    """
-    t = m.torrent
-    return Task(
-        watch_entry_id=m.watch_entry.id if m.watch_entry else None,
-        info_hash=t.info_hash,
-        site=t.site,
-        title=t.title,
-        state=state,
-        score=m.score,
-        confidence=m.confidence,
-        reject_reason=reject_reason,
-        error_message=error_message,
-        qb_category=config.qbittorrent.category,
-        qb_save_path=config.qbittorrent.save_path,
-        download_url=t.download_url,
-        size_bytes=t.size_bytes,
-        quality=m.quality,
-        format_tags=list(t.format_tags),
-        site_category=t.site_category,
-        series_id=m.series_id,
-        part_no=m.part_no,
-    )
-
-
 class PipelineRunner:
     """各周期任务的执行器：持有适配器、下载器注册表、派发器与两个监听器。"""
 

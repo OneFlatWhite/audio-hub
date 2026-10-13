@@ -1,6 +1,7 @@
 """matcher v0.6 订阅型匹配：按 sub_type 命中 + 订阅级过滤器 + reject_reason。
 
-旧 API（match_candidates / score_candidate）由 test_matcher.py 覆盖，这里只测新入口。
+旧批量入口 match_candidates 已随 search_round 一并删除；留存的 detect_quality /
+score_candidate 由 test_matcher.py 覆盖，这里只测新入口。
 """
 
 from __future__ import annotations

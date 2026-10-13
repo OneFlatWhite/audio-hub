@@ -4,7 +4,7 @@
 - 所有写端点 require_admin_csrf：站点凭据与开关是全局配置，普通用户只读。
 - 凭据只写不读：页面只显示「已配置 / 未配置」，表单留空 = 不修改。
 - 启用门禁在服务端：auth_status != valid 的站点，POST /sites/{id}/toggle 启用会被拒；
-  build_adapters 与 search_round 再各挡一道，页面上的灰按钮只是提示。
+  build_adapters 与订阅引擎的站点门禁（engine._usable_adapters）再各挡一道，页面上的灰按钮只是提示。
 - 「测试」类端点用 registry.make_adapter_for_test 绕过门禁（目的就是把站验成 valid）。
 - flash 文案在本模块映射（不改 routes_pages），结果详情经 ?detail= 回显。
 """

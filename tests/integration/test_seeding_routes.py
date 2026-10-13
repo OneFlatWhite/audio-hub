@@ -93,9 +93,13 @@ class FakeQb:
 
 @pytest.fixture
 def fake_qb(monkeypatch):
-    """把 SeedingMonitor 拿客户端的入口整体替换掉：无论 runner 内还是路由按需构造都命中。"""
+    """把 SeedingMonitor 按下载器取客户端的入口整体替换掉：无论 runner 内还是路由按需构造都命中。
+
+    v0.6 多下载器：监视器经 _client_for(downloader_id) 取客户端（registry 句柄优先，
+    其次按配置自建）；旧式单实例的 _get_client 只在无 registry 时才会走到。
+    """
     qb = FakeQb()
-    monkeypatch.setattr(SeedingMonitor, "_get_client", lambda self: qb)
+    monkeypatch.setattr(SeedingMonitor, "_client_for", lambda self, downloader_id=None: qb)
     return qb
 
 
@@ -301,7 +305,12 @@ class TestSchedulerJob:
         assert job is not None
         assert job.trigger.interval.total_seconds() == 15 * 60
         assert job.max_instances == 1 and job.coalesce is True
-        assert sched.get_job("pipeline_round") is not None
+        # v0.6 job 清单：旧 pipeline_round 已拆为 rss_capture / subscription_search /
+        # completion_poll / site_auth_check
+        assert sched.get_job("pipeline_round") is None
+        for job_id in ("rss_capture", "subscription_search",
+                       "completion_poll", "site_auth_check"):
+            assert sched.get_job(job_id) is not None, f"缺少 job {job_id}"
 
     def test_run_seeding_once_exposed_on_runner(self, client, fake_qb):
         runner = app.state.runner

@@ -46,6 +46,8 @@ from ..timeutil import utcnow
 EVENT_SUBSCRIPTION_HIT = "subscription_hit"
 EVENT_SUBSCRIPTION_COMPLETED = "subscription_completed"
 EVENT_SUBSCRIPTION_UPGRADE = "subscription_upgrade"
+#: 站点熔断刚打开时的事件（warning 级，每次打开只发一条）
+EVENT_SITE_CIRCUIT_OPEN = "site_circuit_open"
 
 # ── 请求纪律 ────────────────────────────────────────────────
 #: 同站两次请求的最小间隔（秒）。模块级变量：测试可置 0。
@@ -192,18 +194,35 @@ def _circuit_params(config) -> tuple[int, int]:
     )
 
 
-async def _record_outcome(db, site: str, error: str | None, rows: int, config) -> None:
-    """站点健康计数是旁路，失败只记日志。"""
+async def _record_outcome(db, site: str, error: str | None, rows: int, config,
+                          notifier=None) -> None:
+    """站点健康计数是旁路，失败只记日志；刚打开熔断时发 site_circuit_open 事件。"""
     threshold, open_minutes = _circuit_params(config)
     try:
         if error is None:
             await repo.record_site_success(db, site, rows=rows)
-        else:
-            await repo.record_site_failure(
-                db, site, error, threshold=threshold, open_minutes=open_minutes,
-            )
+            return
+        opened = await repo.record_site_failure(
+            db, site, error, threshold=threshold, open_minutes=open_minutes,
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning(f"{site} 写 site_stats 失败: {type(e).__name__}: {e}")
+        return
+    if not opened:
+        return
+    stats = await repo.get_site_stats(db, site) or {}
+    await _emit(notifier, Event(
+        kind=EVENT_SITE_CIRCUIT_OPEN,
+        site=site,
+        title=f"{site} 连续失败 {stats.get('consecutive_fail', threshold)} 次，已熔断",
+        detail={
+            "until": stats.get("circuit_open_until"),
+            "consecutive_fail": stats.get("consecutive_fail", threshold),
+            "open_minutes": open_minutes,
+            "last_error": error,
+        },
+        level="warning",
+    ))
 
 
 class _SiteThrottle:
@@ -525,17 +544,17 @@ async def run_rss_capture_once(
             except TimeoutError:
                 err = f"RSS 超时（>{PER_REQUEST_TIMEOUT}s）"
                 summary.site_errors[site] = err
-                await _record_outcome(db, site, err, 0, config)
+                await _record_outcome(db, site, err, 0, config, notifier)
                 break
             except AdapterError as e:
                 summary.site_errors[site] = f"RSS 失败: {e}"
-                await _record_outcome(db, site, str(e), 0, config)
+                await _record_outcome(db, site, str(e), 0, config, notifier)
                 break
             except Exception as e:  # noqa: BLE001 - 单站异常不得中断整轮
                 err = f"RSS 未预期异常: {type(e).__name__}: {e}"
                 summary.site_errors[site] = err
                 logger.exception(f"{site} RSS 未预期异常")
-                await _record_outcome(db, site, err, 0, config)
+                await _record_outcome(db, site, err, 0, config, notifier)
                 break
             summary.raw_count += len(items)
             raw.extend(items)
@@ -629,17 +648,17 @@ async def run_subscription_search_once(
                 except TimeoutError:
                     err = f"search 超时（>{PER_REQUEST_TIMEOUT}s）"
                     summary.site_errors[site] = err
-                    await _record_outcome(db, site, err, 0, config)
+                    await _record_outcome(db, site, err, 0, config, notifier)
                     break
                 except AdapterError as e:
                     summary.site_errors[site] = f"search 失败: {e}"
-                    await _record_outcome(db, site, str(e), 0, config)
+                    await _record_outcome(db, site, str(e), 0, config, notifier)
                     break
                 except Exception as e:  # noqa: BLE001
                     err = f"search 未预期异常: {type(e).__name__}: {e}"
                     summary.site_errors[site] = err
                     logger.exception(f"{site} search({q!r}) 未预期异常")
-                    await _record_outcome(db, site, err, 0, config)
+                    await _record_outcome(db, site, err, 0, config, notifier)
                     break
                 raw.extend(items)
                 await _record_outcome(db, site, None, len(items), config)

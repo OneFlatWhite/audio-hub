@@ -340,21 +340,32 @@ class TestAuthGate:
         text = client.get("/sites/hhanclub/edit").text
         assert "认证已通过，可以启用" in text
 
-    def test_search_round_skips_non_valid_adapter(self, client):
-        """第二道闸：适配器已构建但中途失效（未重建）时，search_round 开头剔除。"""
-        from audio_hub.pipeline.search import SearchRoundResult, _skip_auth_invalid
+    def test_engine_skips_auth_invalid_site(self, client):
+        """第二道闸：站点在 DB 里已失效、适配器尚未重建时，RSS 捕获整轮跳过它。
+
+        v0.6：门禁由订阅引擎的 _usable_adapters 承担（以 sites 表的 auth_status 为准），
+        不再经过旧 search_round。
+        """
+        from audio_hub.models import WatchEntry, WatchKind
+        from audio_hub.subscription import engine as sub_engine
 
         _set_auth("hhanclub", AuthStatus.VALID)
         _set_enabled("hhanclub", True)
         _rebuild()
         adapters = dict(app.state.runner.adapters)
         assert "hhanclub" in adapters
-        adapters["hhanclub"].config.auth_status = AuthStatus.EXPIRED.value
 
-        result = SearchRoundResult()
-        kept = _run(_skip_auth_invalid(adapters, result, None, None))
-        assert kept == {}
-        assert result.skipped_auth == ["hhanclub"]
+        # 巡检把状态写回 expired，但适配器还是按旧状态构建的（未重建）
+        _set_auth("hhanclub", AuthStatus.EXPIRED)
+        _run(repo.add_watch_entry(app.state.db, WatchEntry(
+            id=str(uuid.uuid4()), query="周杰伦", kind=WatchKind.MUSIC,
+        )))
+
+        summary = _run(sub_engine.run_rss_capture_once(
+            app.state.db, adapters, config=app.state.config, dry_run=True,
+        ))
+        assert summary.sites_polled == []
+        assert summary.skipped_sites == {"hhanclub": "auth_expired"}
 
 
 # ── 向导：新建 / 保存 / 校验 ────────────────────────────────
