@@ -150,10 +150,10 @@ class TransmissionFacade:
             seeding_time=int(getattr(t, "seconds_seeding", 0) or 0),
             ratio=float(getattr(t, "upload_ratio", 0) or 0.0),
             # v0.14 进度条字段（qb 原生同名语义）：progress 0..1、dlspeed B/s、
-            # eta 秒（-1 = 未知）
+            # eta 秒（-1 = 未知）。注意 transmission-rpc 的 eta 是 timedelta。
             progress=float(getattr(t, "percent_done", 0) or 0),
             dlspeed=int(getattr(t, "rate_download", 0) or 0),
-            eta=int(getattr(t, "eta", 0) or -1),
+            eta=_eta_seconds(getattr(t, "eta", None)),
         )
 
     def torrents_info(self, tag=None, **_ignored):
@@ -173,6 +173,19 @@ class TransmissionFacade:
 
     def torrents_resume(self, torrent_hashes=None, **_ignored):
         self._client.start_torrent(torrent_hashes)
+
+
+def _eta_seconds(raw) -> int:
+    """tr 的 eta 可能是 timedelta / 数值 / None / 负值 → 统一成秒（-1 = 未知）。"""
+    if raw is None:
+        return -1
+    if hasattr(raw, "total_seconds"):
+        sec = raw.total_seconds()
+        return int(sec) if sec >= 0 else -1
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return -1
 
 
 def build_client(config, *, login: bool = False):

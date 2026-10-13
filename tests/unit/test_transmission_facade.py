@@ -254,6 +254,22 @@ def test_facade_info_field_mapping():
     assert t.eta == 1800
 
 
+def test_facade_eta_handles_timedelta():
+    """tr 的 eta 是 timedelta（v0.14 回归）：须转秒；未知/负值统一 -1。"""
+    import datetime as dt
+
+    fac, tr = _facade()
+    tr._torrents = [
+        _tr_torrent(name="td", eta=dt.timedelta(minutes=30)),
+        _tr_torrent(name="neg", eta=dt.timedelta(seconds=-1)),
+        _tr_torrent(name="none", eta=None),
+    ]
+    by_name = {t.name: t for t in fac.torrents_info()}
+    assert by_name["td"].eta == 1800
+    assert by_name["neg"].eta == -1
+    assert by_name["none"].eta == -1
+
+
 def test_facade_info_filters_by_tag():
     fac, tr = _facade()
     tr._torrents = [
