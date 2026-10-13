@@ -224,7 +224,7 @@ class TestHotSettings:
         assert "err=" in resp.headers["location"]
 
     def test_qb_group_endpoint_removed(self, client):
-        """v0.6.1：qb 组端点已撤下，连接与路径配置在下载器中心。
+        """v0.6.0：qb 组端点已撤下，连接与路径配置在下载器中心。
 
         旧双轨的陷阱是设置页存一份、下载器中心又存一份，两边漂移后
         没人知道哪份生效。端点必须 404，而不是静默收进旧键。
@@ -421,7 +421,7 @@ class TestSettingsPageRender:
         assert 'action="/settings/general"' in page.text
         # v0.6：站点组已迁出设置页
         assert 'action="/settings/sites"' not in page.text
-        # v0.6.1：qBittorrent 组也迁出，只留指向下载器中心的只读指引卡
+        # v0.6.0：qBittorrent 组也迁出，只留指向下载器中心的只读指引卡
         assert 'action="/settings/qbittorrent"' not in page.text
         assert "/downloaders" in page.text, "缺少 qBittorrent 指引卡"
 

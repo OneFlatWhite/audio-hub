@@ -15,7 +15,7 @@
 站点开关 / 凭据 / 站点 H&R 规则（原 POST /settings/sites）已于 v0.6 迁到站点中心
 （sites 表 + /sites 页），设置页不再承载。
 
-qBittorrent 组（原 POST /settings/qbittorrent）于 v0.6.1 撤下：v0.6 起运行时
+qBittorrent 组（原 POST /settings/qbittorrent）于 v0.6.0 撤下：v0.6 起运行时
 下载器配置的权威源是 downloaders 表，改这组只会落 app_settings 而永远不生效
 ——「保存成功」的假象比没有表单更害人。设置页改为只读指引卡，指向 /downloaders；
 存量 qb_* 覆盖键由 registry_store.seed_from_yaml 收编进默认下载器行。

@@ -32,7 +32,7 @@ PURGE_AFTER_DAYS = 30
 _SUMMARY_LEN = 80
 
 #: 事件种类的下拉选项基线：NOTIFY_KINDS 已覆盖全部实际产出的事件种类
-#: （含 adapter_error / round_summary；v0.6.1 起二者并入 NOTIFY_KINDS）
+#: （含 adapter_error / round_summary；v0.6.0 起二者并入 NOTIFY_KINDS）
 _BASE_KINDS = NOTIFY_KINDS
 
 

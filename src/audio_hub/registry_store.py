@@ -161,7 +161,7 @@ async def _merge_legacy_qb_overrides(db) -> int:
     """把存量 app_settings 的 qb_* 键收编进默认下载器行，然后删除。返回收编键数。
 
     首启种子里 config.qbittorrent 曾是「YAML + hydrate 合并 qb_* 覆盖」的结果，
-    故老库升级时收编与种子最终一致；v0.6.1 起 hydrate 不再认识这组键（spec 已撤），
+    故老库升级时收编与种子最终一致；v0.6.0 起 hydrate 不再认识这组键（spec 已撤），
     收编改为直接读 app_settings 写 downloaders —— 否则首启后在旧设置页改过的值
     会静默丢失：使用者以为生效了，运行时却永远读下载器表。
     无论值是否应用成功旧键都删除：收编是一次性迁移，残留键没有意义。
@@ -215,7 +215,7 @@ async def seed_from_yaml(db, config: AppConfig) -> dict:
     "tasks_backfilled": n, "qb_overrides_merged": n}，供日志与测试断言。
 
     站点覆盖项由本函数自行合并（不经 hydrate）；app_settings 里的旧 qb_* 键
-    在下载器种子导入后收编进默认下载器行并删除（v0.6.1：设置页该组已撤下，
+    在下载器种子导入后收编进默认下载器行并删除（v0.6.0：设置页该组已撤下，
     hydrate 不再认识这些键，不收编的话首启后改过的值会静默丢失）。
     """
     stats = {"sites_added": 0, "overrides_merged": 0,

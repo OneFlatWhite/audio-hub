@@ -546,7 +546,7 @@ def live_mteam(client):
     走实跑分支，改 app.state.config.dry_run 即可。适配器通过 runner.adapters
     注入 —— dispatcher.adapter_lookup 是回调，每次按站点名从该 dict 取。
 
-    v0.6.1：采纳派发的 qb 客户端改从下载器注册表解析（不再读 app.state.qb_client
+    v0.6.0：采纳派发的 qb 客户端改从下载器注册表解析（不再读 app.state.qb_client
     别名），故假客户端直接塞进默认下载器句柄的缓存。注册表是 dry_run 构造的，
     句柄的 _dry_run 一并临时关掉。
     """
@@ -647,7 +647,7 @@ class TestReviewAcceptResolvesMteam:
     def test_accept_uses_tasks_downloader_settings(self, client, live_mteam):
         """采纳派发按 task.downloader_id 落到对应实例的 save_path/category/tag。
 
-        v0.6.1 陷阱：旧代码回落到 config.qbittorrent（即默认实例），多台
+        v0.6.0 陷阱：旧代码回落到 config.qbittorrent（即默认实例），多台
         下载器时「指定实例」形同虚设——种子会进错目录、打错分类。
         """
         import asyncio

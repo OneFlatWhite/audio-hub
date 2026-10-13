@@ -293,7 +293,7 @@ class TestRealDispatchResolvesDownloadUrl:
     async def test_resolve_failure_retries_next_round(self, app_config, db):
         """换取直链失败 → 不碰 qb，订阅保持活跃，下一轮重试。
 
-        v0.6.1：一次性订阅若因派发失败留在 failed 态就永远完不成
+        v0.6.0：一次性订阅若因派发失败留在 failed 态就永远完不成
         （hit 已记录、任务已 failed，引擎不会再推它），所以派发失败
         必须回滚——删 hit、任务退回 discovered，下轮引擎重新决策。
         """

@@ -10,12 +10,9 @@ services:
       - PGID=0
       - AUDIO_HUB_CONFIG=/config/config.yaml
       - AUDIO_HUB_SECRETS_KEY=/config/secrets.key
-      - QB_HOST=localhost
-      - QB_PORT=8085
-      - QB_AUTH_MODE=apikey
-      - HUB_WEB_BIND=0.0.0.0   # host 网络下需 0.0.0.0；安全靠路由器端口映射表保证
-      - HUB_WEB_PORT=8090
-      - HUB_KEYFILE=/config/secrets.key
+      # 监听端口在 config.yaml 的 web.port（默认 8090，python -m audio_hub 读取）；
+      # qb 连接参数在 /downloaders 页或 config.yaml 的 qbittorrent 种子段。
+      # v0.6 前的 QB_* / HUB_* 环境变量是死变量（代码从未读取），已删除。
     volumes:
       - ./config:/config
       - /volume1/musiclab:/musiclab       # 必须与 qb1 容器内路径一致

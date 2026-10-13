@@ -39,7 +39,7 @@ site_enabled:* / site_rss:* / site_api_key:* / site_hr_*:* 这组键不再出现
 站点配置的权威源改为 sites 表（/sites 页维护，见 registry_store）。前缀常量保留，
 只供 registry_store.seed_from_yaml 把旧覆盖项合并进 sites 后删除。
 
-qBittorrent 组同样已迁出（v0.6.1）
+qBittorrent 组同样已迁出（v0.6.0）
 ---------------------------------
 qb_host / qb_port / qb_api_key / qb_save_path / qb_category / qb_tag 这组键曾把
 改动写进 config.qbittorrent + app_settings，但 v0.6 起运行时的下载器配置来自
@@ -333,7 +333,7 @@ def credential_status(config, downloaders=None) -> dict:
     config.sites 在启动时已由 registry_store.load_site_configs 从 sites 表回填，
     站点热重建（rebuild_adapters）也会同步更新它，故这里读到的就是 DB 的现状。
 
-    downloaders：DownloaderRegistry（v0.6.1）。v0.6 起下载器凭据的权威源是
+    downloaders：DownloaderRegistry（v0.6.0）。v0.6 起下载器凭据的权威源是
     downloaders 表，config.qbittorrent 只是首启种子 —— 给出注册表时 qb 状态
     读默认下载器（账密或 API Key 任一即视为已配置），否则回落旧字段
     （仅兼容无注册表的旧调用方 / 单元测试）。

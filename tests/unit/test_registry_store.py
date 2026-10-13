@@ -270,12 +270,12 @@ class TestUpsertSiteSemantics:
 
 
 
-# ── 旧设置页 qBittorrent 组键收编（v0.6.1）─────────────────────
+# ── 旧设置页 qBittorrent 组键收编（v0.6.0）─────────────────────
 
 class TestLegacyQbKeys:
     """存量 app_settings 的 qb_* 键必须收编进默认下载器行并删除。
 
-    陷阱：v0.6.1 撤下设置页 qb 组后 hydrate 不再认识这组键，若不收编，
+    陷阱：v0.6.0 撤下设置页 qb 组后 hydrate 不再认识这组键，若不收编，
     老用户在旧设置页改过的连接参数会静默失效——界面没有入口，运行时也不读。
     """
 

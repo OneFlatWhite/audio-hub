@@ -18,7 +18,6 @@ SRC=/mnt/d/Documents/audio-hub
 DST="$HOME/audio-hub"
 DATA="$HOME/audio-hub-data"
 PY="$DST/.venv/bin/python"
-UVICORN="$DST/.venv/bin/uvicorn"
 CFG_DIR="$DST/config"
 CFG="$CFG_DIR/config.yaml"
 KEY="$CFG_DIR/secrets.key"
@@ -71,6 +70,7 @@ log_level: "INFO"
 poll_interval_minutes: 30
 
 web:
+  port: 8000                # dev 端口；python -m audio_hub 读 web.port（改这里即改监听端口）
   cookie_secure: false      # 本机走 http，若设 true 浏览器不回传 cookie 会一直踢回登录页
   session_days: 7
   auth_request_limit: 10    # 15 分钟内最多 10 次登录尝试
@@ -170,8 +170,6 @@ log "按 Ctrl+C 停止"
 echo
 
 # 监听 0.0.0.0：WSL2 默认 NAT 网络，不会暴露到物理局域网，
-# 但能让 Windows 侧通过 localhost 端口转发访问
-exec "$UVICORN" audio_hub.main:app \
-  --host 0.0.0.0 \
-  --port 8000 \
-  --log-level info
+# 但能让 Windows 侧通过 localhost 端口转发访问。
+# 端口由 __main__.py 读 config.web.port（上面的 dev 配置写死 8000）。
+exec "$PY" -m audio_hub

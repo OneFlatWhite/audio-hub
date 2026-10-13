@@ -18,4 +18,5 @@ RUN pip install --no-cache-dir .
 ENV AUDIO_HUB_CONFIG=/config/config.yaml
 ENV AUDIO_HUB_SECRETS_KEY=/config/secrets.key
 
-CMD ["uvicorn", "audio_hub.main:app", "--host", "0.0.0.0", "--port", "8090"]
+# 端口读 config.web.port（默认 8090），host 固定 0.0.0.0（见 audio_hub/__main__.py）
+CMD ["python", "-m", "audio_hub"]

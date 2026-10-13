@@ -1,7 +1,7 @@
 # audio-hub 开发交接文档
 
 > 写给接手的开发工具。本文所有事实均已对照磁盘源码核实，标注了 `文件:行号`。
-> 更新时间：2026-10-01（v0.5.0 收尾时复核；§四 / §六 / §八 已逐条标注当前状态，历史描述保留供回溯）
+> 更新时间：2026-10-13（v0.6.0 收尾；§二 / §五 / §八 已按现状复核，更早的历史描述保留供回溯）
 > 上上一任助手因本机命令执行通道故障（`0xC0000142`，Bash/Grep/Glob/ComputerUse 全部不可用，
 > 只能读文件与新建文件、无法修改已有文件、无法执行命令），改为「写补丁脚本 + 用户代跑」模式，
 > 效率极低且已造成多次返工。本轮（0.4.0 / 0.5.0）已在正常命令执行能力下直接改文件、直接跑测试。
@@ -26,8 +26,9 @@
 
 ## 二、当前进度（已验证）
 
-**版本：v0.5.0** · **测试：575 passed / 0 failed** · **ruff：0 error**
-（`cd ~/audio-hub && source .venv/bin/activate && pytest -q && ruff check src tests`，Python 3.14.4，WSL）
+**版本：v0.6.0** · **测试：1004 passed / 0 failed** · **ruff：0 error**
+（`cd audio-hub && .venv/bin/python -m pytest -q && .venv/bin/ruff check src scripts tests`。
+当前开发机为 **macOS + Python 3.15.0 venv**（`.venv/`）；§五 描述的 WSL 流程是原始作者环境，见该节说明）
 
 | 版本 | 内容 | 状态 |
 |---|---|---|
@@ -36,12 +37,13 @@
 | v0.3 | 设置页可编辑（覆盖层、热生效/需重启分级、凭据加密入库、URL 校验） | ✅ 已验证（274 测试） |
 | v0.4 | 三个阻塞缺陷修复、馒头 genDlToken、ruff 清零、config 子模型、DB v4、Notifier 抽象、新页面骨架 | ✅ 已验证 |
 | v0.5 | 归档决策 / 校验隔离 / 回收回滚 / 刮削触发 / 连载追踪 / 做种 H&R / 通知推送 / 5 新页 / 总览升级 | ✅ 已验证（575 测试） |
+| v0.6 | 站点中心 / 下载器中心（多 qb 实例、账密优先）/ 订阅引擎（RSS 捕获 + 主动搜索 + 认证巡检）/ DB v5 / 共享 bootstrap + registry_store / web.port 接线与死配置清理 | ✅ 已收尾（1004 测试） |
 | **下一步** | **对接真实站点 + qb 实跑（§三 阶段 B〜E）、NAS Docker 部署验证（阶段 F）** | ❌ **未开始 ← 你在这里** |
 
-冒烟检查（`scripts/smoke_check.py`，v3）：未登录守卫、首次初始化、**11 页面**渲染（6 旧 + 5 新）、
-静态资源可达（按页面实际引用提取，非写死）、CSRF 令牌下发、写操作三重防护、登出拦截、版本一致性（`/health` == `__version__` == 0.5.0，brand 显示 v0.5.0）。
+冒烟检查（`scripts/smoke_check.py`，v3）：未登录守卫、首次初始化、**12 页面**渲染（6 旧 + 5 新 + /downloaders）、
+静态资源可达（按页面实际引用提取，非写死）、CSRF 令牌下发、写操作三重防护、登出拦截、版本一致性（`/health` == `__version__` == 0.6.0，brand 显示 v0.6.0）。
 
-**README.md 已在 0.5.0 全文重写**，与现状一致；§六「未验证项」部分仍由本文档保留。
+**README.md 已在 0.5.0 全文重写、0.6.0 再次对齐**，与现状一致；§六「未验证项」部分仍由本文档保留。
 
 **代码仓库**：2026-10-13 已推送 https://github.com/OneFlatWhite/audio-hub.git（分支 main）。
 ⚠️ 推送时的提交说明误写为「v0.3 / 274 测试」（推送者信息滞后），**实际代码为 v0.5.0**；
@@ -70,8 +72,8 @@
 - [ ] B1. `scripts/check_qb.py` 七步全过（TCP 可达 / HTTP 响应 / API Key 认证 / 路径参照）
 - [ ] B2. `save_path` 填的是 **qb 侧（NAS）路径**，不是 WSL 路径
       —— 脚本第 ⑥ 步会打印 qb 默认保存路径与现有种子路径作为参照
-- [ ] B3. 在 Windows 浏览器打开 `http://localhost:8000`，设置页显示的 host/port/api_key
-      与你填的一致（验证覆盖层读取正常）
+- [ ] B3. 浏览器打开服务首页（端口见配置 `web.port`），「下载器中心」（/downloaders）里
+      该实例的 host/port/凭据状态与你填的一致（v0.6 起下载器配置以 downloaders 表为权威源）
 
 ### 阶段 C：真实站点解析验证（**高风险，别跳过**）
 
@@ -190,7 +192,12 @@ README §二「未验证项」那部分**仍然准确且重要**（见 §六）�
 
 ## 五、环境与运行方式（重要，容易踩）
 
-### 必须在 WSL 里跑，不能在 Windows Python 里跑
+> **2026-10-13 现状注记**：本节描述的「WSL + D 盘双副本」流程是**原始作者的 Windows 环境约束**，
+> 对新接手者**不是必需的**。本仓库（含 `.git`）现已是权威副本，当前开发机为 **macOS**，
+> 直接在仓库内建 venv 即可：`python3 -m venv .venv && .venv/bin/pip install -e .`
+> （当前 `.venv` 为 Python 3.15.0）。下方 WSL 两小节保留供回溯原始环境约束。
+
+### 必须在 WSL 里跑，不能在 Windows Python 里跑（原始作者环境，见上方注记）
 
 本机 Windows 开了 **Smart App Control（SAC）强制模式**，会拦截未签名的 `.pyd` 原生扩展。
 `D:\soft\Python310` 存在，但 pydantic / cryptography / argon2 都依赖 `.pyd`，**导入即失败**。
@@ -215,6 +222,29 @@ cd /mnt/d/Documents/audio-hub && tar cf - --exclude=__pycache__ --exclude=.pytes
 **改完 D 盘必须同步到 WSL 才生效**，否则你改的东西跑不到。
 
 ### 常用命令
+
+当前开发机（macOS，仓库根目录即本目录）：
+
+```bash
+# 跑测试 + lint
+.venv/bin/python -m pytest -q && .venv/bin/ruff check src scripts tests
+
+# 起服务（前台，Ctrl+C 停）：先准备一份 config.yaml（可复制 config/config.example.yaml），然后
+AUDIO_HUB_CONFIG=/path/to/config.yaml AUDIO_HUB_SECRETS_KEY=/path/to/secrets.key \
+  .venv/bin/python -m audio_hub
+# 监听端口由配置 web.port 决定（example 为 8090），浏览器打开 http://localhost:<port>，首次跳 /setup 建管理员
+
+# qb 连通性诊断（只读，不改配置不动种子）
+AUDIO_HUB_CONFIG=/path/to/config.yaml .venv/bin/python scripts/check_qb.py
+
+# 冒烟检查（自拉起临时实例，不依赖外部配置）
+.venv/bin/python scripts/smoke_check.py
+
+# 真实站点验证（阶段 C，会发真实请求，注意配额）
+.venv/bin/python scripts/verify_adapters.py --save-samples
+```
+
+原始作者环境（WSL）的命令供回溯：
 
 ```bash
 # 跑测试 + lint
@@ -325,7 +355,7 @@ select 永远提交一个值。
 
 已删除的 `scripts/fix_all_v7.py` 里的 render 校验是正确做法：用假数据真渲染，
 并断言「缺凭据」「凭据齐全」「熔断」三个分支都出现在输出里。
-**任何改模板的改动都该带这一步**（现在由 `tests/integration/` 的路由测试 + `smoke_check.py` 11 页渲染承担）。
+**任何改模板的改动都该带这一步**（现在由 `tests/integration/` 的路由测试 + `smoke_check.py` 12 页渲染承担）。
 
 ### 6. 多行字符串字面量做锚点替换时，续行会继承脚本自身缩进（历史教训，补丁脚本已删）
 
@@ -379,7 +409,7 @@ Pydantic 默认忽略多余字段，所以**填裸 passkey 会被静默丢弃**�
 |---|---|
 | `scripts/serve_dev.sh` | 同步 D 盘 → 生成 dev 配置与密钥 → 起服务（缺陷 1 已修） |
 | `scripts/check_qb.py` | qb 连通性七步诊断，只读 |
-| `scripts/smoke_check.py` | 端到端冒烟 v3（11 页 + 版本号校验），结果落盘 `smoke_report.txt` |
+| `scripts/smoke_check.py` | 端到端冒烟 v3（12 页 + 版本号校验），结果落盘 `smoke_report.txt` |
 | `scripts/verify_adapters.py` | **阶段 C 关键**：真实站点验证 + 三项专项检测（`--site` / `--save-samples`） |
 | `scripts/init_secrets.py` | 交互式加密凭据（收集完整 RSS URL，输出正确嵌套 YAML） |
 
@@ -398,7 +428,7 @@ Pydantic 默认忽略多余字段，所以**填裸 passkey 会被静默丢弃**�
 
 ---
 
-## 九、建议的执行顺序（已按 0.5.0 现状更新）
+## 九、建议的执行顺序（已按 0.6.0 现状更新）
 
 ```
 ✓ 1〜2. 缺陷 1 + 密钥缺失测试                   ← 0.4.0 已完成

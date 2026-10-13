@@ -2,6 +2,60 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.6.0] - 2026-10-13
+
+站点与下载器的配置权威源从 YAML + 覆盖层改为 DB 两张表，新增站点中心 / 下载器中心两个管理页，
+搜索链路从「整轮 search_round」重写为订阅引擎。**测试 575 → 1004**，ruff 0 error。
+
+### 新增
+
+- **站点中心** `/sites`（`web/routes_sites.py`）
+  - 列表六态：未配置 / 未认证 / 认证失效 / 已禁用 / 熔断中 / 正常；行内显示最后错误与熔断截止时间
+  - 三步向导：凭据（RSS / Cookie / API Key，只写不读、留空 = 不修改）→ 认证测试（用户等级回显）→ 分类发现（远端分类拉取 + 本地映射）
+  - 启用门禁是服务端的：`auth_status != valid` 的站点不构建适配器、toggle 启用被拒并回显原因
+  - **认证巡检** `sites/auth_check.py`：定时重验 Cookie / API Key，失效即降级并发 `site_auth_expired` 事件，恢复不打扰；job 间隔 `search.auth_check_hours`（默认 24h）
+- **下载器中心** `/downloaders`（`web/routes_downloaders.py`）
+  - 多 qBittorrent 实例：列表五态（已禁用 / 未配置凭据 / 未测试 / 连接失败 / 正常）、新建 / 编辑、默认切换、启用禁用
+  - 「测试连接」走 `downloaders/probe.py` 三层只读探测（TCP → HTTP → 登录），结果落 `last_test_json` 供列表展示 qB 版本 / 剩余空间；连接参数或凭据变更自动作废旧测试结果
+  - 删除三重保护（服务端兜底）：在途任务引用 / 默认实例 / 最后一个启用实例均拒绝
+  - 每次写操作后 `settings_store.rebuild_downloaders` 原地替换注册表，派发 / 完成监听 / 做种链路下一轮即用新配置，**不需重启**；任务 / 订阅可按 `downloader_id` 指定实例，空则回落默认
+- **订阅引擎**（`subscription/engine.py`，取代旧 search_round）
+  - RSS 捕获（`rss_capture` job，`search.rss_interval_minutes`）+ 到点主动搜索（`subscription_search` job，`search.subscription_scan_minutes`，每条订阅带独立回退间隔）
+  - 订阅类型三分：歌手（artist）/ 专辑（album，一次性）/ 有声书（audiobook，可绑连载）；命中流水 `subscription_hits` 全量留痕，决策五态（dispatched / review / rejected / skipped_dup / upgrade）
+  - 专辑级择优与洗版：`best_quality_for_album` 按音质档比对，更高档触发 `upgrade`；已拥有专辑跳过不重抓
+  - 一次性订阅拿到即 `completed`；**派发失败自动回滚命中流水**，下一轮重新决策重试
+  - 订阅详情页 `/watchlist/{id}`：命中流水按决策筛选、已拥有专辑、关联连载
+- **DB v5**：`sites` / `site_categories` / `downloaders` / `subscription_hits` 四张新表；`watchlist` 补订阅引擎字段（sub_type / artist / album / status / 调度与统计列等），旧行按 kind 幂等回填；`tasks` 补 `downloader_id` / `watch_id` / `album_key` / `quality_tag`
+- **共享 bootstrap**（`bootstrap.py`）：CLI 与诊断脚本和 Web 走同一套装配（DB → hydrate → 种子导入 → 注册表），`cli.py` / `check_qb.py` / `verify_adapters.py` 不再各自拼配置
+- `registry_store`：YAML 的 sites / qbittorrent 段首启种子导入（幂等，表非空不覆盖），app_settings 旧站点 / qb 覆盖键收编进表后删除
+- 设置页「通用」组新增三个调度间隔（RSS 捕获 / 订阅搜索 / 认证巡检），全部热生效
+
+### 修复
+
+| 问题 | 影响 | 修正 |
+|---|---|---|
+| `_downloader_cards` / `_subscription_overview` 缺失 | 总览页 500 | `routes_pages` 实现两张卡片 |
+| 熔断事件在引擎路径丢失 | 站点连续失败不再发 `site_circuit_open` | 订阅引擎按 `record_site_failure` 返回值补发事件 |
+| CLI / 诊断脚本被认证门禁废掉 | `cli run-once` 等永远空转 | 共享 bootstrap 与门禁对齐（`build_adapters` 显式参数） |
+| `check_qb.py` 读旧配置源 | 诊断结果与运行时脱节 | 改读 downloaders 表（账密优先，API Key 兜底），只读不建库 |
+| 设置页 qb 组静默失效 | 改了不生效且无提示 | 整组撤下，换只读指引卡指向下载器中心 |
+| `/review` 采纳派发读 `config.qbittorrent` | 多实例时落错目录 / 分类 | 改从下载器注册表按 `task.downloader_id` 解析 |
+| `NOTIFY_KINDS` 缺 v0.6 事件 | 新事件（订阅命中 / 洗版 / 认证失效 / 下载器不可达 / 轮次汇总等）无法外推 | 全集补齐并与代码产出对齐 |
+| `SeedingMonitor` 快照过期 | 注册表重建后仍用旧配置轮询 | 每轮实时读注册表 |
+| 一次性订阅过早 `completed` + 派发失败留 failed 态 | 永远完不成也不重试 | 成功派发才置 completed；失败回滚命中流水下轮重试 |
+| `web.port` 是死字段 | 文档称「启动读取」，实际 serve_dev.sh / Dockerfile 各自硬编码端口 | 新增 `python -m audio_hub` 启动入口（`__main__.py`），统一读 `config.web.port`；Dockerfile CMD 与 serve_dev.sh 改走该入口 |
+| compose 六个死环境变量（`QB_HOST` 等） | 改了不生效，误导部署 | 删除，注释指向 config.yaml / 下载器中心 |
+
+### 移除
+
+- 旧搜索轮次死代码：`pipeline/search.py`（`search_round` / `match_candidates`）、matcher 的 `_build_task` 等（由订阅引擎与 `Dispatcher.dispatch_tasks` 取代）
+- 设置页 qBittorrent 可编辑组（连接参数迁移到下载器中心；旧 `qb_*` 覆盖键首启收编进 downloaders 表）
+
+### 测试
+
+- 575（0.5.0）→ **1004**：站点中心 / 下载器中心 / 订阅引擎 / bootstrap / check_qb 全链路集成与单测补齐；`tests/integration/test_pipeline_dryrun.py` 随死代码删除
+- `scripts/smoke_check.py` 页面清单 11 → 12（补 `/downloaders`）
+
 ## [0.5.0] - 2026-10-01
 
 六大功能模块落地：归档链路从「cp 到 scratch」变成完整的校验 → 决策 → 落位 → 刮削闭环，补齐连载追踪、做种 H&R 与外部推送。Web 界面从 7 页扩到 12 页。**测试 274 → 575**，ruff 0 error。

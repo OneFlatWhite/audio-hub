@@ -15,10 +15,13 @@ web:
   auth_request_limit: 5           # 单 IP 在窗口内允许的登录尝试次数
   auth_window_minutes: 15         # 限流窗口（分钟）
 
-# ── 搜索：站点熔断（热生效）────────────────────────────────
+# ── 搜索：站点熔断与调度间隔（全部热生效，设置页「通用」组可改）──────────
 search:
   circuit_fail_threshold: 3       # 某站连续失败达此次数即熔断，熔断期内整轮跳过该站
   circuit_open_minutes: 30        # 熔断持续时长，到期自动恢复
+  rss_interval_minutes: 10        # RSS 捕获（rss_capture job）间隔，分钟
+  subscription_scan_minutes: 15   # 订阅主动搜索（subscription_search job）间隔，分钟
+  auth_check_hours: 24            # 站点认证巡检（site_auth_check job）间隔，小时
 
 # ── 路径（容器内视角，全部需重启生效）──────────────────────────
 paths:
@@ -63,19 +66,30 @@ notify:
   kinds: [dispatched, completed, routed, quarantined, hr_satisfied, series_completed, failed]
 
 # ── qBittorrent ────────────────────────────────────────────
+# v0.6 起本段仅作「首次启动种子」：首启时导入 downloaders 表，
+# 之后请去「下载器中心」页面（/downloaders）增删改，改这里不再生效。
 qbittorrent:
   host: "localhost"
   port: 8085
-  api_key_encrypted: ""           # ← 用 init_secrets.py 生成
+  username: ""                  # 账密认证（首选）：填用户名即走登录接口
+  password_encrypted: ""        # ← 用 init_secrets.py 生成
+  api_key_encrypted: ""         # ← 兜底认证（qb 5.2+ 的 API Key），仅 username 留空时使用
   category: "audio-hub"
   tag: "hub"
   save_path: "/musiclab/seeds"
 
 # ── PT 站点 ────────────────────────────────────────────────
+# 同 qbittorrent：v0.6 起 sites 表是权威源，本清单仅在首次启动时作种子导入，
+# 之后请去「站点中心」页面（/sites）管理（含认证状态巡检）。
 sites:
   - name: "hhanclub"
     enabled: true
     rss_url: "https://hhanclub.net/torrentrss.php?rows=50&linktype=dl&passkey=PASSKEY_PLACEHOLDER"
+    domain: "https://hhanclub.net"   # 站内搜索 / 认证的基址
+    # cookie_encrypted: ""           # ← NexusPHP 站内搜索需要登录 Cookie（init_secrets.py 生成）
+    user_agent: ""                   # 留空用内置 UA
+    proxy: ""                        # http(s)://host:port，空 = 直连
+    priority: 0                      # 同专辑多候选时的站点优先级，越大越优先
     music_cat_id: "410"           # ⚠️ 需实测确认，cat410=1 可能失效
     audiobook_cat_id: ""
     max_rows: 50
