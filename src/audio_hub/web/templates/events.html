@@ -22,7 +22,7 @@
   <select name="level" id="flt-level" style="width:auto">
     <option value="" {{ 'selected' if not current_level }}>全部</option>
     {% for lv in level_options %}
-    <option value="{{ lv }}" {{ 'selected' if current_level == lv }}>{{ lv }}</option>
+    <option value="{{ lv }}" {{ 'selected' if current_level == lv }}>{{ lv|state_zh }}</option>
     {% endfor %}
   </select>
   <button type="submit" class="btn-sm">筛选</button>
@@ -38,8 +38,8 @@
     <tbody>
     {% for ev in events %}
       <tr>
-        <td class="mono">{{ ev.created_at.strftime('%m-%d %H:%M:%S') }}</td>
-        <td><span class="dot {{ 'err' if ev.level == 'error' else ('off' if ev.level == 'warning' else 'ok') }}"></span>{{ ev.level }}</td>
+        <td class="mono">{{ ev.created_at|dtfmt }}</td>
+        <td><span class="dot {{ 'err' if ev.level == 'error' else ('off' if ev.level == 'warning' else 'ok') }}"></span>{{ ev.level|state_zh }}</td>
         <td class="mono"><a href="/events?kind={{ ev.kind }}">{{ ev.kind }}</a></td>
         <td class="mono">{{ ev.site or '—' }}</td>
         <td class="trunc" title="{{ ev.title or '' }}">{{ ev.title or '—' }}</td>

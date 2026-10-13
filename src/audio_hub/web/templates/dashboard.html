@@ -3,42 +3,12 @@
 {% block h1 %}总览{% endblock %}
 
 {% block content %}
+{# ── 订阅区：订阅引擎的健康度一眼读完 ── #}
+<div class="section-label">订阅</div>
 <div class="cards">
-  <div class="card"><div class="n">{{ watchlist_count }}</div><div class="l">订阅项（启用 {{ enabled_count }}）</div></div>
-  <div class="card warn"><div class="n">{{ review_count }}</div><div class="l">待审</div></div>
-  <div class="card ok"><div class="n">{{ by_state.get('dispatched', 0) }}</div><div class="l">已派发</div></div>
-  <div class="card"><div class="n">{{ by_state.get('completed', 0) }}</div><div class="l">已完成</div></div>
-  <div class="card err"><div class="n">{{ failed_count }}</div><div class="l">失败</div></div>
-  {% if disk %}
-  <div class="card {{ 'err' if disk.used_pct > 90 else ('warn' if disk.used_pct > 75 else '') }}">
-    <div class="n">{{ disk.free_gb }} GB</div><div class="l">剩余（{{ disk.path }}，已用 {{ disk.used_pct }}%）</div>
-  </div>
-  {% endif %}
-</div>
-
-{# ── v0.4 卡片：隔离 / H&R / 连载。每张卡的标签就是入口链接 ——
-   数字只负责「要不要点进去」，处理动作全在各自的页面。 #}
-<div class="cards" style="margin-top:12px">
-  <div class="card {{ 'warn' if quarantine_held }}">
-    <div class="n">{{ quarantine_held }}</div>
-    <div class="l"><a href="/quarantine">隔离区待处理</a></div>
-  </div>
-  <div class="card">
-    <div class="n">{{ hr_pending }}</div>
-    <div class="l"><a href="/seeding">H&amp;R 未达标</a>（做种中）</div>
-  </div>
-  <div class="card">
-    <div class="n">{{ series_active }}</div>
-    <div class="l"><a href="/series">活跃连载</a>
-      {%- if series_last_completed %} · 最近完结：<span title="{{ series_last_completed.name }}">{{ series_last_completed.name }}</span>
-      {%- else %} · 尚无完结连载{% endif %}</div>
-  </div>
-</div>
-
-{# ── v0.6 卡片：订阅概览。命中含待审 / 被拒（都是「发现了候选」）。 #}
-<div class="cards" style="margin-top:12px">
-  <div class="card"><div class="n">{{ subs.active }}</div><div class="l"><a href="/watchlist">订阅中</a></div></div>
+  <div class="card"><div class="n">{{ subs.active }}</div><div class="l"><a href="/watchlist">订阅中</a> / 共 {{ watchlist_count }}（启用 {{ enabled_count }}）</div></div>
   <div class="card ok"><div class="n">{{ subs.completed }}</div><div class="l">已完成订阅</div></div>
+  <div class="card {{ 'warn' if review_count }}"><div class="n">{{ review_count }}</div><div class="l"><a href="/review">待审</a></div></div>
   <div class="card"><div class="n">{{ subs.today_hits }}</div><div class="l">今日命中</div></div>
   <div class="card">
     <div class="n" style="font-size:18px">
@@ -50,8 +20,33 @@
   </div>
 </div>
 
+{# ── 下载区：任务与质量闸口 ── #}
+<div class="section-label">下载与质量</div>
+<div class="cards">
+  <div class="card ok"><div class="n">{{ by_state.get('dispatched', 0) }}</div><div class="l"><a href="/records?state=dispatched">已派发</a></div></div>
+  <div class="card"><div class="n">{{ by_state.get('completed', 0) }}</div><div class="l"><a href="/records?state=completed">已完成</a></div></div>
+  <div class="card {{ 'err' if failed_count }}"><div class="n">{{ failed_count }}</div><div class="l"><a href="/records?state=failed">失败</a></div></div>
+  <div class="card {{ 'warn' if quarantine_held }}"><div class="n">{{ quarantine_held }}</div><div class="l"><a href="/quarantine">隔离区待处理</a></div></div>
+  <div class="card"><div class="n">{{ hr_pending }}</div><div class="l"><a href="/seeding">H&amp;R 未达标</a>（做种中）</div></div>
+  <div class="card"><div class="n">{{ series_active }}</div><div class="l"><a href="/series">活跃连载</a>
+    {%- if series_last_completed %} · 最近完结：<span title="{{ series_last_completed.name }}">{{ series_last_completed.name }}</span>
+    {%- else %} · 尚无完结连载{% endif %}</div></div>
+</div>
+
+{# ── 系统区：磁盘 + 下载器 ── #}
+<div class="section-label">系统</div>
+<div class="cards" style="margin-bottom:16px">
+  {% if disk %}
+  <div class="card {{ 'err' if disk.used_pct > 90 else ('warn' if disk.used_pct > 75 else '') }}">
+    <div class="n">{{ disk.free_gb }} GB</div>
+    <div class="l">系统盘 {{ disk.path }} 剩余（已用 {{ disk.used_pct }}%）</div>
+  </div>
+  {% endif %}
+</div>
+
 <div class="panel">
-  <h2>下载器 <a href="/downloaders" style="float:right;text-transform:none;letter-spacing:0;font-weight:400">管理 →</a></h2>
+  <h2>下载器 <a class="h2-side" href="/downloaders">管理 →</a></h2>
+  <div class="tbl-wrap">
   <table>
     <thead><tr><th>名称</th><th>状态</th><th>地址</th><th>版本</th>
       <th class="num">剩余空间</th><th class="num">在途任务</th></tr></thead>
@@ -71,10 +66,12 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 <div class="panel">
-  <h2>站点健康</h2>
+  <h2>站点健康 <a class="h2-side" href="/sites">站点中心 →</a></h2>
+  <div class="tbl-wrap">
   <table>
     <thead><tr><th>站点</th><th>状态</th><th>上次成功</th><th class="num">上次条数</th>
       <th class="num">累计请求</th><th class="num">累计错误</th></tr></thead>
@@ -89,7 +86,7 @@
           {% elif s.state == 'circuit_open' and s.circuit_until_local %}<span class="hint">至 {{ s.circuit_until_local }}</span>
           {% elif s.state == 'ok' and not s.healthy %}<span class="hint"><span class="dot err"></span>连续失败 {{ s.consecutive_fail }}</span>{% endif %}
         </td>
-        <td class="mono">{{ s.last_success_at or '—' }}</td>
+        <td class="mono" title="{{ s.last_success_at or '' }}">{{ s.last_success_at|dtfmt }}</td>
         <td class="num">{{ s.last_count }}</td>
         <td class="num">{{ s.total_requests }}</td>
         <td class="num">{{ s.total_errors }}</td>
@@ -99,29 +96,19 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 <div class="panel">
-  <h2>操作</h2>
-  <form method="post" action="/run-once" style="display:inline">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <button class="btn-primary" type="submit"
-            data-confirm="将立即触发一轮搜索，向各站点发起真实请求。确认继续？">
-      立即执行一轮
-    </button>
-  </form>
-  <span class="hint">当前模式：{{ 'DRY-RUN（不实际下载）' if dry_run else '实跑（会真实派发）' }}</span>
-</div>
-
-<div class="panel">
-  <h2>最近事件 <a href="/events" style="float:right;text-transform:none;letter-spacing:0;font-weight:400">全部事件 →</a></h2>
+  <h2>最近事件 <a class="h2-side" href="/events">全部事件 →</a></h2>
+  <div class="tbl-wrap">
   <table>
     <thead><tr><th>时间</th><th>级别</th><th>种类</th><th>站点</th><th>标题</th></tr></thead>
     <tbody>
     {% for ev in recent_events %}
       <tr>
-        <td class="mono">{{ ev.created_at.strftime('%m-%d %H:%M:%S') }}</td>
-        <td><span class="dot {{ 'err' if ev.level == 'error' else ('off' if ev.level == 'warning' else 'ok') }}"></span>{{ ev.level }}</td>
+        <td class="mono">{{ ev.created_at|dtfmt }}</td>
+        <td><span class="dot {{ 'err' if ev.level == 'error' else ('off' if ev.level == 'warning' else 'ok') }}"></span>{{ ev.level|state_zh }}</td>
         <td class="mono">{{ ev.kind }}</td>
         <td class="mono">{{ ev.site or '—' }}</td>
         <td class="trunc" title="{{ ev.title or '' }}">{{ ev.title or '—' }}</td>
@@ -131,18 +118,30 @@
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 
 <div class="panel">
-  <h2>任务状态分布</h2>
+  <h2>运行</h2>
+  <form method="post" action="/run-once" style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="btn-primary" type="submit"
+            data-confirm="将立即触发一轮搜索，向各站点发起真实请求。确认继续？">
+      立即执行一轮
+    </button>
+  </form>
+  <span class="hint" style="margin-left:10px">当前模式：{{ 'DRY-RUN（不实际下载）' if dry_run else '实跑（会真实派发）' }}</span>
+  <div class="tbl-wrap" style="margin-top:12px">
   {% if by_state %}
   <table>
+    <thead><tr><th>任务状态分布</th><th class="num">数量</th></tr></thead>
     <tbody>
     {% for st, n in by_state.items() %}
-      <tr><td class="mono">{{ st }}</td><td class="num">{{ n }}</td></tr>
+      <tr><td>{{ st|state_zh }} <span class="hint mono">{{ st }}</span></td><td class="num">{{ n }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
   {% else %}<p class="empty">尚无任务记录</p>{% endif %}
+  </div>
 </div>
 {% endblock %}

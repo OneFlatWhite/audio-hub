@@ -64,7 +64,6 @@
     <div class="discover-cover">
       <div class="cover-ph">
         <span class="ph-char">{{ (card.artist or card.title or '?')[0] }}</span>
-        {% if card.quality_tag %}<span class="ph-q">{{ quality_labels.get(card.quality_tag, card.quality_tag) }}</span>{% endif %}
       </div>
       {% if card.cover %}
       <img src="{{ card.cover }}" alt="{{ card.title }}" loading="lazy" onerror="this.remove()">

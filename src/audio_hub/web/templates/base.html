@@ -13,20 +13,25 @@
   <aside class="sidebar">
     <div class="brand">audio-hub<small>v{{ version }} · 获取中枢</small></div>
     <nav class="nav">
+      <div class="nav-title">内容</div>
       <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}">总览</a>
       <a href="/discover" class="{{ 'active' if active == 'discover' }}">发现</a>
       <a href="/watchlist" class="{{ 'active' if active == 'watchlist' }}">订阅项</a>
+      <a href="/library" class="{{ 'active' if active == 'library' }}">资料库</a>
+      <a href="/series" class="{{ 'active' if active == 'series' }}">连载</a>
+
+      <div class="nav-title">流转</div>
       <a href="/records" class="{{ 'active' if active == 'records' }}">命中记录</a>
       <a href="/review" class="{{ 'active' if active == 'review' }}">
         待审队列{% if review_count %}<span class="badge">{{ review_count }}</span>{% endif %}
       </a>
-      <a href="/library" class="{{ 'active' if active == 'library' }}">资料库</a>
+      <a href="/seeding" class="{{ 'active' if active == 'seeding' }}">做种</a>
       <a href="/quarantine" class="{{ 'active' if active == 'quarantine' }}">
         隔离区{% if quarantine_badge %}<span class="badge">{{ quarantine_badge }}</span>{% endif %}
       </a>
-      <a href="/series" class="{{ 'active' if active == 'series' }}">连载</a>
-      <a href="/seeding" class="{{ 'active' if active == 'seeding' }}">做种</a>
       <a href="/events" class="{{ 'active' if active == 'events' }}">事件</a>
+
+      <div class="nav-title">系统</div>
       <a href="/sites" class="{{ 'active' if active == 'sites' }}">站点</a>
       <a href="/downloaders" class="{{ 'active' if active == 'downloaders' }}">下载器</a>
       <a href="/settings" class="{{ 'active' if active == 'settings' }}">设置</a>

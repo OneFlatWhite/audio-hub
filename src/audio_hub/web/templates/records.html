@@ -8,13 +8,14 @@
   {% for st in ['discovered','scored','dispatched','downloading','completed','routed','notified','rejected','failed'] %}
     {% if by_state.get(st) %}
     <a href="/records?state={{ st }}" class="{{ 'active' if current_state == st }}">
-      {{ st }} ({{ by_state[st] }})
+      {{ st|state_zh }} ({{ by_state[st] }})
     </a>
     {% endif %}
   {% endfor %}
 </div>
 
 <div class="panel">
+  <div class="tbl-wrap">
   <table>
     <thead><tr>
       <th>标题</th><th>站点</th><th>状态</th><th>置信度</th><th>音质</th>
@@ -25,7 +26,7 @@
       <tr>
         <td class="trunc" title="{{ t.title }}">{{ t.title }}</td>
         <td class="mono">{{ t.site }}</td>
-        <td><span class="pill {{ 'low' if t.state == 'failed' else ('high' if t.state in ['completed','notified','routed'] else '') }}">{{ t.state }}</span></td>
+        <td><span class="pill {{ 'low' if t.state == 'failed' else ('high' if t.state in ['completed','notified','routed'] else '') }}">{{ t.state|state_zh }}</span></td>
         <td><span class="pill {{ t.confidence }}">{{ t.confidence }}</span></td>
         <td class="mono">{{ t.quality or '—' }}</td>
         <td class="num">{{ '%.2f'|format(t.score or 0) }}</td>
@@ -33,13 +34,14 @@
         <td class="mono trunc" title="{{ t.reject_reason or t.error_message or '' }}">
           {{ t.reject_reason or t.error_message or '—' }}
         </td>
-        <td class="mono">{{ (t.updated_at or '')[:19] }}</td>
+        <td class="mono" title="{{ t.updated_at or '' }}">{{ t.updated_at|dtfmt }}</td>
       </tr>
     {% else %}
       <tr><td colspan="9" class="empty">无记录</td></tr>
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
-<p class="hint">显示最近 {{ tasks|length }} 条。按状态筛选可用上方标签。</p>
+<p class="hint">显示最近 {{ tasks|length }} 条；完整流转按上方状态筛选。</p>
 {% endblock %}

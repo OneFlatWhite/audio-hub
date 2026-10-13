@@ -7,9 +7,10 @@
 
 <div class="panel">
   <h2>下载器（qBittorrent / Transmission）</h2>
+  <div class="tbl-wrap">
   <table>
     <thead><tr>
-      <th>名称</th><th>地址</th><th>状态 · 最近测试</th><th>qB 版本</th><th>剩余空间</th>
+      <th>名称</th><th>地址</th><th>状态 · 最近测试</th><th>版本</th><th>剩余空间</th>
       <th class="num">活跃任务</th><th>默认</th><th>启用</th>
       {% if is_admin %}<th>操作</th>{% endif %}
     </tr></thead>
@@ -30,15 +31,9 @@
         </td>
         <td class="mono">{% if d.version %}{{ d.version }}<div class="hint">API {{ d.api_version or '—' }}</div>{% else %}—{% endif %}</td>
         <td class="mono">{{ d.free_space_bytes | filesize }}
-          {% if d.default_save_path %}<div class="hint trunc" title="qb 默认保存路径：{{ d.default_save_path }}">{{ d.default_save_path }}</div>{% endif %}</td>
+          {% if d.default_save_path %}<div class="hint trunc" title="下载器默认保存路径：{{ d.default_save_path }}">{{ d.default_save_path }}</div>{% endif %}</td>
         <td class="num">{{ d.active_tasks }}</td>
-        <td>{% if d.is_default %}<span class="pill high">默认</span>
-          {% elif is_admin and d.enabled %}
-            <form method="post" action="/downloaders/{{ d.id }}/set-default" style="display:inline">
-              <input type="hidden" name="csrf_token" value="{{ csrf }}">
-              <button class="btn-sm" type="submit">设为默认</button>
-            </form>
-          {% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>{% if d.is_default %}<span class="pill high">默认</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>{{ '✓' if d.enabled else '✗' }}</td>
         {% if is_admin %}
         <td style="white-space:nowrap">
@@ -60,13 +55,24 @@
               <button class="btn-sm btn-ok" type="submit">启用</button>
             </form>
           {% endif %}
-          <form method="post" action="/downloaders/{{ d.id }}/delete" style="display:inline">
-            <input type="hidden" name="csrf_token" value="{{ csrf }}">
-            <button class="btn-sm btn-err" type="submit"
-                    {% if d.is_default %}disabled title="默认下载器不可删除，请先把其它下载器设为默认"
-                    {% elif d.active_tasks %}disabled title="仍有 {{ d.active_tasks }} 个活跃任务引用"
-                    {% else %}data-confirm="删除下载器 {{ d.name }}？已归档任务的记录保留，仅删除连接配置。"{% endif %}>删除</button>
-          </form>
+          <details class="menu">
+            <summary title="更多操作">⋯</summary>
+            <div class="menu-list">
+              {% if not d.is_default and d.enabled %}
+              <form method="post" action="/downloaders/{{ d.id }}/set-default">
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <button type="submit">设为默认</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/downloaders/{{ d.id }}/delete">
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <button class="btn-err" type="submit"
+                        {% if d.is_default %}disabled title="默认下载器不可删除，请先把其它下载器设为默认"
+                        {% elif d.active_tasks %}disabled title="仍有 {{ d.active_tasks }} 个活跃任务引用"
+                        {% else %}data-confirm="删除下载器 {{ d.name }}？已归档任务的记录保留，仅删除连接配置。"{% endif %}>删除</button>
+              </form>
+            </div>
+          </details>
         </td>
         {% endif %}
       </tr>
@@ -75,22 +81,26 @@
     {% endfor %}
     </tbody>
   </table>
-  <p class="hint">
-    状态口径：<span class="pill exclude">已禁用</span> →
-    <span class="pill exclude">未配置凭据</span> →
-    <span class="pill medium">未测试</span> 有凭据未验 →
-    <span class="pill low">连接失败</span> 最近一次测试不通 →
-    <span class="pill high">正常</span>。
-    派发时按「任务指定 → 订阅指定 → 默认下载器」顺序选实例；凭据只显示是否已配置，绝不回显。
-    qB 版本 / 剩余空间来自最近一次「测试连接」。
-  </p>
+  </div>
+  <details class="adv">
+    <summary>状态口径与派发顺序说明</summary>
+    <p class="hint" style="margin-top:8px">
+      状态口径：<span class="pill exclude">已禁用</span> →
+      <span class="pill exclude">未配置凭据</span> →
+      <span class="pill medium">未测试</span> 有凭据未验 →
+      <span class="pill low">连接失败</span> 最近一次测试不通 →
+      <span class="pill high">正常</span>。
+      派发时按「任务指定 → 订阅指定 → 默认下载器」顺序选实例；凭据只显示是否已配置，绝不回显。
+      版本 / 剩余空间来自最近一次「测试连接」。
+    </p>
+  </details>
 </div>
 
 {% if is_admin %}
 <div class="panel">
   <h2>添加下载器</h2>
   <a class="btn btn-primary" href="/downloaders/new">新建下载器</a>
-  <span class="hint">保存后立即热生效，不需重启服务。</span>
+  <span class="hint" style="margin-left:10px">保存后立即热生效，不需重启服务。</span>
 </div>
 {% endif %}
 {% endblock %}

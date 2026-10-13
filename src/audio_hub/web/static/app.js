@@ -111,6 +111,18 @@
     setTimeout(function () { el.remove(); }, 4000);
   });
 
+  /* ── 行内溢出菜单（details.menu）：点外部关闭、选中动作后收起 ── */
+  document.addEventListener("click", function (e) {
+    document.querySelectorAll("details.menu[open]").forEach(function (d) {
+      if (!d.contains(e.target)) d.removeAttribute("open");
+    });
+  });
+  document.querySelectorAll("details.menu").forEach(function (d) {
+    d.addEventListener("click", function (e) {
+      if (e.target.closest("button")) d.removeAttribute("open");
+    });
+  });
+
   /* ── /run-once 二次确认（会真实触发一轮站点请求）──────────── */
   document.querySelectorAll("[data-confirm]").forEach(function (el) {
     el.addEventListener("click", function (e) {

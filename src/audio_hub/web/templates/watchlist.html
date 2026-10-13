@@ -3,20 +3,23 @@
 {% block h1 %}订阅{% endblock %}
 
 {% block content %}
-<div class="cards" style="margin-bottom:18px">
+<div class="cards" style="margin-bottom:16px">
   <div class="card"><div class="n">{{ status_counts.active }}</div><div class="l">进行中</div></div>
   <div class="card ok"><div class="n">{{ status_counts.completed }}</div><div class="l">已完成</div></div>
   <div class="card"><div class="n">{{ status_counts.paused }}</div><div class="l">已暂停</div></div>
   <div class="card {{ 'warn' if no_valid_sites }}"><div class="n">{{ valid_sites|length }}</div><div class="l">可用站点</div></div>
 </div>
 
-<div class="panel">
-  <h2>新建订阅</h2>
-  {% include "_subscription_form.html" %}
-</div>
+<details class="newsub" {% if not entries %}open{% endif %}>
+  <summary>＋ 新建订阅</summary>
+  <div class="panel">
+    {% include "_subscription_form.html" %}
+  </div>
+</details>
 
 <div class="panel">
   <h2>订阅列表（{{ entries|length }}）</h2>
+  <div class="tbl-wrap">
   <table class="subtable">
     <thead><tr>
       <th>类型</th><th>名称</th><th>状态</th><th class="num">命中</th>
@@ -44,8 +47,8 @@
         </td>
         <td class="num">{{ e.hit_count }}</td>
         <td class="mono" style="font-size:12px;white-space:nowrap">
-          {{ e.last_search_at.strftime('%m-%d %H:%M') if e.last_search_at else '—' }}<br>
-          <span class="muted">{{ e.next_search_at.strftime('%m-%d %H:%M') if (e.next_search_at and st == 'active' and e.enabled) else '—' }}</span>
+          {{ e.last_search_at|dtfmt if e.last_search_at else '—' }}<br>
+          <span class="muted">{{ e.next_search_at|dtfmt if (e.next_search_at and st == 'active' and e.enabled) else '—' }}</span>
         </td>
         <td style="font-size:12px">{{ downloader_names.get(e.downloader_id, e.downloader_id) if e.downloader_id else '默认' }}</td>
         <td>
@@ -56,34 +59,40 @@
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <button class="btn-sm" type="submit" title="立刻对该订阅搜索一轮">搜索</button>
           </form>
-          {% if st == 'active' %}
-          <form method="post" action="/watchlist/{{ e.id }}/pause">
-            <input type="hidden" name="csrf_token" value="{{ csrf }}">
-            <button class="btn-sm" type="submit">暂停</button>
-          </form>
-          {% else %}
-          <form method="post" action="/watchlist/{{ e.id }}/resume">
-            <input type="hidden" name="csrf_token" value="{{ csrf }}">
-            <button class="btn-sm" type="submit">{{ '重新追踪' if st == 'completed' else '恢复' }}</button>
-          </form>
-          {% endif %}
-          <form method="post" action="/watchlist/{{ e.id }}/toggle">
-            <input type="hidden" name="csrf_token" value="{{ csrf }}">
-            <button class="btn-sm" type="submit">{{ '停用' if e.enabled else '启用' }}</button>
-          </form>
-          {% if user.is_admin %}
-          <form method="post" action="/watchlist/{{ e.id }}/delete">
-            <input type="hidden" name="csrf_token" value="{{ csrf }}">
-            <button class="btn-sm btn-err" type="submit"
-                    data-confirm="删除订阅「{{ e.query }}」？命中记录一并清除，已建任务保留。">删除</button>
-          </form>
-          {% endif %}
+          <details class="menu">
+            <summary title="更多操作">⋯</summary>
+            <div class="menu-list">
+              {% if st == 'active' %}
+              <form method="post" action="/watchlist/{{ e.id }}/pause">
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <button type="submit">暂停</button>
+              </form>
+              {% else %}
+              <form method="post" action="/watchlist/{{ e.id }}/resume">
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <button type="submit">{{ '重新追踪' if st == 'completed' else '恢复' }}</button>
+              </form>
+              {% endif %}
+              <form method="post" action="/watchlist/{{ e.id }}/toggle">
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <button type="submit">{{ '停用' if e.enabled else '启用' }}</button>
+              </form>
+              {% if user.is_admin %}
+              <form method="post" action="/watchlist/{{ e.id }}/delete">
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <button class="btn-err" type="submit"
+                        data-confirm="删除订阅「{{ e.query }}」？命中记录一并清除，已建任务保留。">删除</button>
+              </form>
+              {% endif %}
+            </div>
+          </details>
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="8" class="empty">还没有订阅。在上方新建一条，添加后会立即搜索一次。</td></tr>
+      <tr><td colspan="8" class="empty">还没有订阅。展开上方「新建订阅」添加，添加后会立即搜索一次。</td></tr>
     {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endblock %}

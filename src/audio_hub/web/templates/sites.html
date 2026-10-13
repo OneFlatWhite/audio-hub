@@ -7,9 +7,10 @@
 
 <div class="panel">
   <h2>站点</h2>
+  <div class="tbl-wrap">
   <table>
     <thead><tr>
-      <th>站点</th><th>状态</th><th>类型</th><th>凭据</th><th>账号</th>
+      <th>站点</th><th>状态</th><th>账号 / 凭据</th>
       <th>认证检查</th><th>上次成功</th><th class="num">连续失败</th><th>最后错误</th>
       {% if is_admin %}<th>操作</th>{% endif %}
     </tr></thead>
@@ -17,7 +18,7 @@
     {% for s in sites %}
       <tr>
         <td><a class="mono" href="/sites/{{ s.id }}/edit">{{ s.name }}</a>
-          {% if s.priority %}<span class="hint">优先级 {{ s.priority }}</span>{% endif %}</td>
+          <div class="hint">{{ 'mTorrent REST' if s.adapter_type == 'mteam' else 'NexusPHP' }}{% if s.priority %} · 优先级 {{ s.priority }}{% endif %}</div></td>
         <td>
           <span class="pill {{ s.state_css }}">{{ s.state_label }}</span>
           {# 熔断与最后错误是次级提示，主状态为「未认证」时也要能看到上一轮发生了什么 #}
@@ -30,23 +31,25 @@
             <div class="hint trunc" title="{{ s.auth_error }}">{{ s.auth_error }}</div>
           {% endif %}
         </td>
-        <td>{{ 'mTorrent REST' if s.adapter_type == 'mteam' else 'NexusPHP' }}</td>
-        <td class="mono" style="font-size:12px">
-          {% if s.adapter_type == 'mteam' %}
-            API Key {{ '✓' if s.has_api_key else '✗' }}
-          {% else %}
-            Cookie {{ '✓' if s.has_cookie else '✗' }} · RSS {{ '✓' if s.has_rss else '✗' }}
-          {% endif %}
-        </td>
         <td>
           {% if s.user_info and s.user_info.username %}
             {{ s.user_info.username }}{% if s.user_info.level %} <span class="pill">{{ s.user_info.level }}</span>{% endif %}
-            <div class="hint">↑{{ s.user_info.uploaded or '—' }} ↓{{ s.user_info.downloaded or '—' }}
+            <div class="hint mono" style="font-size:11.5px">
+              {% if s.adapter_type == 'mteam' %}API Key {{ '✓' if s.has_api_key else '✗' }}
+              {% else %}Cookie {{ '✓' if s.has_cookie else '✗' }} · RSS {{ '✓' if s.has_rss else '✗' }}{% endif %}
+            </div>
+            <div class="hint mono" style="font-size:11.5px">↑{{ s.user_info.uploaded or '—' }} ↓{{ s.user_info.downloaded or '—' }}
               {% if s.user_info.ratio %}· 分享率 {{ s.user_info.ratio }}{% endif %}</div>
-          {% else %}<span class="muted">—</span>{% endif %}
+          {% else %}
+            <span class="muted">未登录</span>
+            <div class="hint mono" style="font-size:11.5px">
+              {% if s.adapter_type == 'mteam' %}API Key {{ '✓' if s.has_api_key else '✗' }}
+              {% else %}Cookie {{ '✓' if s.has_cookie else '✗' }} · RSS {{ '✓' if s.has_rss else '✗' }}{% endif %}
+            </div>
+          {% endif %}
         </td>
         <td class="mono">{{ s.auth_checked_local or '—' }}</td>
-        <td class="mono">{{ s.last_success_at or '—' }}</td>
+        <td class="mono" title="{{ s.last_success_at or '' }}">{{ s.last_success_at|dtfmt }}</td>
         <td class="num">{{ s.consecutive_fail }}</td>
         <td class="mono trunc" title="{{ s.last_error or '' }}">{{ s.last_error or '—' }}</td>
         {% if is_admin %}
@@ -71,19 +74,23 @@
         {% endif %}
       </tr>
     {% else %}
-      <tr><td colspan="{{ 10 if is_admin else 9 }}" class="empty">尚未配置站点</td></tr>
+      <tr><td colspan="{{ 8 if is_admin else 7 }}" class="empty">尚未配置站点</td></tr>
     {% endfor %}
     </tbody>
   </table>
-  <p class="hint">
-    状态口径：<span class="pill exclude">未配置</span> 无凭据 →
-    <span class="pill medium">未认证</span> 有凭据未验 →
-    <span class="pill low">认证失效</span> 验证失败 →
-    <span class="pill exclude">已禁用</span> 认证通过但关着 →
-    <span class="pill medium">熔断中</span> 连续失败暂停 →
-    <span class="pill high">正常</span>。
-    只有认证通过的站点才能启用、才会参与自动搜索。凭据只显示是否已配置，绝不回显。
-  </p>
+  </div>
+  <details class="adv">
+    <summary>状态口径说明</summary>
+    <p class="hint" style="margin-top:8px">
+      状态口径：<span class="pill exclude">未配置</span> 无凭据 →
+      <span class="pill medium">未认证</span> 有凭据未验 →
+      <span class="pill low">认证失效</span> 验证失败 →
+      <span class="pill exclude">已禁用</span> 认证通过但关着 →
+      <span class="pill medium">熔断中</span> 连续失败暂停 →
+      <span class="pill high">正常</span>。
+      只有认证通过的站点才能启用、才会参与自动搜索。凭据只显示是否已配置，绝不回显。
+    </p>
+  </details>
 </div>
 
 {% if is_admin %}
@@ -91,7 +98,7 @@
   <h2>添加站点</h2>
   {% if addable %}
     <a class="btn btn-primary" href="/sites/new">新建站点</a>
-    <span class="hint">可添加：{% for n in addable %}<span class="mono">{{ site_labels[n] if n in site_labels else n }}</span>{% if not loop.last %}、{% endif %}{% endfor %}</span>
+    <span class="hint" style="margin-left:10px">可添加：{% for n in addable %}<span class="mono">{{ site_labels[n] if n in site_labels else n }}</span>{% if not loop.last %}、{% endif %}{% endfor %}</span>
   {% else %}
     <p class="hint">所有已支持的站点都已添加。</p>
   {% endif %}

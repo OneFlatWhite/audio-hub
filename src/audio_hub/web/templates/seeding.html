@@ -56,7 +56,7 @@
                title="时长 {{ x.time_pct }}% · 分享率 {{ x.ratio_pct }}%">
             <span style="width:{{ x.pct }}%"></span>
           </div>
-          <span class="pill {{ 'high' if r.status == 'satisfied' else ('medium' if r.status == 'seeding' else '') }}">{{ r.status }}</span>
+          <span class="pill {{ 'high' if r.status == 'satisfied' else ('medium' if r.status == 'seeding' else '') }}">{{ r.status|state_zh }}</span>
           <span class="hint">{{ x.pct }}%</span>
           {% if r.hr_satisfied_at %}
           <div class="hint mono">达标 {{ r.hr_satisfied_at.strftime('%Y-%m-%d %H:%M') }}</div>
