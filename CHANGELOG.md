@@ -2,6 +2,17 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.3] - 2026-10-13
+
+馒头「全部」搜索改为音乐 + 有声书各拉一遍再合并去重：不带 mode 的全站最新几乎全是影视，
+有声书墙因此长期空墙。**测试 1065 → 1066**，ruff 0 error。
+
+### 修复
+
+- **馒头有声书墙空墙**：`search(kind="all")` 原实现不带 mode 拉全站最新 50 条（实测全是电影），
+  音乐/有声书都进不了发现墙；改为 `asyncio.gather` 并发拉 mode=music 与
+  mode=normal+categories=[442] 两路，按 info_hash/torrent_id/title 去重后合并
+
 ## [0.7.2] - 2026-10-13
 
 四站实跑校准（憨憨 / HDSky / audiences / 馒头）：修馒头认证头投毒、发现墙跨 tab 共享拉取

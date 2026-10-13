@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime
 
@@ -151,10 +152,25 @@ class MTeamAdapter(BaseAdapter):
         kind 映射（2026-10 实测）：
         - "music" → mode=music（含 110/434/406，演唱会/MV 由本地分类判别剔除）
         - "audiobook" → 无独立模式，用 mode=normal + categories=[有声书分类 ID]
-        - "all" → 不带 mode（全站最新混合，发现墙聚合用，本地按分类 ID 判别）
+        - "all" → 音乐 + 有声书各拉一遍再合并（不带 mode 的全站最新几乎全是影视，
+          两类都捞不到；发现墙聚合用）
         - None → mode=music（旧默认）
         空关键词 = 最新上架列表（发现墙数据源）。
         """
+        if kind == "all":
+            music, books = await asyncio.gather(
+                self.search(keyword, kind="music"),
+                self.search(keyword, kind="audiobook"),
+            )
+            seen: set[str] = set()
+            merged: list[NormalizedTorrent] = []
+            for t in (*music, *books):
+                k = t.info_hash or t.torrent_id or t.title
+                if k not in seen:
+                    seen.add(k)
+                    merged.append(t)
+            return merged
+
         payload: dict = {
             "keyword": keyword,
             "pageNumber": 1,
@@ -168,8 +184,6 @@ class MTeamAdapter(BaseAdapter):
                 split_ids(getattr(self.config, "audiobook_cat_id", "") or "")
                 or [_DEFAULT_AUDIOBOOK_CAT]
             )
-        elif kind == "all":
-            pass  # 不带 mode：全站最新
         else:
             payload["mode"] = "music"
         data = await self._post("/api/torrent/search", payload)

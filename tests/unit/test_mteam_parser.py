@@ -371,14 +371,37 @@ class TestSearchKindMapping:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_all_kind_omits_mode(self):
+    async def test_all_kind_merges_music_and_audiobook(self):
+        """all = 音乐 + 有声书各搜一遍（不带 mode 的全站最新几乎全是影视，两类都捞不到）。"""
         adapter = make_adapter()
         route = respx.post("https://api.m-team.cc/api/torrent/search").mock(
             return_value=httpx.Response(200, json={"code": 0, "data": []})
         )
         await adapter.search("", kind="all")
-        body = json.loads(route.calls.last.request.content)
-        assert "mode" not in body
+        bodies = [json.loads(c.request.content) for c in route.calls]
+        assert len(bodies) == 2
+        assert {b.get("mode") for b in bodies} == {"music", "normal"}
+        normal = next(b for b in bodies if b.get("mode") == "normal")
+        assert normal["categories"] == ["442"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_kind_dedupes_overlap(self):
+        """两路搜索结果有重叠时按 info_hash/torrent_id/title 去重。"""
+        item = {
+            "name": "周杰伦 - 最伟大的作品 (2022) FLAC",
+            "category": "110",
+            "size": "465722986",
+            "id": "12345",
+            "infoHash": "ab" * 20,
+            "status": {"seeders": "3", "leechers": "0"},
+        }
+        adapter = make_adapter()
+        respx.post("https://api.m-team.cc/api/torrent/search").mock(
+            return_value=httpx.Response(200, json={"code": 0, "data": {"data": [item]}})
+        )
+        results = await adapter.search("", kind="all")
+        assert len(results) == 1
 
     @pytest.mark.asyncio
     @respx.mock
