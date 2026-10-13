@@ -8,11 +8,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from audio_hub.adapters.base import DiscountType, MediaCategory, NormalizedTorrent
-from audio_hub.discover.aggregator import WallCache, collect_wall
+from audio_hub.discover.aggregator import WallCache, collect_wall, search_wall
 
 
 class FakeAdapter:
-    """内存假适配器：fetch_rss 返回固定列表或抛固定异常。"""
+    """内存假适配器：fetch_rss / search 返回固定列表或抛固定异常。"""
 
     def __init__(self, name: str, torrents=None, error: Exception | None = None):
         self.site_name = name
@@ -20,10 +20,17 @@ class FakeAdapter:
         self.error = error
         self.fetch_calls = 0
         self.fetch_kinds: list[str | None] = []
+        self.search_calls: list[tuple[str, str | None]] = []
 
     async def fetch_rss(self, query: str | None = None, kind: str | None = None):
         self.fetch_calls += 1
         self.fetch_kinds.append(kind)
+        if self.error is not None:
+            raise self.error
+        return list(self._torrents)
+
+    async def search(self, keyword: str, kind: str | None = None):
+        self.search_calls.append((keyword, kind))
         if self.error is not None:
             raise self.error
         return list(self._torrents)
@@ -238,3 +245,41 @@ async def test_pub_date_desc_and_none_last():
     ])
     wall = await collect_wall({"s": a}, "music", cache=WallCache(), ttl=900)
     assert [c.title for c in wall.cards] == ["幸存者", "叶惠美", "跳舞的梵谷"]
+
+
+# ── search_wall（v0.7.4 跨站主动搜索）─────────────────────
+
+async def test_search_wall_calls_search_and_merges():
+    """跨站搜索：逐站 adapter.search(keyword, kind)，同专辑跨站合一卡，kind 过滤生效。"""
+    a = FakeAdapter("siteA", [_t("周杰伦 - 叶惠美 (2003) [FLAC 24-96]", site="siteA")])
+    b = FakeAdapter("siteB", [_t("周杰伦 - 叶惠美 (2003) [FLAC]", site="siteB"),
+                              _t("鬼吹灯 第一卷 有声书", site="siteB",
+                                 category=MediaCategory.AUDIOBOOK)])
+    wall = await search_wall({"siteA": a, "siteB": b}, "music", "叶惠美")
+    assert a.search_calls == [("叶惠美", "music")]
+    assert b.search_calls == [("叶惠美", "music")]
+    assert len(wall.cards) == 1                       # 有声书被 kind 过滤
+    assert wall.cards[0].sites == ["siteA", "siteB"]
+    assert wall.cards[0].quality_tag == "flac_24"     # 代表仍按音质优先
+    assert not wall.from_cache and not wall.site_errors
+
+
+async def test_search_wall_isolates_site_errors():
+    """单站搜索失败不影响其他站出卡；错误记入 site_errors。"""
+    bad = FakeAdapter("bad", error=ConnectionError("timeout"))
+    good = FakeAdapter("good", [_t("周杰伦 - 叶惠美 [FLAC]", site="good")])
+    wall = await search_wall({"bad": bad, "good": good}, "music", "叶惠美")
+    assert len(wall.cards) == 1
+    assert wall.cards[0].sites == ["good"]
+    assert "bad" in wall.site_errors and "ConnectionError" in wall.site_errors["bad"]
+
+
+async def test_search_wall_audiobook_kind():
+    """有声书 tab：kind 透传 + 音乐结果被过滤。"""
+    a = FakeAdapter("s", [
+        _t("鬼吹灯 第一卷 周建龙演播", site="s", category=MediaCategory.AUDIOBOOK),
+        _t("周杰伦 - 叶惠美 [FLAC]", site="s", category=MediaCategory.MUSIC),
+    ])
+    wall = await search_wall({"s": a}, "audiobook", "鬼吹灯")
+    assert a.search_calls == [("鬼吹灯", "audiobook")]
+    assert len(wall.cards) == 1 and wall.cards[0].kind == "audiobook"

@@ -3,25 +3,39 @@
 {% block h1 %}发现墙{% endblock %}
 
 {% block content %}
-{# 类型 tab + 刷新按钮 #}
+{# 类型 tab + 搜索框 + 刷新按钮 #}
 <div class="panel discover-bar">
   <div class="tabs">
     {% for k, label in kind_tabs %}
-    <a class="tab {{ 'active' if kind == k }}" href="/discover?kind={{ k }}">{{ label }}</a>
+    <a class="tab {{ 'active' if kind == k }}" href="/discover?kind={{ k }}{{ '&q=' + (q|urlencode) if q }}">{{ label }}</a>
     {% endfor %}
   </div>
+  <form method="get" action="/discover" class="discover-search">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <input type="search" name="q" value="{{ q }}"
+           placeholder="{{ '搜索歌手 / 专辑名…' if kind == 'music' else '搜索作者 / 书名…' }}">
+    <button class="btn-sm" type="submit">搜索</button>
+    {% if q %}<a class="btn-sm" href="/discover?kind={{ kind }}" title="清除搜索，回到最新上架">清除</a>{% endif %}
+  </form>
+  {% if not q %}
   <form method="post" action="/discover/refresh" style="display:inline">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <input type="hidden" name="kind" value="{{ kind }}">
     <button class="btn-sm" type="submit" title="逐站重拉 RSS；同一站 5 分钟内刚拉过则沿用旧数据">刷新</button>
   </form>
+  {% endif %}
 </div>
 
-{# 缓存元信息行 #}
+{# 缓存元信息行 / 搜索元信息行 #}
 <div class="muted" style="font-size:12px;margin:-8px 0 14px">
+  {% if q %}
+  搜索「{{ q }}」· {{ cards|length }} 张卡 · {{ site_count }} 个来源站
+  {% else %}
   {{ site_count }} 个来源站 · 数据更新于 {{ wall.fetched_at|reltime }}{{ '（缓存）' if wall.from_cache }}
   {% if wall.stale_sites %} · 沿用旧数据: {{ wall.stale_sites|join('、') }}{% endif %}
-  {% if wall.site_errors %} · <span class="err-text">失败站: {{ wall.site_errors.keys()|list|join('、') }}</span>{% endif %}
+  {% endif %}
+  {% if rate_limited %} · <span class="warn-text" title="这些站有请求频率限制，本次未重拉，已沿用其缓存数据，稍后自动恢复">限速站: {{ rate_limited.keys()|list|join('、') }}</span>{% endif %}
+  {% if failed %} · <span class="err-text">失败站: {{ failed.keys()|list|join('、') }}</span>{% endif %}
 </div>
 
 {% if no_sites %}
@@ -35,9 +49,9 @@
 {# 站点筛选 chips #}
 {% if all_sites %}
 <div class="chips">
-  <a class="chip {{ 'active' if not current_site }}" href="/discover?kind={{ kind }}">全部站点</a>
+  <a class="chip {{ 'active' if not current_site }}" href="/discover?kind={{ kind }}{{ '&q=' + (q|urlencode) if q }}">全部站点</a>
   {% for s in all_sites %}
-  <a class="chip {{ 'active' if current_site == s }}" href="/discover?kind={{ kind }}&site={{ s }}">{{ s }}</a>
+  <a class="chip {{ 'active' if current_site == s }}" href="/discover?kind={{ kind }}&site={{ s }}{{ '&q=' + (q|urlencode) if q }}">{{ s }}</a>
   {% endfor %}
 </div>
 {% endif %}
@@ -60,9 +74,9 @@
       <div class="d-title" title="{{ card.title }}">{{ card.title }}</div>
       <div class="d-artist muted">{{ card.artist or '未知' + ('歌手' if kind == 'music' else '作者') }}</div>
       <div class="d-badges">
-        {% if card.quality_tag %}<span class="pill music">{{ quality_labels.get(card.quality_tag, card.quality_tag) }}</span>{% endif %}
-        {% if card.discount.value in discount_labels %}<span class="pill free">{{ discount_labels[card.discount.value] }}</span>{% endif %}
-        {% if card.seeders is not none %}<span class="pill" title="做种数">↑{{ card.seeders }}</span>{% endif %}
+        {% if card.quality_tag %}<span class="pill music" title="{{ quality_titles.get(card.quality_tag, '音频编码格式') }}">{{ quality_labels.get(card.quality_tag, card.quality_tag) }}</span>{% endif %}
+        {% if card.discount.value in discount_labels %}<span class="pill free" title="{{ discount_titles.get(card.discount.value, '站点促销') }}">{{ discount_labels[card.discount.value] }}</span>{% endif %}
+        {% if card.seeders is not none %}<span class="pill" title="当前做种人数（越大下载越快、越好保种）">↑{{ card.seeders }}</span>{% endif %}
       </div>
       <div class="d-meta muted">
         {{ card.sites|join('、') }} · {{ card.pub_date|reltime }}
@@ -117,6 +131,10 @@
 </div>
 {% else %}
 <div class="panel empty-state">
+  {% if q %}
+  <p><b>没有找到匹配「{{ q }}」的{{ '音乐' if kind == 'music' else '有声书' }}。</b></p>
+  <p class="muted">换个关键词试试（歌手名 / 专辑名 / 书名）；或回到<a href="/discover?kind={{ kind }}">最新上架</a>。</p>
+  {% else %}
   <p><b>没有抓到内容。</b></p>
   {% if wall.site_errors %}
   <p class="muted">以下站点拉取失败：{% for s, err in wall.site_errors.items() %}{{ s }}（{{ err }}）{% if not loop.last %}、{% endif %}{% endfor %}</p>
@@ -128,6 +146,7 @@
     <input type="hidden" name="kind" value="{{ kind }}">
     <button class="btn-sm" type="submit">刷新重试</button>
   </form>
+  {% endif %}
 </div>
 {% endif %}
 {% endif %}

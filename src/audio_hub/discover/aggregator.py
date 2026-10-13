@@ -2,6 +2,7 @@
 
 与订阅引擎的边界：发现墙只读 RSS（站点真实最新上架），不做主动搜索、
 **不写 site_stats**——用户手动浏览不触发轮询熔断统计，失败只在页面展示。
+`search_wall` 是用户显式输入关键词时的跨站主动搜索入口，同样只读不写库。
 
 代表选择优先级（同专辑多站 / 多版本合一卡时）：音质档 > 优惠 > 做种数，
 与 matcher 的权重表共用同一份数据，避免两处漂移。
@@ -251,3 +252,40 @@ async def collect_wall(
     )
     cache.set_wall(key, wall)
     return wall
+
+
+async def search_wall(
+    adapters: dict[str, BaseAdapter],
+    kind: str,
+    keyword: str,
+    *,
+    now: datetime | None = None,
+) -> DiscoverWall:
+    """跨站主动搜索聚合一类（music / audiobook）发现墙。
+
+    与 collect_wall 的差异：走各站 adapter.search(keyword)（站内搜索 / API），
+    不读不写墙缓存——搜索是用户显式触发的即时行为，结果集随关键词变化，
+    缓存命中率低还会妨碍「换个词再搜」。单站失败同样隔离进 site_errors。
+    """
+    kind = str(getattr(kind, "value", kind) or "music").lower()
+    now = now or utcnow()
+    keyword = (keyword or "").strip()
+    names = sorted(adapters)
+    fetched = await asyncio.gather(
+        *(adapters[n].search(keyword, kind=kind) for n in names),
+        return_exceptions=True,
+    )
+    results: dict[str, list[NormalizedTorrent]] = {}
+    errors: dict[str, str] = {}
+    for name, res in zip(names, fetched, strict=True):
+        if isinstance(res, BaseException):
+            logger.warning(f"发现墙搜索：站点 {name} 失败: {type(res).__name__}: {res}")
+            errors[name] = f"{type(res).__name__}: {res}"[:200]
+        else:
+            results[name] = res
+
+    items = [
+        (site, t) for site, torrents in results.items() for t in torrents
+        if _kind_match(t, kind)
+    ]
+    return DiscoverWall(cards=build_cards(items, kind), site_errors=errors, fetched_at=now)

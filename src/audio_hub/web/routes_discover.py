@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from loguru import logger
 
 from .. import repo
-from ..discover.aggregator import WallCache, collect_wall
+from ..discover.aggregator import WallCache, collect_wall, search_wall
 from ..discover.covers import covers_dir, fill_covers, is_valid_key, read_meta
 from ..models import SubType, WatchEntry, WatchKind
 from ..pipeline.title_parser import album_key, normalize_key
@@ -33,6 +33,24 @@ QUALITY_LABELS = {
 DISCOUNT_LABELS = {
     "free": "Free", "2up": "2xFree", "halfdown": "半价",
     "percent50": "50%", "percent30": "30%",
+}
+
+#: 徽章悬停说明（用户对 FLAC/Free 等术语不熟，鼠标悬停即见解释）
+QUALITY_TITLES = {
+    "dsd": "DSD：SACD 直扒的无损格式，体积最大",
+    "flac_24": "FLAC 24bit：高解析度无损音频（音质最高的一档）",
+    "flac_16": "FLAC：无损压缩音频，CD 级音质（16bit/44.1kHz）",
+    "ape": "APE：无损压缩音频，CD 级音质",
+    "wav": "WAV：无压缩原始音频，CD 级音质",
+    "alac": "ALAC：Apple 无损格式，CD 级音质",
+    "mp3": "MP3：有损压缩，体积最小",
+}
+DISCOUNT_TITLES = {
+    "free": "Free（免费）：下载不计入下载量，不影响分享率",
+    "2up": "2xFree：不计下载量，且上传量按 2 倍计入",
+    "halfdown": "半价：下载量按 50% 计入",
+    "percent50": "50%：下载量按 50% 计入",
+    "percent30": "30%：下载量按 30% 计入",
 }
 
 _FLASH_OK = {
@@ -130,18 +148,24 @@ async def discover_page(
     request: Request,
     kind: str = Query(default="music"),
     site: str | None = Query(default=None),
+    q: str | None = Query(default=None),
     user: dict = Depends(require_user),
     db=Depends(get_db),
     config=Depends(get_config),
 ):
     if kind not in ("music", "audiobook"):
         kind = "music"
+    q = (q or "").strip()
     templates = request.app.state.templates
     adapters = _adapters_of(request)
-    wall = await collect_wall(
-        adapters, kind, cache=_wall_cache(request),
-        ttl=config.discover.cache_ttl_minutes * 60,
-    )
+    if q:
+        # 搜索模式：跨站主动搜索，不读墙缓存（结果随关键词变化，缓存无意义）
+        wall = await search_wall(adapters, kind, q)
+    else:
+        wall = await collect_wall(
+            adapters, kind, cache=_wall_cache(request),
+            ttl=config.discover.cache_ttl_minutes * 60,
+        )
 
     all_sites = sorted({s for c in wall.cards for s in c.sites})
     cards = wall.cards
@@ -155,6 +179,13 @@ async def discover_page(
     entries = await repo.list_watch_entries(db, enabled_only=True)
     artists, albums = _subscribed_index(entries, kind)
 
+    # 限速与真失败分列：限速（如 audiences RSS 2 分钟间隔）是预期内的临时状态，
+    # 且旧数据已沿用，标红「失败」会误导用户以为站点挂了
+    rate_limited = {s: e for s, e in wall.site_errors.items()
+                    if e.startswith("AdapterRateLimited")}
+    failed = {s: e for s, e in wall.site_errors.items()
+              if not e.startswith("AdapterRateLimited")}
+
     ctx = await _common(request, db, config, user)
     ctx.update({
         "active": "discover",
@@ -165,10 +196,15 @@ async def discover_page(
         "card_states": _card_states(cards, artists, albums),
         "all_sites": all_sites,
         "current_site": site or "",
+        "q": q,
+        "rate_limited": rate_limited,
+        "failed": failed,
         "no_sites": not adapters,
         "site_count": len(adapters),
         "quality_labels": QUALITY_LABELS,
         "discount_labels": DISCOUNT_LABELS,
+        "quality_titles": QUALITY_TITLES,
+        "discount_titles": DISCOUNT_TITLES,
         "flash_ok": _flash(request, "ok"), "flash_err": _flash(request, "err"),
     })
     return templates.TemplateResponse(request, "discover.html", ctx)

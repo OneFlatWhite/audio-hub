@@ -311,6 +311,57 @@ class TestRefresh:
             assert resp.status_code == 403, path
 
 
+# ── 搜索模式（v0.7.4）──────────────────────────────────────
+
+class TestSearch:
+    def test_search_mode_music(self, client, fake_wall):
+        _setup_admin(client)
+        html = client.get("/discover?kind=music&q=叶惠美").text
+        assert "搜索「叶惠美」" in html
+        assert "叶惠美" in html and "周杰伦" in html
+        # 走的是适配器 search，而非 RSS 缓存
+        assert ("叶惠美", "music") in fake_wall["fake1"].search_calls
+        # 搜索模式下有「清除」入口，没有「刷新」按钮
+        assert "清除" in html
+
+    def test_search_mode_audiobook(self, client, fake_wall):
+        _setup_admin(client)
+        html = client.get("/discover?kind=audiobook&q=三体").text
+        assert "搜索「三体」" in html and "三体" in html
+        assert ("三体", "audiobook") in fake_wall["fake2"].search_calls
+
+    def test_search_no_result(self, client, monkeypatch):
+        empty = {"e1": FakeAdapter("e1", [])}
+        monkeypatch.setattr(routes_discover, "_adapters_of", lambda request: dict(empty))
+        _setup_admin(client)
+        html = client.get("/discover?kind=music&q=不存在的专辑").text
+        assert "没有找到匹配" in html
+
+    def test_rate_limited_shown_separately_from_failed(self, client, monkeypatch):
+        """限速站（如 audiences 2 分钟间隔）不再被标红为「失败站」。"""
+        from audio_hub.adapters.base import AdapterError, AdapterRateLimited
+
+        class _Err(FakeAdapter):
+            def __init__(self, site, err):
+                super().__init__(site, [])
+                self._err = err
+
+            async def fetch_rss(self, query=None, kind=None):
+                raise self._err
+
+        adapters = {
+            "ok": FakeAdapter("ok", [_torrent("周杰伦 - 叶惠美 [FLAC]", site="ok")]),
+            "slowsite": _Err("slowsite", AdapterRateLimited("slowsite 站点限速：RSS 请求间隔受限")),
+            "badsite": _Err("badsite", AdapterError("badsite HTTP 500")),
+        }
+        monkeypatch.setattr(routes_discover, "_adapters_of", lambda request: dict(adapters))
+        _setup_admin(client)
+        html = client.get("/discover").text
+        assert "限速站: slowsite" in html
+        assert "失败站: badsite" in html
+        assert "叶惠美" in html                     # 正常站照常出卡
+
+
 # ── 封面代理 ────────────────────────────────────────────────
 
 class TestCoverProxy:

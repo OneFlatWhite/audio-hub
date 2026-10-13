@@ -339,3 +339,13 @@ details.adv > summary:hover { color: var(--text); }
 .empty-state p { margin: 6px 0; }
 .empty-state .btn { display: inline-block; margin-top: 10px; }
 .err-text { color: var(--err); }
+.warn-text { color: var(--warn); }
+
+/* 搜索框（v0.7.4） */
+.discover-search { display: flex; align-items: center; gap: 6px; margin: 0; flex: 1; max-width: 460px; }
+.discover-search input[type="search"] {
+  flex: 1; padding: 5px 10px; font-size: 13px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.discover-search input[type="search"]:focus { border-color: var(--accent); outline: none; }
