@@ -101,7 +101,7 @@ class TestPushKindsFilter:
     def test_validate_form_accepts_new_kinds(self):
         from audio_hub.settings_store import NOTIFY_SPECS, validate_form
 
-        resolved, encoded = validate_form(NOTIFY_SPECS, {
+        resolved, _encoded = validate_form(NOTIFY_SPECS, {
             "notify_kinds": "site_auth_expired, subscription_completed , hr_satisfied",
         })
         assert resolved["notify_kinds"] == [
@@ -110,6 +110,7 @@ class TestPushKindsFilter:
 
     def test_validate_form_rejects_unknown_kind(self):
         import pytest
+
         from audio_hub.settings_store import NOTIFY_SPECS, SettingsError, validate_form
 
         with pytest.raises(SettingsError):

@@ -10,8 +10,9 @@ pytest 用 TestClient 做进程内调用，已有用例覆盖了路由与模板�
 
 检查项
 ------
-1. 完整用户流程：未登录被拦 -> /setup 建号 -> 自动登录 -> 十一个页面全 200
-   （v0.2 六页 + v0.5 新增 /library /quarantine /series /seeding /events）
+1. 完整用户流程：未登录被拦 -> /setup 建号 -> 自动登录 -> 十二个页面全 200
+   （v0.2 六页 + v0.5 新增 /library /quarantine /series /seeding /events
+   + v0.6 新增 /downloaders）
 2. 从每个页面 HTML 里**提取实际引用的 /static/* URL**，逐个请求验证 200
    （不写死文件名，页面新增资源自动纳入检查）
 3. CSRF meta 标签确实下发（前端 app.js 依赖它自动注入表单字段）
@@ -129,10 +130,10 @@ def collect_static_refs(client, urls: list[str]) -> dict[str, list[str]]:
 # 主流程
 # ────────────────────────────────────────────────────────────
 
-# v0.2 六页 + v0.5 五页。新页面在空库下必须也能渲染（无数据时显示空态而非 500）。
+# v0.2 六页 + v0.5 五页 + v0.6 /downloaders。新页面在空库下必须也能渲染（无数据时显示空态而非 500）。
 PAGES = [
     "/dashboard", "/watchlist", "/records", "/review", "/sites", "/settings",
-    "/library", "/quarantine", "/series", "/seeding", "/events",
+    "/library", "/quarantine", "/series", "/seeding", "/events", "/downloaders",
 ]
 
 # 本轮发布号。与 __version__ 双向校验：一边忘改另一边就会报出来。
@@ -193,7 +194,7 @@ def main() -> int:
                   f"{r.status_code}")
             log("")
 
-            # ── 3. 十一个页面全部可渲染 ──
+            # ── 3. 十二个页面全部可渲染 ──
             log("--- [3] 页面渲染 ---")
             page_html: dict[str, str] = {}
             for p in PAGES:
