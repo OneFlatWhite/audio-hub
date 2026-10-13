@@ -6,6 +6,10 @@
 {# CSRF token 下发给前端（HttpOnly cookie 里读不到，故走 meta）#}
 <meta name="csrf-token" content="{{ csrf or '' }}">
 <title>{% block title %}audio-hub{% endblock %}</title>
+{# 主题在样式表加载前定档（localStorage → 系统偏好），避免首帧闪错色 #}
+<script>
+(function(){try{var t=localStorage.getItem("ah-theme");if(!t){t=window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";}document.documentElement.setAttribute("data-theme",t);}catch(e){}})();
+</script>
 <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v={{ version }}">
 </head>
 <body {% block body_attr %}{% endblock %}>
@@ -42,6 +46,7 @@
   <main class="main">
     <div class="topbar">
       <h1>{% block h1 %}{% endblock %}</h1>
+      <button class="btn-sm" type="button" id="theme-toggle" title="切换明暗主题" aria-label="切换明暗主题">☀️</button>
       {% if dry_run %}<span class="pill low">DRY-RUN 空跑中</span>{% endif %}
       <span class="whoami">{{ user.username if user else '' }}</span>
       <form method="post" action="/logout" style="display:inline">

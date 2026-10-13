@@ -18,9 +18,7 @@ v0.2：在 v0.1 的资源装配基础上接入 Web 界面与认证（PRD 第十�
 
 from __future__ import annotations
 
-import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from loguru import logger
@@ -117,34 +115,10 @@ async def lifespan(app: FastAPI):
     # 那比没有提示更糟，因为它会在真正需要提示时也被忽略。
     await settings_store.set_restart_pending(db, False)
 
-    # loguru → 标准 logging 桥接
-    logger.remove()
-    logger.add(
-        lambda msg: logging.getLogger("audio_hub").handle(
-            logging.LogRecord(
-                name="audio_hub",
-                level=getattr(logging, config.log_level.upper(), logging.INFO),
-                pathname="", lineno=0, msg=msg.rstrip(), args=(), exc_info=None,
-            )
-        ),
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level:<8} | {message}",
-        level=config.log_level,
-        enqueue=True,
-    )
-
-    # 文件日志：界面「日志」页与日常排障的依据（此前启动后 INFO 只进 stdout，
-    # 容器一收就没了）。路径随数据卷走（db_path 同级 logs/），轮转 10MB 保留 5 份。
-    log_dir = Path(config.db_path).parent / "logs"
-    try:
-        log_dir.mkdir(parents=True, exist_ok=True)
-        logger.add(
-            log_dir / "hub.log",
-            rotation="10 MB", retention=5,
-            level=config.log_level, encoding="utf-8", enqueue=True,
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
-        )
-    except OSError as e:
-        logger.warning(f"日志目录不可写（{log_dir}）: {e}；仅保留标准输出日志")
+    # 日志管线：v0.11 起可热更新级别 —— settings 页改 log_level 时
+    # settings_store.apply_hot 会再次调用 setup_logging，整体重建 sink。
+    from . import logsetup
+    logsetup.setup_logging(config.log_level, config.db_path)
 
     # 下载器注册表：多 qb 实例，客户端懒建；dry_run 时一律为 None。
     # qb_client 保持为默认下载器客户端的别名，现有派发 / 监听 / 做种链路不变。

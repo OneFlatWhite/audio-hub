@@ -469,17 +469,22 @@ class TestV4Groups:
         # list 字段以逗号串回显
         assert "dispatched, completed" in page.text
 
-    def test_paths_are_restart_scoped(self, client):
-        """路径组全部需重启：只落库 + 挂标记，运行时 config 不变。"""
+    def test_paths_are_hot_scoped(self, client, cfg_dir):
+        """路径组 v0.11 起热生效：运行时立即变、目录即建、不挂待重启标记。
+
+        依据：归档/回收/隔离模块用时现读 config.paths（Path 在函数内构造），
+        启动期没有固化点；保存后 apply_hot 顺带 mkdir 提前暴露权限问题。
+        """
         _setup_admin(client)
-        before = app.state.config.paths.library_music
+        target = Path(cfg_dir) / "lib2-hot"
         resp = _post_settings(client, "/settings/paths",
-                              {"library_music": "/musiclab/lib2"})
+                              {"library_music": str(target)})
         assert resp.status_code == 303, resp.text[:200]
         assert "ok=saved_paths" in resp.headers["location"]
-        assert app.state.config.paths.library_music == before
-        assert asyncio.run(store.is_restart_pending(app.state.db)) is True
-        assert asyncio.run(store.load_overrides(app.state.db))["library_music"] == "/musiclab/lib2"
+        assert app.state.config.paths.library_music == str(target)
+        assert target.is_dir(), "热生效路径应立即建目录"
+        assert asyncio.run(store.is_restart_pending(app.state.db)) is False
+        assert asyncio.run(store.load_overrides(app.state.db))["library_music"] == str(target)
 
     def test_validation_hot_and_list_roundtrip(self, client):
         """list 类型：表单逗号串 -> 运行时 list；库里存逗号串。"""

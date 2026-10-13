@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -131,8 +132,9 @@ GENERAL_SPECS: tuple[Spec, ...] = (
         lo=MIN_POLL_MINUTES, hi=1440,
     ),
     Spec(
-        "log_level", "日志级别", "str", SCOPE_RESTART, "log_level",
-        hint="需重启：日志管线在启动时装配。",
+        "log_level", "日志级别", "str", SCOPE_HOT, "log_level",
+        hint="热生效：保存后立即重建日志管线（stdout 桥接 + 数据卷 logs/hub.log 文件），"
+             "界面「日志」页的级别筛选不受影响。",
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
     ),
     Spec(
@@ -180,35 +182,43 @@ GENERAL_SPECS: tuple[Spec, ...] = (
 )
 
 
-#: 归档链路目录。全部需重启：归档/校验/回收模块启动时按这些路径建目录并
-#: 校验可写性，运行中换路径会让半截文件落在旧目录。
+#: 归档链路目录。v0.11 起全部热生效：模块用时现读 config.paths（Path 对象
+#: 在函数内构造，无启动期固化），保存后由 apply_hot 顺带建目录并校验可写。
+#: 这些目录是 audio-hub 自己的归档组织（完成 → 校验 → 入库），MusicTag Web /
+#: Audiobookshelf 只是入库之后的刮削下游 —— 不部署它们，归档链路照常工作。
 PATHS_SPECS: tuple[Spec, ...] = (
     Spec(
-        "scratch_inbox", "刮削收件箱", "str", SCOPE_RESTART, "paths.scratch_inbox",
-        hint="需重启。完成的种子 cp 到此处供 MusicTag Web 刮削，不动原种以保护做种。",
+        "scratch_inbox", "归档中转箱", "str", SCOPE_HOT, "paths.scratch_inbox",
+        hint="热生效。完成后先把内容 cp 到这里做校验与整理，通过后再移入资料库；"
+             "不动下载器里的原种，保护做种。MusicTag Web 的刮削发生在入库之后。",
         min_len=1,
     ),
     Spec(
-        "library_music", "音乐资料库", "str", SCOPE_RESTART, "paths.library_music",
-        hint="需重启。归档终点（容器内视角）。", min_len=1,
+        "library_music", "音乐资料库", "str", SCOPE_HOT, "paths.library_music",
+        hint="热生效。音乐归档终点（容器内视角）；MusicTag Web / Navidrome 等"
+             "外部工具按需挂载同一目录即可，不部署也不影响归档。",
+        min_len=1,
     ),
     Spec(
-        "library_audiobook", "有声书资料库", "str", SCOPE_RESTART,
+        "library_audiobook", "有声书资料库", "str", SCOPE_HOT,
         "paths.library_audiobook",
-        hint="需重启。有声书归档终点，Audiobookshelf 应挂载同一目录。", min_len=1,
+        hint="热生效。有声书归档终点（容器内视角）；Audiobookshelf 按需挂载，"
+             "不部署也不影响归档。", min_len=1,
     ),
     Spec(
-        "recycle_dir", "回收站目录", "str", SCOPE_RESTART, "paths.recycle_dir",
-        hint="需重启。升级替换时旧版本移入此处，到期后清理。", min_len=1,
+        "recycle_dir", "回收站目录", "str", SCOPE_HOT, "paths.recycle_dir",
+        hint="热生效。升级替换（洗版）时旧版本移入此处，到期由清理轮询移除。",
+        min_len=1,
     ),
     Spec(
-        "quarantine_dir", "隔离区目录", "str", SCOPE_RESTART, "paths.quarantine_dir",
-        hint="需重启。校验不通过的内容移入此处等待人工处理。", min_len=1,
+        "quarantine_dir", "隔离区目录", "str", SCOPE_HOT, "paths.quarantine_dir",
+        hint="热生效。校验不通过的内容移入此处等待人工处理（放行 / 丢弃）。",
+        min_len=1,
     ),
     Spec(
-        "recycle_retention_days", "回收站保留天数", "int", SCOPE_RESTART,
+        "recycle_retention_days", "回收站保留天数", "int", SCOPE_HOT,
         "paths.recycle_retention_days",
-        hint="需重启：清理任务在启动时按此值注册。0 表示不自动清理。",
+        hint="热生效：清理轮询每次执行时实时读取。0 表示不自动清理。",
         lo=0, hi=3650,
     ),
 )
@@ -758,5 +768,36 @@ async def apply_hot(app, resolved: dict[str, Any]) -> tuple[list[str], list[str]
         hot.append(key)
         if key in _INTERVAL_JOBS:
             _reschedule(app, key, value)
+        _post_apply(app, key, value)
 
     return hot, restart
+
+
+#: 路径类设置：保存后建目录并校验可写（失败只告警 —— 归档模块拷贝时还会
+#: mkdir parents，这里提前失败提前暴露，但不阻断其它设置的保存）。
+_PATH_KEYS = {"scratch_inbox", "library_music", "library_audiobook", "recycle_dir", "quarantine_dir"}
+
+
+def _post_apply(app, key: str, value: Any) -> None:
+    """个别键的生效后置动作（级别重建日志、路径建目录）。"""
+    from pathlib import Path
+
+    if key == "log_level":
+        try:
+            from . import logsetup
+            config = app.state.config
+            logsetup.setup_logging(str(value), config.db_path)
+            logger.info(f"日志级别已热更新为 {value}")
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"日志级别热更新失败（保持原级别）: {e}")
+    elif key in _PATH_KEYS:
+        try:
+            config = app.state.config
+            target = Path(str(getattr(config.paths, key)))
+            target.mkdir(parents=True, exist_ok=True)
+            if not os.access(target, os.W_OK):
+                logger.warning(f"目录 {target} 不可写，归档可能失败，请检查挂载权限")
+            else:
+                logger.info(f"目录已就绪: {target}")
+        except OSError as e:
+            logger.warning(f"目录创建失败（{e}），归档时请留意")

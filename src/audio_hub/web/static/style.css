@@ -32,6 +32,40 @@
 
 * { box-sizing: border-box; }
 
+:root { color-scheme: dark; }
+
+/* ── 明亮主题：仅覆盖令牌与少数硬编码色 ─────────────────── */
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f5f8;
+  --panel: #ffffff;
+  --panel-2: #eef0f4;
+  --panel-3: #e3e6ec;
+  --border: #dde1e8;
+  --border-strong: #c6ccd8;
+  --text: #1c2029;
+  --text-2: #3d4453;
+  --muted: #667084;
+  --accent: #2f6bff;
+  --accent-dim: rgba(47, 107, 255, .10);
+  --ok: #14934c;
+  --ok-dim: rgba(20, 147, 76, .10);
+  --warn: #a86e00;
+  --warn-dim: rgba(185, 121, 0, .10);
+  --err: #d43c3c;
+  --err-dim: rgba(212, 60, 60, .08);
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 4px 16px rgba(16, 24, 40, .08);
+}
+html[data-theme="light"] .pill.music,
+html[data-theme="light"] .pill.artist,
+html[data-theme="light"] .pill.\32 up { color: #0b5e8f; border-color: #b8dcf2; background: #e8f4fc; }
+html[data-theme="light"] .pill.audiobook { color: #6b3fa8; border-color: #ddc8f2; background: #f4ebfd; }
+html[data-theme="light"] .pill.album { color: #8a5a00; border-color: #ecd7a4; background: #fbf2dd; }
+html[data-theme="light"] .cover-ph { background: linear-gradient(150deg, var(--panel-2), #e7eaf0); }
+html[data-theme="light"] .cover-ph .ph-q { color: #0b5e8f; border-color: #b8dcf2; }
+html[data-theme="light"] .nav a.active { color: var(--accent); }
+html[data-theme="light"] .menu-list button.btn-err { color: var(--err); }
+
 body {
   margin: 0;
   background: var(--bg);

@@ -162,6 +162,21 @@
     }, 3000);
   })();
 
+  /* ── 明暗主题切换：icon 随当前主题（亮色显示月亮=切到暗）──── */
+  const themeBtn = document.getElementById("theme-toggle");
+  if (themeBtn) {
+    const setIcon = function () {
+      themeBtn.textContent = document.documentElement.getAttribute("data-theme") === "light" ? "🌙" : "☀️";
+    };
+    setIcon();
+    themeBtn.addEventListener("click", function () {
+      const next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("ah-theme", next); } catch (_) { /* 隐私模式忽略 */ }
+      setIcon();
+    });
+  }
+
   /* ── 行内溢出菜单（details.menu）：点外部关闭、选中动作后收起 ── */
   document.addEventListener("click", function (e) {
     document.querySelectorAll("details.menu[open]").forEach(function (d) {

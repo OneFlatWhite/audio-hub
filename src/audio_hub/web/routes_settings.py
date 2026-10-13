@@ -5,7 +5,7 @@
 
 六类写端点，各自只接受自己那组字段：
     POST /settings/general      运行参数（模式 / 轮询 / 日志 / cookie）
-    POST /settings/paths        归档链路目录（全部需重启）
+    POST /settings/paths        归档链路目录（v0.11 起热生效：保存即建目录校验）
     POST /settings/validation   完成后文件校验
     POST /settings/scrape       刮削联动（MTW / ABS）
     POST /settings/seeding      做种 / H&R 全局默认

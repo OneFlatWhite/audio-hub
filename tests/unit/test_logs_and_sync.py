@@ -152,3 +152,37 @@ def test_sync_now_redirects_with_flash(web_env, client):
     assert "ok=synced" in resp.headers["location"]
     page = client.get("/records?ok=synced").text
     assert "已同步下载器状态" in page
+
+
+# ── 设置热生效：日志级别与归档路径 ──────────────────────────
+
+def test_log_level_is_hot(web_env, client):
+    """改日志级别：立即生效、不挂待重启横幅（v0.11 起）。"""
+    import asyncio
+
+    from audio_hub import settings_store
+    _setup_admin(client)
+    resp = client.post("/settings/general",
+                       data={"log_level": "DEBUG", "csrf_token": _csrf(client)},
+                       follow_redirects=False)
+    assert resp.status_code == 303
+    assert "saved_general" in resp.headers["location"]
+    assert app.state.config.log_level == "DEBUG"
+    assert asyncio.run(settings_store.is_restart_pending(app.state.db)) is False
+
+
+def test_path_setting_is_hot_and_creates_dir(web_env, client):
+    """改归档路径：立即生效且目录被创建（v0.11 起不再要求重启）。"""
+    import asyncio
+
+    from audio_hub import settings_store
+    _setup_admin(client)
+    new_dir = web_env / "custom-music-library"
+    resp = client.post("/settings/paths",
+                       data={"library_music": str(new_dir), "csrf_token": _csrf(client)},
+                       follow_redirects=False)
+    assert resp.status_code == 303
+    assert "saved_paths" in resp.headers["location"]
+    assert app.state.config.paths.library_music == str(new_dir)
+    assert new_dir.is_dir(), "保存后应立即建目录"
+    assert asyncio.run(settings_store.is_restart_pending(app.state.db)) is False
