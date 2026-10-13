@@ -53,6 +53,8 @@ class DiscoverWall(BaseModel):
     from_cache: bool = False
     #: 手动刷新时因「每站最短间隔」被跳过、沿用旧数据的站
     stale_sites: list[str] = Field(default_factory=list)
+    #: stale-while-revalidate：本页返回的是过期缓存，后台正在重拉（下次访问生效）
+    refreshing: bool = False
 
 
 class _SiteEntry(BaseModel):

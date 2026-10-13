@@ -31,7 +31,7 @@
   {% if q %}
   搜索「{{ q }}」· {{ cards|length }} 张卡 · {{ site_count }} 个来源站
   {% else %}
-  {{ site_count }} 个来源站 · 数据更新于 {{ wall.fetched_at|reltime }}{{ '（缓存）' if wall.from_cache }}
+  {{ site_count }} 个来源站 · 数据更新于 {{ wall.fetched_at|reltime }}{{ '（缓存）' if wall.from_cache }}{{ ' · 后台刷新中，下次打开即是新数据' if wall.refreshing }}
   {% if wall.stale_sites %} · 沿用旧数据: {{ wall.stale_sites|join('、') }}{% endif %}
   {% endif %}
   {% if rate_limited %} · <span class="warn-text" title="这些站有请求频率限制，本次未重拉，已沿用其缓存数据，稍后自动恢复">限速站: {{ rate_limited.keys()|list|join('、') }}</span>{% endif %}

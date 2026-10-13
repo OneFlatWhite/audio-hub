@@ -552,6 +552,17 @@ class TestDelete:
         _run(repo.set_task_state(app.state.db, task_id, TaskState.FAILED))
         resp = _post(client, "/downloaders/nas/delete")
         assert resp.headers["location"] == "/downloaders?ok=deleted"
+
+    def test_delete_with_completed_task_allowed(self, client):
+        """v0.12.1：已完成任务不再拦删除——历史记录保留，downloader_id 仅存档。"""
+        _add_downloader("nas", password="pw-secret")
+        _run(repo.create_task(app.state.db, Task(
+            info_hash="ef" * 20, site="hhanclub", title="周杰伦 八度空间",
+            downloader_id="nas", state=TaskState.COMPLETED,
+        )))
+        resp = _post(client, "/downloaders/nas/delete")
+        assert "ok=deleted" in resp.headers["location"]
+        assert _record("nas") is None
         assert _record("nas") is None
 
 

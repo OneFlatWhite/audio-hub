@@ -48,6 +48,16 @@
       <a href="/logs" class="{{ 'active' if active == 'logs' }}">日志</a>
       <a href="/settings" class="{{ 'active' if active == 'settings' }}">设置</a>
     </nav>
+    <div class="sidebar-foot">
+      <div class="userbox">
+        <span class="avatar">{{ (user.username or '?')[0]|upper }}</span>
+        <span class="uname" title="{{ user.username if user else '' }}">{{ user.username if user else '未登录' }}</span>
+        <form method="post" action="/logout">
+          <input type="hidden" name="csrf_token" value="{{ csrf or '' }}">
+          <button class="btn-sm btn-ghost" type="submit" title="登出当前账号">登出</button>
+        </form>
+      </div>
+    </div>
   </aside>
 
   <main class="main">
@@ -55,11 +65,6 @@
       <h1>{% block h1 %}{% endblock %}</h1>
       <button class="btn-sm" type="button" id="theme-toggle" title="切换明暗主题" aria-label="切换明暗主题">☀️</button>
       {% if dry_run %}<span class="pill low">DRY-RUN 空跑中</span>{% endif %}
-      <span class="whoami">{{ user.username if user else '' }}</span>
-      <form method="post" action="/logout" style="display:inline">
-        <input type="hidden" name="csrf_token" value="{{ csrf or '' }}">
-        <button class="btn-sm" type="submit">登出</button>
-      </form>
     </div>
 
     {% if flash_ok %}<div class="flash ok" data-autohide>{{ flash_ok }}</div>{% endif %}

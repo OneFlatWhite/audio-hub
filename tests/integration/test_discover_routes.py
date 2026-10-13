@@ -155,6 +155,42 @@ class TestRender:
         html = client.get("/discover").text
         assert "还没有可用的站点" in html and 'href="/sites"' in html
 
+    def test_stale_wall_returns_immediately_with_background_refresh(
+        self, client, fake_wall, monkeypatch,
+    ):
+        """v0.12.1 SWR：过期墙立即返回并标注「后台刷新中」，后台任务重灌缓存。"""
+        import time as _time
+        from datetime import timedelta
+
+        from audio_hub.discover.aggregator import collect_wall
+        from audio_hub.timeutil import utcnow
+
+        _setup_admin(client)
+        cache = WallCache()
+        app.state.discover_cache = cache
+        adapters = fake_wall
+        # 先灌一面有数据的墙（FakeAdapter 不触网），再回拨 fetched_at 令其过期
+        wall = asyncio.run(collect_wall(dict(adapters), "music", cache=cache, ttl=900))
+        assert wall.cards
+        key = cache.wall_key("music", adapters)
+        cache.set_wall(key, wall.model_copy(update={"fetched_at": utcnow() - timedelta(hours=2)}))
+
+        started = utcnow()
+        resp = client.get("/discover")
+        assert (utcnow() - started).total_seconds() < 5      # 不应同步等站点
+        assert resp.status_code == 200
+        assert "叶惠美" in resp.text                          # 旧数据照常渲染
+        assert "后台刷新中" in resp.text
+
+        # 后台任务把缓存灌成新墙（fetched_at 更新到当下）
+        deadline = utcnow() + timedelta(seconds=5)
+        while utcnow() < deadline:
+            wall = cache.get_wall(key)
+            if wall and (utcnow() - wall.fetched_at).total_seconds() < 30:
+                break
+            _time.sleep(0.05)
+        assert wall is not None and (utcnow() - wall.fetched_at).total_seconds() < 30
+
     def test_render_with_data(self, client, fake_wall):
         _setup_admin(client)
         html = client.get("/discover").text

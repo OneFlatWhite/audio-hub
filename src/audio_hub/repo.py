@@ -2019,20 +2019,22 @@ async def list_inflight_tasks(db, *, downloader_id: str | None = None) -> list[d
 
 
 async def count_tasks_referencing_downloader(db, downloader_id: str) -> int:
-    """仍引用该下载器的**非终态**任务数（删除保护：有在途任务的下载器不可删）。
+    """仍引用该下载器的**未完成任务**数（删除保护）。
 
-    终态 = routed / notified / rejected / failed / archived_skipped；其余都算在途
-    （discovered / scored 尚未派发也算：删了下载器它们就没地方去）。
+    v0.12.1 起只拦真正还需要这台下载器的状态：discovered / scored 尚未派发、
+    dispatched / downloading 需要完成监听对账。completed **不再拦** —— 已下载
+    完成的历史任务不该永久锁死下载器配置（删除配置后记录保留，
+    tasks.downloader_id 仅作存档字段）。
     """
-    terminal = (
-        TaskState.ROUTED.value, TaskState.NOTIFIED.value, TaskState.REJECTED.value,
-        TaskState.FAILED.value, TaskState.ARCHIVED_SKIPPED.value,
+    blocking = (
+        TaskState.DISCOVERED.value, TaskState.SCORED.value,
+        TaskState.DISPATCHED.value, TaskState.DOWNLOADING.value,
     )
-    ph = ",".join("?" * len(terminal))
+    ph = ",".join("?" * len(blocking))
     async with db.execute(
         f"SELECT COUNT(*) AS n FROM tasks "
-        f"WHERE COALESCE(downloader_id, 'default') = ? AND state NOT IN ({ph})",
-        (downloader_id, *terminal),
+        f"WHERE COALESCE(downloader_id, 'default') = ? AND state IN ({ph})",
+        (downloader_id, *blocking),
     ) as cur:
         r = await cur.fetchone()
     return int(r["n"]) if r else 0

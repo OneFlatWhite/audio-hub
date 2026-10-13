@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from loguru import logger
@@ -17,6 +19,7 @@ from ..discover.aggregator import WallCache, collect_wall, search_wall
 from ..discover.covers import covers_dir, fill_covers, is_valid_key, read_meta
 from ..models import SubType, WatchEntry, WatchKind
 from ..pipeline.title_parser import album_key, normalize_key
+from ..timeutil import utcnow
 from .deps import get_config, get_db, require_user, verify_csrf
 from .routes_pages import _common
 from .routes_subscriptions import _search_one
@@ -99,6 +102,40 @@ def _wall_cache(request: Request) -> WallCache:
     return cache
 
 
+def _kick_background_refresh(request: Request, adapters, kind: str,
+                             cache: WallCache, ttl: float) -> None:
+    """后台静默重拉一面过期的墙（stale-while-revalidate 的 R）。
+
+    同一面墙同一时刻只跑一个刷新任务（app.state 去重），每站最短间隔
+    照常生效——刚拉过的站沿用缓存，后台任务通常很便宜。失败只记日志：
+    页面手里还有旧数据，下一次访问会再次触发。
+    """
+    state = request.app.state
+    inflight: set = getattr(state, "discover_refreshing", None)
+    if inflight is None:
+        inflight = set()
+        state.discover_refreshing = inflight
+    key = cache.wall_key(kind, adapters)
+    if key in inflight:
+        return
+    inflight.add(key)
+
+    async def _job() -> None:
+        try:
+            config = state.config
+            await collect_wall(
+                adapters, kind, cache=cache, ttl=ttl, force_refresh=True,
+                refresh_min_interval=config.discover.refresh_min_interval_minutes * 60,
+            )
+            logger.info(f"发现墙后台刷新完成（kind={kind}）")
+        except Exception as e:  # noqa: BLE001 - 后台刷新失败不影响页面旧数据
+            logger.warning(f"发现墙后台刷新失败（kind={kind}）: {e}")
+        finally:
+            inflight.discard(key)
+
+    asyncio.create_task(_job())
+
+
 def _subscribed_index(entries: list[WatchEntry], kind: str) -> tuple[set[str], set[str]]:
     """已订阅判定索引：(歌手/作者键集合, 专辑/书键集合)，只收启用中的订阅。
 
@@ -163,10 +200,21 @@ async def discover_page(
         # 搜索模式：跨站主动搜索，不读墙缓存（结果随关键词变化，缓存无意义）
         wall = await search_wall(adapters, kind, q)
     else:
-        wall = await collect_wall(
-            adapters, kind, cache=_wall_cache(request),
-            ttl=config.discover.cache_ttl_minutes * 60,
-        )
+        # stale-while-revalidate（v0.12.1）：页面永远立即返回——
+        # 缓存新鲜直接用；过期/缺失但有旧数据时先回旧数据、后台静默重拉
+        # （下次访问生效）；彻底无缓存（首访）才同步拉取。
+        cache = _wall_cache(request)
+        ttl = config.discover.cache_ttl_minutes * 60
+        key = cache.wall_key(kind, adapters)
+        cached = cache.get_wall(key)
+        fresh = cached is not None and (utcnow() - cached.fetched_at).total_seconds() < ttl
+        if fresh:
+            wall = cached.model_copy(update={"from_cache": True})
+        elif cached is not None:
+            wall = cached.model_copy(update={"from_cache": True, "refreshing": True})
+            _kick_background_refresh(request, adapters, kind, cache, ttl)
+        else:
+            wall = await collect_wall(adapters, kind, cache=cache, ttl=ttl)
 
     all_sites = sorted({s for c in wall.cards for s in c.sites})
     cards = wall.cards
