@@ -4,11 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>登录 · audio-hub</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='/logo.svg') }}">
 <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v={{ version }}">
 </head>
 <body>
 <div class="center">
   <div class="authbox">
+    <img class="auth-logo" src="{{ url_for('static', path='/logo.svg') }}" alt="audio-hub">
     <h1>audio-hub</h1>
     <p class="sub">音频获取中枢 · 请登录</p>
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from .base import AdapterError, BaseAdapter
+from .base import BaseAdapter
 from .mteam import MTeamAdapter
 from .nexusphp import NexusPhpAdapter
 
@@ -48,16 +48,18 @@ def resolve_site_name(raw: str) -> str:
 def build_adapter(site_config: SiteConfig) -> BaseAdapter:
     """根据 SiteConfig 构造对应适配器实例。
 
+    未注册的站点按 NexusPHP 适配器处理 —— 与 registry_store.adapter_type_for
+    的回退一致（v0.12 起支持自定义 NexusPHP 站点：站名任意、domain + cookie
+    由用户填写）。mteam 等特殊架构仍须在此注册。
+
     Raises:
-        AdapterError: 站点名未注册
+        AdapterError: 适配器构造失败（配置问题，而非「未注册」）
     """
     name = resolve_site_name(site_config.name)
     cls = _ADAPTER_CLASS_MAP.get(name)
     if cls is None:
-        raise AdapterError(
-            f"未注册的站点: {site_config.name!r}（归一化后 {name!r}）。"
-            f"已支持: {sorted(_ADAPTER_CLASS_MAP)}"
-        )
+        logger.info(f"站点 {site_config.name!r} 未注册，按 NexusPHP 适配器处理")
+        cls = NexusPhpAdapter
     # 适配器内部用归一化后的名字，保证 site 字段一致
     site_config = site_config.model_copy(update={"name": name})
     return cls(site_config)
@@ -140,13 +142,10 @@ _CLASS_TO_KIND = {
 def site_credential_kinds(site_name: str) -> dict[str, bool]:
     """返回该站点需要的凭据：{字段名: 是否必需}。
 
-    未注册的站点返回空 dict（无法判断，界面据此只给开关不给凭据框）。
+    未注册的站点按 NexusPHP 处理（rss_url 必需），与 build_adapter 的
+    回退一致 —— 自定义站点据此出现凭据输入框。
     """
     name = resolve_site_name(site_name)
     cls = _ADAPTER_CLASS_MAP.get(name)
-    if cls is None:
-        return {}
-    kind = _CLASS_TO_KIND.get(cls.__name__)
-    if kind is None:
-        return {}
+    kind = _CLASS_TO_KIND.get(cls.__name__) if cls is not None else "nexusphp"
     return dict(_CREDENTIAL_KINDS.get(kind, {}))

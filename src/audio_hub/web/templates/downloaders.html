@@ -46,7 +46,7 @@
             <form method="post" action="/downloaders/{{ d.id }}/toggle" style="display:inline">
               <input type="hidden" name="csrf_token" value="{{ csrf }}">
               <input type="hidden" name="enabled" value="0">
-              <button class="btn-sm" type="submit" {% if d.is_default %}disabled title="默认下载器不可禁用"{% endif %}>禁用</button>
+              <button class="btn-sm" type="submit">禁用</button>
             </form>
           {% else %}
             <form method="post" action="/downloaders/{{ d.id }}/toggle" style="display:inline">
@@ -67,9 +67,8 @@
               <form method="post" action="/downloaders/{{ d.id }}/delete">
                 <input type="hidden" name="csrf_token" value="{{ csrf }}">
                 <button class="btn-err" type="submit"
-                        {% if d.is_default %}disabled title="默认下载器不可删除，请先把其它下载器设为默认"
-                        {% elif d.active_tasks %}disabled title="仍有 {{ d.active_tasks }} 个活跃任务引用"
-                        {% else %}data-confirm="删除下载器 {{ d.name }}？已归档任务的记录保留，仅删除连接配置。"{% endif %}>删除</button>
+                        {% if d.active_tasks %}disabled title="仍有 {{ d.active_tasks }} 个活跃任务引用"
+                        {% else %}data-confirm="删除下载器 {{ d.name }}？若它是默认，将自动切换到其它已启用的下载器。"{% endif %}>删除</button>
               </form>
             </div>
           </details>

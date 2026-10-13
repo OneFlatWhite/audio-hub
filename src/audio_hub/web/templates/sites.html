@@ -96,12 +96,8 @@
 {% if is_admin %}
 <div class="panel">
   <h2>添加站点</h2>
-  {% if addable %}
-    <a class="btn btn-primary" href="/sites/new">新建站点</a>
-    <span class="hint" style="margin-left:10px">可添加：{% for n in addable %}<span class="mono">{{ site_labels[n] if n in site_labels else n }}</span>{% if not loop.last %}、{% endif %}{% endfor %}</span>
-  {% else %}
-    <p class="hint">所有已支持的站点都已添加。</p>
-  {% endif %}
+  <a class="btn btn-primary" href="/sites/new">新建站点</a>
+  <span class="hint" style="margin-left:10px">已注册站点从向导下拉选；任意 NexusPHP 架构的其它站点，直接输入自定义标识 + 域名即可，凭据与认证在向导里完成。</span>
 </div>
 {% endif %}
 {% endblock %}

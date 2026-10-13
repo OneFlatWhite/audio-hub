@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -84,6 +85,7 @@ _FLASH_ERR = {
     "search_failed": "搜索测试失败",
     "empty_keyword": "请输入搜索关键字",
     "auth_required": "启用前必须先通过「测试认证」：当前认证状态不是有效，服务端已拒绝启用",
+    "custom_need_domain": "自定义站点必须填写域名（https://…）：没有注册表默认值可依托",
     "secrets_key": "无法加密凭据：密钥文件不存在或不可读。请检查 AUDIO_HUB_SECRETS_KEY。",
 }
 
@@ -146,8 +148,12 @@ def _parse_site_form(
 ) -> SiteConfig:
     """表单 → SiteConfig。凭据留空表示不修改（upsert_site 自己保留库中值）。"""
     sid = resolve_site_name(name)
-    if sid not in supported_sites():
-        raise _FormError("bad_name")
+    if not _is_known_site(sid):
+        # 自定义 NexusPHP 站点：id 合法 + 域名必填（注册表没有默认域名可依托）
+        if not _CUSTOM_ID_RE.match(sid):
+            raise _FormError("bad_name")
+        if not domain.strip():
+            raise _FormError("custom_need_domain")
 
     domain = domain.strip()
     if domain and not _is_http_url(domain):
@@ -298,6 +304,14 @@ async def _save(db, cfg: SiteConfig, *, site_id: str, request: Request) -> None:
     await settings_store.rebuild_adapters(request.app)
 
 
+#: 自定义站点 id 规则（与下载器 id 同款）；不匹配又不属于已注册站点 → bad_name
+_CUSTOM_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def _is_known_site(sid: str) -> bool:
+    return sid in supported_sites()
+
+
 @router.post("/sites")
 async def site_create(
     request: Request,
@@ -311,7 +325,7 @@ async def site_create(
     user: dict = Depends(require_admin_csrf), db=Depends(get_db),
 ):
     sid = resolve_site_name(name)
-    if sid not in supported_sites():
+    if not _is_known_site(sid) and not _CUSTOM_ID_RE.match(sid):
         return _redirect("/sites/new", err="bad_name")
     if await repo.site_exists(db, sid):
         return _redirect(f"/sites/{sid}/edit", err="exists")

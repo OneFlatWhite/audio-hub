@@ -6,6 +6,7 @@
 {# CSRF token 下发给前端（HttpOnly cookie 里读不到，故走 meta）#}
 <meta name="csrf-token" content="{{ csrf or '' }}">
 <title>{% block title %}audio-hub{% endblock %}</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='/logo.svg') }}">
 {# 主题在样式表加载前定档（localStorage → 系统偏好），避免首帧闪错色 #}
 <script>
 (function(){try{var t=localStorage.getItem("ah-theme");if(!t){t=window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark";}document.documentElement.setAttribute("data-theme",t);}catch(e){}})();
@@ -15,7 +16,13 @@
 <body {% block body_attr %}{% endblock %}>
 <div class="wrap">
   <aside class="sidebar">
-    <div class="brand">audio-hub<small>v{{ version }} · 获取中枢</small></div>
+    <div class="brand">
+      <div class="brand-row">
+        <img class="logo" src="{{ url_for('static', path='/logo.svg') }}" alt="">
+        <span>audio-hub</span>
+      </div>
+      <small>v{{ version }} · 获取中枢</small>
+    </div>
     <nav class="nav">
       <div class="nav-title">内容</div>
       <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}">总览</a>

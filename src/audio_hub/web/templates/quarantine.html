@@ -4,6 +4,11 @@
 {% block h1 %}隔离区{% endblock %}
 
 {% block content %}
+<p class="hint" style="margin:-6px 0 14px">
+  隔离区是质量闸口的「人工复核区」：任务下载完成后会做文件校验（假无损 / 空包 / 扩展名），
+  校验不通过的内容被移到隔离目录等待你处理——<b>放行</b>则继续归档入库，<b>丢弃</b>则删除隔离副本。
+  下载器里的原种与做种不受影响。
+</p>
 <div class="cards" style="margin-bottom:18px">
   <div class="card {{ 'warn' if status_counts.held }}"><div class="n">{{ status_counts.held }}</div><div class="l">待处理</div></div>
   <div class="card"><div class="n">{{ status_counts.released }}</div><div class="l">已放行</div></div>

@@ -8,9 +8,9 @@
   （repo.upsert_downloader 默认 overwrite_empty_secrets=False）。
 - 删除保护（服务端兜底，页面按钮只是提示）：
   · 仍有非终态任务引用 → 拒绝（它们完成后还要靠这台下载器对账 / 归档）
-  · 默认下载器 → 拒绝（先把别的设为默认）
-  · 最后一个已启用的下载器 → 拒绝（删了就没地方派发）
-  禁用默认下载器同样被拒：registry.default() 会回落，但「默认却关着」语义混乱。
+  · 默认下载器 → **自动继任**给优先级最高的其它已启用者（v0.12 起），
+    没有可继任者且自己是最后一个已启用 → 拒绝（删了就没地方派发）
+  禁用默认同样自动继任；「设为默认」仍要求目标处于启用状态。
 - 测试连接走 downloaders.probe.probe_downloader（按类型分流，只读），结果落
   last_test_json 供列表展示版本 / 剩余空间，并作为「状态」列的依据。
 """
@@ -362,6 +362,20 @@ async def downloader_test(
 
 # ── 默认 / 启用 / 删除 ──────────────────────────────────────
 
+async def _promote_next_default(db, *, exclude: str) -> str | None:
+    """把优先级最高的其它已启用下载器提为默认；没有可继任者返回 None。
+
+    v0.12 起「默认」不再是删除 / 禁用的死锁：默认下载器退场时自动继任，
+    只有最后一个已启用的下载器才拒绝退场（删了就真没地方派发了）。
+    """
+    others = [r for r in await repo.list_downloaders(db, enabled_only=True)
+              if r.id != exclude]
+    if not others:
+        return None
+    nxt = others[0]          # list_downloaders 已按 is_default DESC, priority DESC, name 排序
+    await repo.set_default_downloader(db, nxt.id)
+    return nxt.id
+
 @router.post("/downloaders/{downloader_id}/set-default")
 async def downloader_set_default(
     downloader_id: str, request: Request,
@@ -388,13 +402,19 @@ async def downloader_toggle(
         return _redirect("/downloaders", err="notfound")
     want = enabled in ("1", "true", "on", "yes")
     back = _back(request, downloader_id)
+    promoted = None
     if not want and rec.is_default:
-        return _redirect(back, err="is_default")
+        # 禁用默认 → 自动继任；没有其它已启用下载器才拒绝（最后一个不能关）
+        promoted = await _promote_next_default(db, exclude=downloader_id)
+        if promoted is None:
+            return _redirect(back, err="last_enabled")
     if want != rec.enabled:
-        await repo.upsert_downloader(db, _cfg_from_record(rec, enabled=want))
+        cfg = _cfg_from_record(rec, enabled=want, **({"is_default": False} if promoted else {}))
+        await repo.upsert_downloader(db, cfg)
         await settings_store.rebuild_downloaders(request.app)
         logger.info(f"下载器 {downloader_id} {'启用' if want else '禁用'}（by {user['username']}）")
-    return _redirect(back, ok="enabled" if want else "disabled")
+    detail = f"默认下载器已自动切换为 {promoted}" if promoted else None
+    return _redirect(back, ok="enabled" if want else "disabled", detail=detail)
 
 
 @router.post("/downloaders/{downloader_id}/delete")
@@ -405,16 +425,21 @@ async def downloader_delete(
     rec = await repo.get_downloader(db, downloader_id)
     if rec is None:
         return _redirect("/downloaders", err="notfound")
-    if rec.is_default:
-        return _redirect("/downloaders", err="is_default")
+    # 最后一个已启用的下载器不可删（删了就真没地方派发）——通用兜底
     enabled_others = [r for r in await repo.list_downloaders(db, enabled_only=True)
                       if r.id != downloader_id]
     if rec.enabled and not enabled_others:
         return _redirect("/downloaders", err="last_enabled")
+    # 默认也可删：先自动继任给优先级最高的其它已启用者
+    promoted = None
+    if rec.is_default:
+        promoted = await _promote_next_default(db, exclude=downloader_id)
     n = await repo.count_tasks_referencing_downloader(db, downloader_id)
     if n:
         return _redirect("/downloaders", err="has_tasks", detail=f"{n} 个在途任务")
     await repo.delete_downloader(db, downloader_id)
     await settings_store.rebuild_downloaders(request.app)
-    logger.info(f"删除下载器 {downloader_id}（by {user['username']}）")
-    return _redirect("/downloaders", ok="deleted")
+    detail = f"默认下载器已自动切换为 {promoted}" if promoted else None
+    logger.info(f"删除下载器 {downloader_id}（by {user['username']}）"
+                + (f"，默认已继任为 {promoted}" if promoted else ""))
+    return _redirect("/downloaders", ok="deleted", detail=detail)

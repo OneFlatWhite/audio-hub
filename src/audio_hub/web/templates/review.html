@@ -3,6 +3,11 @@
 {% block h1 %}待审队列{% endblock %}
 
 {% block content %}
+<p class="hint" style="margin:-6px 0 14px">
+  订阅命中后按置信度分流：<b>high 置信且订阅开了「自动下载」的会直接派发</b>，不经过本页；
+  只有 medium / low 置信、或订阅关闭了自动下载的候选才会进这里等你裁决。
+  队列长期为空说明当前订阅全是自动派发，属正常现象。
+</p>
 <div class="panel">
   <h2>键盘操作</h2>
   <p class="hint">

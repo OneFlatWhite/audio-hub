@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="audio-hub">
+  <!-- audio-hub logo：红釉圆角瓷片 + 音符电波（枢纽向外播撒） -->
+  <defs>
+    <linearGradient id="ah-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c5393f"/>
+      <stop offset="1" stop-color="#8f171c"/>
+    </linearGradient>
+    <linearGradient id="ah-gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".28"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="58" height="58" rx="15" fill="url(#ah-tile)"/>
+  <rect x="3" y="3" width="58" height="30" rx="15" fill="url(#ah-gloss)"/>
+  <rect x="3.75" y="3.75" width="56.5" height="56.5" rx="14.25" fill="none"
+        stroke="#ffffff" stroke-opacity=".22" stroke-width="1.5"/>
+  <!-- 电波：枢纽向外两道弧 -->
+  <path d="M20.5 26.5a16 16 0 0 1 23 0" fill="none" stroke="#ffffff"
+        stroke-width="4.2" stroke-linecap="round" opacity=".55"/>
+  <path d="M26 32a9 9 0 0 1 12 0" fill="none" stroke="#ffffff"
+        stroke-width="4.2" stroke-linecap="round" opacity=".9"/>
+  <!-- 音符：符头 + 笔直符干 -->
+  <circle cx="27.5" cy="43.5" r="5.2" fill="#ffffff"/>
+  <path d="M32.7 43.5V25.5" fill="none" stroke="#ffffff" stroke-width="4.2" stroke-linecap="round"/>
+</svg>

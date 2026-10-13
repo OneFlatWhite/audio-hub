@@ -470,9 +470,20 @@ class TestSetDefaultAndToggle:
         assert _record("nas").enabled is True
         assert app.state.downloaders.get("nas").config.enabled is True
 
-    def test_disable_default_rejected(self, client):
+    def test_disable_default_promotes_next(self, client):
+        """v0.12：禁用默认 → 自动继任给其它已启用者，不再死锁。"""
+        _add_downloader("nas", password="pw-secret", priority=5)
         resp = _post(client, "/downloaders/default/toggle", {"enabled": "0"})
-        assert "err=is_default" in resp.headers["location"]
+        assert "ok=disabled" in resp.headers["location"]
+        assert "detail=" in resp.headers["location"]      # flash 携带继任说明
+        assert _record("default").enabled is False
+        assert _record("default").is_default is False
+        assert _record("nas").is_default is True
+
+    def test_disable_default_last_enabled_rejected(self, client):
+        """默认且是唯一已启用 → 禁用仍拒绝（关了就没地方派发）。"""
+        resp = _post(client, "/downloaders/default/toggle", {"enabled": "0"})
+        assert "err=last_enabled" in resp.headers["location"]
         assert _record("default").enabled is True
 
     def test_toggle_notfound(self, client):
@@ -496,9 +507,18 @@ class TestDelete:
         resp = _post(client, "/downloaders/ghost/delete")
         assert resp.headers["location"] == "/downloaders?err=notfound"
 
-    def test_delete_default_rejected(self, client):
+    def test_delete_default_promotes_next(self, client):
+        """v0.12：删除默认 → 自动继任，不再要求先手动切换默认。"""
+        _add_downloader("nas", password="pw-secret", priority=5)
         resp = _post(client, "/downloaders/default/delete")
-        assert "err=is_default" in resp.headers["location"]
+        assert "ok=deleted" in resp.headers["location"]
+        assert _record("default") is None
+        assert _record("nas").is_default is True
+
+    def test_delete_default_last_enabled_rejected(self, client):
+        """默认且是唯一已启用 → 删除仍拒绝（last_enabled 兜底）。"""
+        resp = _post(client, "/downloaders/default/delete")
+        assert "err=last_enabled" in resp.headers["location"]
         assert _record("default") is not None
 
     def test_delete_last_enabled_rejected(self, client):

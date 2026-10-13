@@ -388,8 +388,26 @@ class TestEditFlow:
     def test_create_rejects_duplicate_and_unknown(self, client):
         resp = _post(client, "/sites", {"name": "hhanclub", "max_rows": "50"})
         assert "err=exists" in resp.headers["location"]
-        resp = _post(client, "/sites", {"name": "fakesite", "max_rows": "50"})
+
+    def test_create_custom_site(self, client):
+        """v0.12：自定义 NexusPHP 站点 —— id 合法 + 域名必填即可创建。"""
+        # 无域名 → 拒绝（自定义站没有注册表默认域名）
+        resp = _post(client, "/sites", {"name": "mysite", "max_rows": "50"})
+        assert "err=custom_need_domain" in resp.headers["location"]
+        # 非法 id → 拒绝
+        resp = _post(client, "/sites", {"name": "Bad Site!", "domain": "https://x.org"})
         assert "err=bad_name" in resp.headers["location"]
+        # 合法自定义站 → 创建成功，适配器类型按 NexusPHP 落库
+        resp = _post(client, "/sites", {
+            "name": "mysite", "domain": "https://mysite.org", "max_rows": "50",
+        })
+        assert "err=created" not in resp.headers["location"]
+        assert "/sites/mysite/edit" in resp.headers["location"]
+        rec = _record("mysite")
+        assert rec is not None and rec.adapter_type == "nexusphp"
+        # 未注册站名的凭据需求回退为 nexusphp（界面出现 RSS / Cookie 输入）
+        from audio_hub.adapters.registry import site_credential_kinds
+        assert site_credential_kinds("mysite") == {"rss_url": True}
 
     @pytest.mark.parametrize("field,value,err", [
         ("rss_url", "hhanclub.net/rss?passkey=X", "bad_rss_url"),

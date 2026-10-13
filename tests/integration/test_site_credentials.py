@@ -144,8 +144,9 @@ class TestCredentialKinds:
     def test_site_alias_resolved(self):
         assert site_credential_kinds("馒头") == site_credential_kinds("mteam")
 
-    def test_unknown_site_returns_empty(self):
-        assert site_credential_kinds("nonexistent_site") == {}
+    def test_unknown_site_falls_back_to_nexusphp(self):
+        """v0.12：未注册站点按 NexusPHP 处理（与 build_adapter 回退一致）。"""
+        assert site_credential_kinds("nonexistent_site") == {"rss_url": True}
 
 
 # ── 凭据写入与加密（sites 表）────────────────────────────────
