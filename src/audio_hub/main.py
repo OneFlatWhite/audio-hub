@@ -38,6 +38,7 @@ from .notify import rebuild_push_sinks as _rebuild_push_sinks
 from .scheduler import PipelineRunner, build_scheduler
 from .web import (
     routes_auth,
+    routes_discover,
     routes_downloaders,
     routes_events,
     routes_library,
@@ -201,6 +202,7 @@ mount_web_assets(app, build_templates())
 app.add_exception_handler(NotAuthenticated, not_authenticated_handler)
 app.include_router(routes_auth.router)
 app.include_router(routes_pages.router)
+app.include_router(routes_discover.router)
 app.include_router(routes_settings.router)
 app.include_router(routes_library.router)
 app.include_router(routes_quarantine.router)

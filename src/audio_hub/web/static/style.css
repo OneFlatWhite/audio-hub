@@ -270,3 +270,72 @@ details.adv > summary:hover { color: var(--text); }
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr); gap: 18px; }
 @media (max-width: 1000px) { .detail-grid { grid-template-columns: 1fr; } }
 .hits .trunc { max-width: 380px; }
+
+
+/* ── 发现墙（v0.7）────────────────────────────────────── */
+
+/* 顶部：类型 tab + 刷新 */
+.discover-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; }
+.tabs { display: flex; gap: 4px; }
+.tab {
+  padding: 5px 16px; border-radius: 6px; color: var(--muted); font-weight: 600;
+  border: 1px solid transparent;
+}
+.tab:hover { color: var(--text); text-decoration: none; }
+.tab.active { color: var(--text); background: var(--panel-2); border-color: var(--border); }
+
+/* 站点筛选 chips */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.chip {
+  padding: 2px 12px; border-radius: 12px; font-size: 12px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.chip:hover { color: var(--text); text-decoration: none; border-color: var(--accent); }
+.chip.active { color: var(--text); border-color: var(--accent); background: rgba(79,140,255,.10); }
+
+/* 卡片墙：纯 CSS grid，无 CDN */
+.discover-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+}
+.discover-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.discover-card:hover { border-color: var(--accent); }
+
+/* 封面：占位卡（歌手首字 + 音质徽章）永远在底层，
+   img 加载失败 onerror 移除自身后即露出占位，无需额外 JS。 */
+.discover-cover { position: relative; aspect-ratio: 1 / 1; background: var(--panel-2); }
+.discover-cover img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+}
+.cover-ph {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  background: linear-gradient(150deg, var(--panel-2), #141821);
+}
+.cover-ph .ph-char { font-size: 44px; font-weight: 700; color: var(--muted); }
+.cover-ph .ph-q {
+  font-size: 11px; font-weight: 700; color: #7fd1ff;
+  border: 1px solid #2b4a5e; border-radius: 10px; padding: 1px 8px;
+}
+
+.discover-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+.d-title {
+  font-weight: 600; font-size: 13px; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.d-artist { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d-badges { display: flex; flex-wrap: wrap; gap: 4px; }
+.d-meta { font-size: 11.5px; }
+.d-actions { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; }
+.d-actions form { flex: 1; margin: 0; }
+.d-actions button { width: 100%; }
+
+/* 空态引导卡 */
+.empty-state { text-align: center; padding: 34px 18px; }
+.empty-state p { margin: 6px 0; }
+.empty-state .btn { display: inline-block; margin-top: 10px; }
+.err-text { color: var(--err); }

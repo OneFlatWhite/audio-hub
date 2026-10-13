@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}发现 · audio-hub{% endblock %}
+{% block h1 %}发现墙{% endblock %}
+
+{% block content %}
+{# 类型 tab + 刷新按钮 #}
+<div class="panel discover-bar">
+  <div class="tabs">
+    {% for k, label in kind_tabs %}
+    <a class="tab {{ 'active' if kind == k }}" href="/discover?kind={{ k }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+  <form method="post" action="/discover/refresh" style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <button class="btn-sm" type="submit" title="逐站重拉 RSS；同一站 5 分钟内刚拉过则沿用旧数据">刷新</button>
+  </form>
+</div>
+
+{# 缓存元信息行 #}
+<div class="muted" style="font-size:12px;margin:-8px 0 14px">
+  {{ site_count }} 个来源站 · 数据更新于 {{ wall.fetched_at|reltime }}{{ '（缓存）' if wall.from_cache }}
+  {% if wall.stale_sites %} · 沿用旧数据: {{ wall.stale_sites|join('、') }}{% endif %}
+  {% if wall.site_errors %} · <span class="err-text">失败站: {{ wall.site_errors.keys()|list|join('、') }}</span>{% endif %}
+</div>
+
+{% if no_sites %}
+<div class="panel empty-state">
+  <p><b>还没有可用的站点。</b></p>
+  <p class="muted">发现墙展示的是你订阅的 PT 站上真实存在的最新上架。先去站点中心启用一个站点并通过认证。</p>
+  <a class="btn btn-primary" href="/sites">去 /sites 启用站点</a>
+</div>
+{% else %}
+
+{# 站点筛选 chips #}
+{% if all_sites %}
+<div class="chips">
+  <a class="chip {{ 'active' if not current_site }}" href="/discover?kind={{ kind }}">全部站点</a>
+  {% for s in all_sites %}
+  <a class="chip {{ 'active' if current_site == s }}" href="/discover?kind={{ kind }}&site={{ s }}">{{ s }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if cards %}
+<div class="discover-grid">
+  {% for card in cards %}
+  {% set st = card_states.get(card.album_key, {}) %}
+  <div class="discover-card">
+    <div class="discover-cover">
+      <div class="cover-ph">
+        <span class="ph-char">{{ (card.artist or card.title or '?')[0] }}</span>
+        {% if card.quality_tag %}<span class="ph-q">{{ quality_labels.get(card.quality_tag, card.quality_tag) }}</span>{% endif %}
+      </div>
+      {% if card.cover %}
+      <img src="{{ card.cover }}" alt="{{ card.title }}" loading="lazy" onerror="this.remove()">
+      {% endif %}
+    </div>
+    <div class="discover-body">
+      <div class="d-title" title="{{ card.title }}">{{ card.title }}</div>
+      <div class="d-artist muted">{{ card.artist or '未知' + ('歌手' if kind == 'music' else '作者') }}</div>
+      <div class="d-badges">
+        {% if card.quality_tag %}<span class="pill music">{{ quality_labels.get(card.quality_tag, card.quality_tag) }}</span>{% endif %}
+        {% if card.discount.value in discount_labels %}<span class="pill free">{{ discount_labels[card.discount.value] }}</span>{% endif %}
+        {% if card.seeders is not none %}<span class="pill" title="做种数">↑{{ card.seeders }}</span>{% endif %}
+      </div>
+      <div class="d-meta muted">
+        {{ card.sites|join('、') }} · {{ card.pub_date|reltime }}
+        {% if card.size_bytes %} · {{ card.size_bytes|filesize }}{% endif %}
+      </div>
+      <div class="d-actions">
+        {% if kind == 'music' %}
+        <form method="post" action="/discover/subscribe">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="kind" value="{{ kind }}">
+          <input type="hidden" name="sub_type" value="artist">
+          <input type="hidden" name="artist" value="{{ card.artist }}">
+          <button class="btn-sm" type="submit" {{ 'disabled' if (st.artist_subbed or not card.artist) }}
+                  title="{{ '已在订阅中' if st.artist_subbed else ('解析不出歌手名' if not card.artist else '持续追踪该歌手的新专辑') }}">
+            {{ '已订阅 ✓' if st.artist_subbed else '追踪歌手' }}</button>
+        </form>
+        <form method="post" action="/discover/subscribe">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="kind" value="{{ kind }}">
+          <input type="hidden" name="sub_type" value="album">
+          <input type="hidden" name="artist" value="{{ card.artist }}">
+          <input type="hidden" name="album" value="{{ card.title }}">
+          <button class="btn-sm" type="submit" {{ 'disabled' if st.album_subbed }}
+                  title="{{ '已在订阅中' if st.album_subbed else '仅此专辑，拿到即完成' }}">
+            {{ '已订阅 ✓' if st.album_subbed else '仅此专辑' }}</button>
+        </form>
+        {% else %}
+        <form method="post" action="/discover/subscribe">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="kind" value="{{ kind }}">
+          <input type="hidden" name="sub_type" value="artist">
+          <input type="hidden" name="artist" value="{{ card.artist }}">
+          <button class="btn-sm" type="submit" {{ 'disabled' if (st.artist_subbed or not card.artist) }}
+                  title="{{ '已在订阅中' if st.artist_subbed else ('解析不出作者名' if not card.artist else '持续追踪该作者的作品') }}">
+            {{ '已订阅 ✓' if st.artist_subbed else '追踪作者' }}</button>
+        </form>
+        <form method="post" action="/discover/subscribe">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <input type="hidden" name="kind" value="{{ kind }}">
+          <input type="hidden" name="sub_type" value="album">
+          <input type="hidden" name="artist" value="{{ card.artist }}">
+          <input type="hidden" name="album" value="{{ card.title }}">
+          <button class="btn-sm" type="submit" {{ 'disabled' if st.album_subbed }}
+                  title="{{ '已在订阅中' if st.album_subbed else '仅此书，拿到即完成' }}">
+            {{ '已订阅 ✓' if st.album_subbed else '仅此书' }}</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="panel empty-state">
+  <p><b>没有抓到内容。</b></p>
+  {% if wall.site_errors %}
+  <p class="muted">以下站点拉取失败：{% for s, err in wall.site_errors.items() %}{{ s }}（{{ err }}）{% if not loop.last %}、{% endif %}{% endfor %}</p>
+  {% else %}
+  <p class="muted">各站 RSS 里暂时没有判别为「{{ '音乐' if kind == 'music' else '有声书' }}」的新上架。</p>
+  {% endif %}
+  <form method="post" action="/discover/refresh" style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <input type="hidden" name="kind" value="{{ kind }}">
+    <button class="btn-sm" type="submit">刷新重试</button>
+  </form>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

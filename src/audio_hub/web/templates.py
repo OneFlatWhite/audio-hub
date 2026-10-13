@@ -29,6 +29,8 @@ def build_templates() -> Jinja2Templates:
     templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
     # 全局过滤器：字节数转人类可读
     templates.env.filters["filesize"] = _filesize
+    # 全局过滤器：相对时间（发现墙「3 天前」这类展示）
+    templates.env.filters["reltime"] = _reltime
     # 版本号单一真源：侧边栏 brand 与 /health 都读 __init__.__version__，
     # 模板里不再写死字面量（v0.2 时曾因此与 /health 不一致）。
     templates.env.globals["version"] = __version__
@@ -52,3 +54,24 @@ def _filesize(n: int | None) -> str:
             return f"{f:.0f} {u}" if u == "B" else f"{f:.1f} {u}"
         f /= 1024
     return f"{f:.1f} TB"
+
+
+def _reltime(dt) -> str:
+    """datetime → 相对时间（'3 天前'）。naive 输入按 UTC 处理；空值为 '—'。"""
+    if not dt:
+        return "—"
+    from datetime import UTC
+
+    from ..timeutil import utcnow
+    if getattr(dt, "tzinfo", None) is None:
+        dt = dt.replace(tzinfo=UTC)
+    secs = max((utcnow() - dt).total_seconds(), 0)
+    if secs < 60:
+        return "刚刚"
+    if secs < 3600:
+        return f"{int(secs // 60)} 分钟前"
+    if secs < 86400:
+        return f"{int(secs // 3600)} 小时前"
+    if secs < 30 * 86400:
+        return f"{int(secs // 86400)} 天前"
+    return dt.strftime("%Y-%m-%d")
