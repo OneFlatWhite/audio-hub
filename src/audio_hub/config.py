@@ -159,6 +159,20 @@ class SeedingConfig(BaseModel):
     on_satisfied: Literal["keep", "pause"] = "keep"
 
 
+class DiscoverConfig(BaseModel):
+    """发现墙（v0.7，/discover 页）。
+
+    封面缓存目录不在此处配置：固定取 db_path 同级的 covers/（即 config.yaml
+    所在目录），跟随数据卷走，少一个需要解释的路径键。
+    """
+    #: 封面来源：itunes（免费无 key，服务端代理 + 磁盘缓存）/ none（全部占位卡）
+    cover_provider: Literal["itunes", "none"] = "itunes"
+    #: 发现墙进程内缓存 TTL（分钟），期内重复打开页面不再请求站点
+    cache_ttl_minutes: int = 15
+    #: 手动刷新的每站最短间隔（分钟）：同一站期内被刷新过则沿用旧数据并标注
+    refresh_min_interval_minutes: int = 5
+
+
 #: 通知事件种类的全集，也是设置页 notify.kinds 的合法值集合。
 #: 与代码里实际产出的事件一一对应（grep `Event(kind=` / `EVENT_*` 常量核对）；
 #: "test" 是推送测试专用、不落事件流，不在其列。
@@ -223,6 +237,7 @@ class AppConfig(BaseModel):
     scrape: ScrapeConfig = Field(default_factory=ScrapeConfig)
     seeding: SeedingConfig = Field(default_factory=SeedingConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
+    discover: DiscoverConfig = Field(default_factory=DiscoverConfig)
 
     @model_validator(mode="before")
     @classmethod

@@ -23,6 +23,14 @@ search:
   subscription_scan_minutes: 15   # 订阅主动搜索（subscription_search job）间隔，分钟
   auth_check_hours: 24            # 站点认证巡检（site_auth_check job）间隔，小时
 
+# ── 发现墙（/discover 页，v0.7）────────────────────────────────────────
+# 封面缓存目录固定为 db_path 同级的 covers/（即本文件所在目录），无需配置。
+discover:
+  cover_provider: "itunes"        # itunes=经 iTunes Search API 补封面（免费无 key，
+                                  # 服务端代理 + 磁盘缓存，失败降级占位卡）；none=全部占位卡
+  cache_ttl_minutes: 15           # 墙数据进程内缓存 TTL，期内打开页面不再请求站点
+  refresh_min_interval_minutes: 5 # 手动刷新的每站最短间隔：期内该站沿用旧数据并标注
+
 # ── 路径（容器内视角，全部需重启生效）──────────────────────────
 paths:
   scratch_inbox: "/musiclab/scratch/inbox"     # 完成的种子 cp 到此处供 MTW 刮削（不动原种）

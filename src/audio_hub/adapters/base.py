@@ -64,6 +64,9 @@ class NormalizedTorrent(BaseModel):
     leechers: int | None = None
     format_tags: list[str] = Field(default_factory=list)   # 如 ["CD", "FLAC分轨", "WEB"]
     torrent_id: str = ""                    # 站内种子 ID
+    #: v0.7 发现墙：站点响应自带的封面图 URL。多数 PT 站列表不供封面（恒空），
+    #: 封面主要由 discover/covers 层经 iTunes 补齐；此字段只是「站点恰好给了就用」。
+    cover_url: str = ""
     #: v0.6：站内搜索降级标记。NexusPHP 无 Cookie 时 search() 退回 RSS search，
     #: 结果逐条置 True —— 订阅引擎据此知道这批结果不可信（RSS search 参数常被站点忽略）。
     degraded: bool = False

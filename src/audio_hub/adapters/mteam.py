@@ -360,6 +360,7 @@ class MTeamAdapter(BaseAdapter):
                 leechers=_coerce_int(raw.get("leechers")),
                 format_tags=format_tags,
                 torrent_id=torrent_id,
+                cover_url=_coerce_cover_url(raw),
                 source="api",
             )
         except ValidationError as e:
@@ -474,6 +475,25 @@ def _coerce_int(value) -> int | None:
     if isinstance(value, str) and value.isdigit():
         return int(value)
     return None
+
+
+def _coerce_cover_url(raw: dict) -> str:
+    """从馒头响应里挑封面 URL（v0.7 发现墙）。
+
+    真实响应可能携带 image / cover / poster 等字段（字符串或字符串数组，
+    字段名未实测确认，故多重兜底）；取不到返回空串，绝不报错。
+    """
+    if not isinstance(raw, dict):
+        return ""
+    for key in ("image", "cover", "poster"):
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
+    return ""
 
 
 # ── v0.6 响应解析（模块级纯函数，便于 fixture 单测）─────────────────
