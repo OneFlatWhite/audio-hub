@@ -507,6 +507,44 @@ class NexusPhpAdapter(BaseAdapter):
             return f"{domain}/download.php?id={torrent_id}&passkey={pk}"
         return f"{domain}/download.php?id={torrent_id}"
 
+    async def resolve_download_url(self, torrent_or_url: NormalizedTorrent | str) -> str:
+        """换取可交给下载器的直链；缺 sign 签名时抓详情页抠取（海豚实测无 sign 404）。
+
+        海豚 2026 起 download.php 必须带 sign，签名只在详情页渲染，搜索页 / RSS
+        构造不出来；故在派发前补一次详情页请求。已带 sign（如 RSS enclosure）
+        或非 download.php 的链接原样返回。抠取失败回落原 URL（保持旧行为）。
+        """
+        if isinstance(torrent_or_url, NormalizedTorrent):
+            url = torrent_or_url.download_url or ""
+            torrent_id = torrent_or_url.torrent_id
+        else:
+            url = torrent_or_url or ""
+            torrent_id = ""
+        if not url or "sign=" in url or "download.php" not in url:
+            return url
+        if not torrent_id:
+            m = re.search(r"[?&]id=(\d+)", url)
+            torrent_id = m.group(1) if m else ""
+        if not torrent_id:
+            return url
+        if not (self.config.cookie or "").strip():
+            logger.warning(f"{self.site_name} 无 Cookie，无法抠签名下载链接，原样返回")
+            return url
+        try:
+            async with self._http_client(follow_redirects=False) as client:
+                html = await self._page_get(
+                    client, f"{self._require_domain()}/details.php?id={torrent_id}"
+                )
+        except AdapterError as e:
+            logger.warning(f"{self.site_name} 详情页获取失败，下载链接未签名: {e}")
+            return url
+        signed = extract_signed_download(html, self._domain())
+        if not signed:
+            logger.warning(f"{self.site_name} 详情页未找到签名下载链接 id={torrent_id}，原样返回")
+            return url
+        logger.debug(f"{self.site_name} 已抠取签名下载链接 id={torrent_id}")
+        return signed
+
     # ── RSS 解析 ────────────────────────────────────────────
 
     def parse_rss(self, xml: str) -> list[NormalizedTorrent]:
@@ -851,3 +889,31 @@ def _parse_pubdate(s: str) -> datetime | None:
 def _mask_passkey(url: str) -> str:
     """脱敏 URL 中的 passkey，用于日志输出。"""
     return re.sub(r"(passkey=)[^&]+", r"\1***", url, flags=re.IGNORECASE)
+
+
+#: 详情页里带 sign 的下载链接（海豚 2026 起 download.php 必须签名，否则 404）
+_SIGNED_DL_RE = re.compile(r'href="([^"]*download\.php\?[^"]*sign=[^"]*)"', re.IGNORECASE)
+
+
+def extract_signed_download(page_html: str, domain: str) -> str | None:
+    """从详情页 HTML 抠签名下载链接；优先含 passkey 的正式链接，跳过 type=zip 打包。
+
+    返回绝对 URL；找不到返回 None。
+    """
+    links: list[str] = []
+    for m in _SIGNED_DL_RE.findall(page_html or ""):
+        url = m.replace("&amp;", "&")
+        if url.startswith("//"):
+            url = "https:" + url
+        elif url.startswith("/"):
+            url = (domain or "").rstrip("/") + url
+        if not url.startswith("http"):
+            continue
+        links.append(url)
+    if not links:
+        return None
+    with_passkey = [u for u in links if "passkey=" in u and "type=zip" not in u]
+    if with_passkey:
+        return with_passkey[0]
+    no_zip = [u for u in links if "type=zip" not in u]
+    return (no_zip or links)[0]
