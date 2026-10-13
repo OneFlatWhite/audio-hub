@@ -213,7 +213,7 @@ async def collect_wall(
 
     if to_fetch:
         fetched = await asyncio.gather(
-            *(a.fetch_rss() for _, a in to_fetch), return_exceptions=True,
+            *(a.fetch_rss(kind=kind) for _, a in to_fetch), return_exceptions=True,
         )
         for (name, _adapter), res in zip(to_fetch, fetched, strict=True):
             if isinstance(res, BaseException):

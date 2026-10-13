@@ -13,7 +13,7 @@ v0.6 起 Cookie 认证成为「站内搜索」的前提：
   无 Cookie 退回 RSS search 并逐条标 degraded=True
 
 已知风险与对策：
-- 憨憨 cat410=1 已实测失效 → RSS 分类过滤不可信，一律走本地过滤兜底
+- 憨憨 cat410=1 于 2026-10 复测生效（special 分区同样吃 cat 参数）；本地判别仍兜底
 - NexusPHP 新版可能忽略 RSS search 参数 → search() 失败自动降级 fetch_rss()
 """
 
@@ -54,16 +54,24 @@ SEARCH_PAGE_DELAY = 2.0
 
 # 类型判别关键词（PRD §6.1 第 2 级信号）
 _MUSIC_KEYWORDS = re.compile(
-    r"(flac|ape|wav|dsd|分轨|专辑|album|\bcd\b|24bit|hi-?res|无损|mp3|ost|原声)",
+    r"(flac|alac|ape|wav|dsd|dsf|dff|sacd|m4a|16bit|分轨|专辑|album|\bcd\b|"
+    r"24bit|hi-?res|无损|mp3|\baac\b|ost|原声)",
     re.IGNORECASE,
 )
 _AUDIOBOOK_KEYWORDS = re.compile(
     r"(有声书|audiobook|主播|演播|评书|章节|广播剧|听书|m4b|mp3\s*有声)",
     re.IGNORECASE,
 )
+# 强视频信号（分辨率/编码，音乐发行永远不会携带）→ 无条件 VIDEO
+_VIDEO_STRONG = re.compile(
+    r"(bluray|blu-ray|bdrip|720p|1080p|2160p|4320p|\b[48]k\b|remux|hdtv|"
+    r"x26[45]|h\.?26[45]|hevc|\bhdr\b|hfr|\d{2,3}\s*fps)",
+    re.IGNORECASE,
+)
+# 弱视频信号：只在没有任何音乐格式信号时才判 VIDEO——
+# 「梁文音 - 黄色夹克 - WEB-DL - 16bit ALAC」是音乐（WEB-DL 说的是音频来源）
 _EXCLUDE_KEYWORDS = re.compile(
-    r"(bluray|blu-ray|bdrip|1080p|2160p|720p|4k|remux|web-?dl|hdtv|"
-    r"演唱会|concert|live\s*at|mv|纪录片|documentary|x264|x265|hevc|hdr)",
+    r"(web-?dl|演唱会|concert|live\s*at|mv|纪录片|documentary)",
     re.IGNORECASE,
 )
 
@@ -124,6 +132,7 @@ _BONUS_RE = re.compile(
 )
 _INT_RE = re.compile(r"\d+")
 _CAT_NAME_RE = re.compile(r"^cat(\d+)$")
+_ICON_NAME_RE = re.compile(r"icon-([a-z0-9-]+)\.svg", re.IGNORECASE)
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?")
 
 
@@ -141,8 +150,6 @@ class NexusPhpAdapter(BaseAdapter):
         self._music_cat_id = config.music_cat_id
         self._audiobook_cat_id = config.audiobook_cat_id
         self._max_rows = config.max_rows or 50
-        # 憨憨 cat410 已证实失效，故分类过滤仅作"提示"，最终以本地关键词判别为准
-        self._trust_cat_filter = config.name not in ("hhanclub",)
 
     # ── 域名 / 分类 ID 辅助 ─────────────────────────────────
 
@@ -201,10 +208,10 @@ class NexusPhpAdapter(BaseAdapter):
         if "rows=" not in base:
             params.append(f"rows={rows}")
 
-        # 分类过滤（尽力而为，不可信）
-        if self._trust_cat_filter:
-            for cid in self._cat_ids(kind or "music"):
-                params.append(f"cat{cid}=1")
+        # 分类过滤：已配置分类 ID 即带上（憨憨 cat410 于 2026-10 复测生效）；
+        # 站点若忽略参数则退回全量，本地关键词判别兜底
+        for cid in self._cat_ids(kind or "music"):
+            params.append(f"cat{cid}=1")
 
         # 直链下载（passkey 已含在 URL 中）
         if "linktype=" not in base:
@@ -220,13 +227,15 @@ class NexusPhpAdapter(BaseAdapter):
 
     # ── RSS 拉取 ────────────────────────────────────────────
 
-    async def fetch_rss(self, query: str | None = None) -> list[NormalizedTorrent]:
+    async def fetch_rss(self, query: str | None = None, kind: str | None = None) -> list[NormalizedTorrent]:
         """拉取 RSS 并解析。
 
         query 参数：NexusPHP RSS search 不可靠，故**默认忽略 query**，
         返回全量最新结果，由 pipeline 层本地过滤。这是刻意的设计决策。
+        kind（v0.7.1）："music" / "audiobook" / None（缺省 music），按已配置的
+        分类 ID 做 RSS 预过滤——不过滤时最新 30 条可能被视频刷满，音乐根本进不了墙。
         """
-        url = self.build_rss_url(keyword=None)  # 不用 RSS search，见上方说明
+        url = self.build_rss_url(keyword=None, kind=kind)  # 不用 RSS search，见上方说明
         xml = await self._http_get(url)
         return self.parse_rss(xml)
 
@@ -589,28 +598,31 @@ class NexusPhpAdapter(BaseAdapter):
         """解析标题，返回结构化字段。
 
         判别优先级（PRD §6.1）：
-        1. 排除关键词命中 → VIDEO（宁漏勿错，演唱会/蓝光一律排除）
+        1. 强视频信号（分辨率/编码）命中 → VIDEO（宁漏勿错，演唱会蓝光一律排除）
         2. 有声书关键词命中 → AUDIOBOOK
-        3. 音乐关键词命中 → MUSIC
-        4. 都不命中 → UNKNOWN（进待审，不自动下载）
+        3. 音乐格式关键词命中 → MUSIC——先于弱视频词判定：
+           「梁文音 - 黄色夹克 - WEB-DL - 16bit ALAC」是音乐，WEB-DL 指音频来源
+        4. 仅弱视频信号（web-dl / 演唱会 / MV 等）命中 → VIDEO
+        5. 都不命中 → UNKNOWN（进待审，不自动下载）
         """
         cleaned = strip_noise(raw)
         tags = extract_bracket_tags(raw)
 
-        # 排除优先：含视频特征一律判 VIDEO
-        if _EXCLUDE_KEYWORDS.search(cleaned):
+        if _VIDEO_STRONG.search(cleaned):
             category = MediaCategory.VIDEO
         elif _AUDIOBOOK_KEYWORDS.search(cleaned):
             category = MediaCategory.AUDIOBOOK
         elif _MUSIC_KEYWORDS.search(cleaned):
             category = MediaCategory.MUSIC
+        elif _EXCLUDE_KEYWORDS.search(cleaned):
+            category = MediaCategory.VIDEO
         else:
             category = MediaCategory.UNKNOWN
 
         # 标签本身也是信号（憨憨的【FLAC分轨】等）
         tag_joined = " ".join(tags)
         if category is MediaCategory.UNKNOWN and tag_joined:
-            if _EXCLUDE_KEYWORDS.search(tag_joined):
+            if _VIDEO_STRONG.search(tag_joined):
                 category = MediaCategory.VIDEO
             elif _MUSIC_KEYWORDS.search(tag_joined):
                 category = MediaCategory.MUSIC
@@ -750,11 +762,16 @@ def merge_userdetails(info: SiteUserInfo, details: dict) -> SiteUserInfo:
 
 
 def parse_torrents_categories(html: str, site_id: str) -> list[SiteCategory]:
-    """解析 torrents.php 的分类复选框：input[name^=cat] + 配套 img title/alt 或 label 文本。"""
+    """解析 torrents.php 的分类复选框：input[name^=cat / name^=sp_cat] + 配套标签。
+
+    sp_cat 是憨憨 special 分区的输入名（音乐/MV 挂在那里，主表看不到）。
+    标签来源优先级：img title/alt（憨憨新模板全是无意义的 "cat"，跳过）
+    → img src 图标名（icon-music.svg → music）→ <label for> 文本 → 父元素文本。
+    """
     sel = Selector(text=html)
     cats: list[SiteCategory] = []
     seen: set[str] = set()
-    for inp in sel.xpath("//input[starts-with(@name, 'cat')]"):
+    for inp in sel.xpath("//input[starts-with(@name, 'cat') or starts-with(@name, 'sp_cat')]"):
         name_attr = inp.attrib.get("name", "")
         m = _CAT_NAME_RE.match(name_attr)
         remote_id = m.group(1) if m else (inp.attrib.get("value") or "").strip()
@@ -767,6 +784,12 @@ def parse_torrents_categories(html: str, site_id: str) -> list[SiteCategory]:
         img = parent.xpath(".//img") if parent else []
         if img:
             label = (img[0].attrib.get("title") or img[0].attrib.get("alt") or "").strip()
+            if label.lower() == "cat":
+                label = ""
+            if not label:
+                m_icon = _ICON_NAME_RE.search(img[0].attrib.get("src", ""))
+                if m_icon:
+                    label = m_icon.group(1)
         if not label:
             lab = sel.xpath(f"//label[@for='{name_attr}' or @for='cat{remote_id}']")
             if lab:

@@ -40,7 +40,7 @@ class InjectedAdapter(BaseAdapter):
         self._torrents = torrents
         self.call_count = 0
 
-    async def fetch_rss(self, query=None):
+    async def fetch_rss(self, query=None, kind=None):
         self.call_count += 1
         return self._torrents
 
@@ -684,7 +684,7 @@ class BrokenAdapter(BaseAdapter):
         self.site_name = name
         self.calls = 0
 
-    async def fetch_rss(self, query=None):
+    async def fetch_rss(self, query=None, kind=None):
         self.calls += 1
         raise RuntimeError("rss down")
 

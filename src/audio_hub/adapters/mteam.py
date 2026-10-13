@@ -146,16 +146,17 @@ class MTeamAdapter(BaseAdapter):
         data = await self._post("/api/torrent/search", payload)
         return self._parse_search_response(data)
 
-    async def fetch_rss(self, query: str | None = None) -> list[NormalizedTorrent]:
+    async def fetch_rss(self, query: str | None = None, kind: str | None = None) -> list[NormalizedTorrent]:
         """馒头 RSS 端点。
 
         馒头的 RSS 结构与标准 NexusPHP 不同（且是否为标准 RSS 未实测确认），
         v0.1 优先走 search API；RSS 作为补充路径，解析失败不阻断。
+        kind 目前只传给无 RSS 时的 search 降级；RSS 端点的分类过滤未实测，暂不接。
         """
         if not self.config.rss_url:
             # 无 RSS 配置时降级到 search（馒头的 search 本就比 RSS 可靠）
             if query:
-                return await self.search(query)
+                return await self.search(query, kind=kind)
             raise AdapterError("mteam 未配置 rss_url，且无 query 可降级到 search")
 
         try:

@@ -2,6 +2,17 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.1] - 2026-10-13
+
+修复发现墙空墙：憨憨 RSS 不带分类参数时最新 30 条全被视频刷满，音乐根本进不了墙；
+连带修复音乐发行标题被 WEB-DL 误判为视频。**测试 1044 → 1052**，ruff 0 error。
+
+### 修复
+
+- **RSS 按类型预过滤**：`fetch_rss` 新增 `kind` 参数（base / NexusPHP / mteam 同步签名），发现墙按 tab 拉取对应分类——憨憨 `cat410=1`（special 分区）于 2026-10 复测**生效**，移除 v0.6 的黑名单；站点若忽略参数仍由本地判别兜底
+- **标题判别重排**（`nexusphp.parse_title`）：强视频信号（分辨率/编码：1080p/H264/BluRay…）无条件判 VIDEO；音乐格式信号（新补 ALAC/16bit/M4A/SACD/`\baac\b` 等）先于弱视频词判定——「梁文音 - 黄色夹克 - WEB-DL - 16bit ALAC」这类音乐发行不再被 WEB-DL 误判；视频的 AAC2.0 音轨不误触发音乐
+- **分类发现覆盖 special 分区**：`parse_torrents_categories` 现同时解析 `sp_cat[]` 输入（憨憨音乐/MV 挂 special.php，此前完全漏抓）；憨憨新模板 img alt="cat" 无意义，新增图标文件名回退（icon-music.svg → music）
+
 ## [0.7.0] - 2026-10-13
 
 新增「发现墙」：把各站 RSS 最新上架聚合成卡片墙，看到内容点一下就订阅，

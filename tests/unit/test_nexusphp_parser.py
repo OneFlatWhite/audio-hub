@@ -122,6 +122,30 @@ class TestCategoryDiscrimination:
         parsed = adapter.parse_title("某歌手 Live 演唱会 2024 FLAC 1080p BluRay")
         assert parsed["category"] == MediaCategory.VIDEO
 
+    def test_webdl_alac_is_music(self):
+        """憨憨音乐发行的真实标题风格：WEB-DL 指音频来源，16bit ALAC 是强音乐信号。"""
+        adapter = make_adapter("hhanclub")
+        parsed = adapter.parse_title("梁文音 - 黄色夹克 (2013) - WEB-DL - 16bit ALAC-HHWEB")
+        assert parsed["category"] == MediaCategory.MUSIC
+
+    def test_mv_with_resolution_is_video(self):
+        """憨憨 MV 区（cat411）标题带 1080p/H264 → 强视频信号胜出。"""
+        adapter = make_adapter("hhanclub")
+        parsed = adapter.parse_title("周杰伦 - 太阳之子 (2026) 1080p WEB-DL H264 AAC-HHWEB")
+        assert parsed["category"] == MediaCategory.VIDEO
+
+    def test_webdl_without_music_signal_still_video(self):
+        """只有弱视频词、无音乐格式信号时仍判 VIDEO。"""
+        adapter = make_adapter("hhanclub")
+        parsed = adapter.parse_title("某综艺 第六季 WEB-DL")
+        assert parsed["category"] == MediaCategory.VIDEO
+
+    def test_aac_audio_album_is_music(self):
+        """iTunes 风格 AAC 音频专辑 → MUSIC；视频标题里的 AAC2.0 不算音乐信号。"""
+        adapter = make_adapter("hhanclub")
+        assert adapter.parse_title("Adele - 30 (2021) WEB-DL AAC 256K")["category"] == MediaCategory.MUSIC
+        assert adapter.parse_title("某剧集 S01 WEB-DL AAC2.0")["category"] == MediaCategory.VIDEO
+
 
 class TestSiteCategoryFusion:
     """_resolve_category 融合逻辑：站点分类名（一级信号）× 标题判别（二级信号）。
@@ -276,11 +300,22 @@ class TestUrlBuilding:
         url = adapter.build_rss_url()
         assert "cat401=1" in url
 
-    def test_cat_param_not_appended_for_hhanclub(self):
-        """憨憨 cat410 已实测失效，不应追加分类参数。"""
+    def test_cat_param_appended_for_hhanclub(self):
+        """憨憨 cat410 于 2026-10 复测生效（special 分区同样吃 cat 参数），应追加。"""
         adapter = make_adapter("hhanclub", cat_id="410")
         url = adapter.build_rss_url()
-        assert "cat410" not in url
+        assert "cat410=1" in url
+
+    def test_audiobook_kind_uses_audiobook_cats(self):
+        adapter = make_adapter("hhanclub", cat_id="410", audiobook_cat_id="411")
+        url = adapter.build_rss_url(kind="audiobook")
+        assert "cat411=1" in url and "cat410" not in url
+
+    def test_default_kind_is_music(self):
+        """kind 缺省沿用旧行为：只带音乐分类（订阅引擎轮询路径）。"""
+        adapter = make_adapter("hhanclub", cat_id="410", audiobook_cat_id="411")
+        url = adapter.build_rss_url()
+        assert "cat410=1" in url and "cat411" not in url
 
     def test_rows_capped_at_50(self):
         """NexusPHP 硬编码 rows 上限 50。"""

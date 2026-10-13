@@ -19,9 +19,11 @@ class FakeAdapter:
         self._torrents = list(torrents or [])
         self.error = error
         self.fetch_calls = 0
+        self.fetch_kinds: list[str | None] = []
 
-    async def fetch_rss(self, query: str | None = None):
+    async def fetch_rss(self, query: str | None = None, kind: str | None = None):
         self.fetch_calls += 1
+        self.fetch_kinds.append(kind)
         if self.error is not None:
             raise self.error
         return list(self._torrents)
@@ -42,6 +44,13 @@ def _t(title: str, *, site: str, category=MediaCategory.MUSIC, site_category="",
         pub_date=pub,
         discount=discount, seeders=seeders,
     )
+
+
+async def test_kind_passed_to_adapter():
+    """发现墙必须把 kind 传给 fetch_rss，RSS 才能按分类预过滤（否则最新 30 条可能全是视频）。"""
+    a = FakeAdapter("s", [_t("周杰伦 - 叶惠美 [FLAC]", site="s")])
+    await collect_wall({"s": a}, "audiobook", cache=WallCache(), ttl=900)
+    assert a.fetch_kinds == ["audiobook"]
 
 
 async def test_group_same_album_across_sites():

@@ -59,6 +59,30 @@ class TestNexusCategories:
         assert by_id["411"].remote_name == "其他 Misc"
         assert all(c.site_id == "hhanclub" for c in cats)
 
+    def test_sp_cat_inputs_and_icon_name_fallback(self):
+        """憨憨新模板：sp_cat[] 是 special 分区（音乐/MV），img alt="cat" 无意义，
+        分类名应从图标文件名（icon-music.svg → music）提取。"""
+        html = """
+        <html><body>
+        <div class="top-search-checkbox">
+          <input type="checkbox" name="cat[]" value="401" id="cat401">
+          <label for="cat401"><a href="/torrents.php?cat[]=401">
+            <img src="styles/HHan/icons/icon-movie.svg" alt="cat"></a></label>
+        </div>
+        <div>
+          <input type="checkbox" name="sp_cat[]" value="410" id="cat410">
+          <label for="cat410"><a href="/special.php?cat[]=410">
+            <img src="styles/HHan/icons/icon-music.svg" alt="cat"></a></label>
+        </div>
+        </body></html>"""
+        cats = parse_torrents_categories(html, "hhanclub")
+        by_id = {c.remote_id: c for c in cats}
+        assert sorted(by_id) == ["401", "410"]
+        assert by_id["410"].remote_name == "music"
+        assert by_id["410"].local_kind == "music"
+        assert by_id["401"].remote_name == "movie"
+        assert by_id["401"].local_kind == "other"
+
     @respx.mock
     async def test_discover_categories_requests_torrents_php(self):
         adapter = NexusPhpAdapter(SiteConfig(

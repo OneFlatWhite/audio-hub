@@ -119,7 +119,7 @@ class FakeAdapter:
         self.search_calls.append((keyword, kind))
         return list(self.results)
 
-    async def fetch_rss(self, query=None):
+    async def fetch_rss(self, query=None, kind=None):
         return list(self.results)
 
 

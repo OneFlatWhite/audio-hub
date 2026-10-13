@@ -210,7 +210,7 @@ class PassthroughAdapter(BaseAdapter):
         self.config = None
         self.site_name = name
 
-    async def fetch_rss(self, query=None):
+    async def fetch_rss(self, query=None, kind=None):
         return []
 
     async def search(self, keyword):

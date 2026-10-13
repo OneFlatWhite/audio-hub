@@ -214,12 +214,16 @@ class BaseAdapter(ABC):
         self.config = config
 
     @abstractmethod
-    async def fetch_rss(self, query: str | None = None) -> list[NormalizedTorrent]:
+    async def fetch_rss(
+        self, query: str | None = None, kind: str | None = None,
+    ) -> list[NormalizedTorrent]:
         """拉取 RSS。
 
         Args:
             query: 可选关键词；若站点 RSS search 不可靠，实现应忽略此参数
                    返回全量并交由 pipeline 本地过滤。
+            kind: "music" / "audiobook" / None；支持分类过滤的实现按其预过滤
+                  （v0.7.1 发现墙依赖它——不过滤时最新 30 条可能被无关分类刷满）。
         """
 
     @abstractmethod

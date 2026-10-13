@@ -69,7 +69,7 @@ class FakeAdapter:
             raise self.raise_search
         return [t for t in self.results if keyword.lower() in t.title.lower()] or list(self.results)
 
-    async def fetch_rss(self, query=None):
+    async def fetch_rss(self, query=None, kind=None):
         self.rss_calls += 1
         return list(self.rss)
 
