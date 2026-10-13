@@ -268,3 +268,72 @@ class TestUpsertSiteSemantics:
         assert await repo.list_site_categories(test_db, "hhanclub") == []
         assert await repo.get_site(test_db, "hhanclub") is None
 
+
+
+# ── 旧设置页 qBittorrent 组键收编（v0.6.1）─────────────────────
+
+class TestLegacyQbKeys:
+    """存量 app_settings 的 qb_* 键必须收编进默认下载器行并删除。
+
+    陷阱：v0.6.1 撤下设置页 qb 组后 hydrate 不再认识这组键，若不收编，
+    老用户在旧设置页改过的连接参数会静默失效——界面没有入口，运行时也不读。
+    """
+
+    async def _seed_legacy(self, db, pairs: dict[str, str]):
+        for k, v in pairs.items():
+            await store.save_override(db, k, v)
+
+    async def test_qb_keys_merged_into_default_downloader(self, test_db):
+        await self._seed_legacy(test_db, {
+            "qb_host": "qb-nas.local",
+            "qb_port": "9090",
+            "qb_save_path": "/ui/seeds",
+            "qb_category": "ui-cat",
+            "qb_tag": "ui-tag",
+            "qb_api_key": encrypt_value("UI_QBKEY"),
+            "poll_interval_minutes": "45",   # 非 qb 键必须原样保留
+        })
+        stats = await registry_store.seed_from_yaml(test_db, _config())
+        assert stats["qb_overrides_merged"] == 6
+
+        row = await repo.get_default_downloader(test_db)
+        assert row.host == "qb-nas.local"
+        assert row.port == 9090
+        assert row.save_path == "/ui/seeds"
+        assert row.category == "ui-cat"
+        assert row.tag == "ui-tag"
+        assert await repo.get_downloader_secret(test_db, row.id, "api_key") == "UI_QBKEY"
+
+        overrides = await store.load_overrides(test_db)
+        assert not any(k.startswith("qb_") for k in overrides), \
+            f"旧 qb_* 键未删除: {sorted(overrides)}"
+        assert overrides["poll_interval_minutes"] == "45"
+
+    async def test_bad_port_dropped_but_key_deleted(self, test_db):
+        """端口不是数字：丢弃该值（不阻断其他键），但旧键照样删除。"""
+        await self._seed_legacy(test_db, {"qb_port": "not-a-port"})
+        stats = await registry_store.seed_from_yaml(test_db, _config())
+        assert stats["qb_overrides_merged"] == 1
+        row = await repo.get_default_downloader(test_db)
+        assert row.port == 8085, "坏端口不应覆盖 YAML 种子值"
+        assert "qb_port" not in await store.load_overrides(test_db)
+
+    async def test_merge_is_one_shot(self, test_db):
+        """幂等：收编并删除后，第二次种子不再动下载器行。"""
+        await self._seed_legacy(test_db, {"qb_host": "qb-nas.local"})
+        await registry_store.seed_from_yaml(test_db, _config())
+        assert (await repo.get_default_downloader(test_db)).host == "qb-nas.local"
+
+        # 用户在下载器中心改过之后，重跑种子不得再覆盖
+        dl = await repo.get_default_downloader(test_db)
+        await repo.upsert_downloader(
+            test_db,
+            DownloaderConfig(id=dl.id, name=dl.name, host="edited.local", port=dl.port),
+        )
+        stats = await registry_store.seed_from_yaml(test_db, _config())
+        assert stats["qb_overrides_merged"] == 0
+        assert (await repo.get_default_downloader(test_db)).host == "edited.local"
+
+    async def test_no_legacy_keys_is_noop(self, test_db):
+        stats = await registry_store.seed_from_yaml(test_db, _config())
+        assert stats["qb_overrides_merged"] == 0

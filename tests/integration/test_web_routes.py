@@ -545,15 +545,21 @@ def live_mteam(client):
     不改 config.yaml：dry_run 在 lifespan 就固化进 runner，此处只需 /review 路由
     走实跑分支，改 app.state.config.dry_run 即可。适配器通过 runner.adapters
     注入 —— dispatcher.adapter_lookup 是回调，每次按站点名从该 dict 取。
+
+    v0.6.1：采纳派发的 qb 客户端改从下载器注册表解析（不再读 app.state.qb_client
+    别名），故假客户端直接塞进默认下载器句柄的缓存。注册表是 dry_run 构造的，
+    句柄的 _dry_run 一并临时关掉。
     """
     from audio_hub.adapters.mteam import MTeamAdapter
     from audio_hub.config import SiteConfig
 
     state = app.state
-    old_dry, old_qb = state.config.dry_run, getattr(state, "qb_client", None)
+    old_dry = state.config.dry_run
     fake = _FakeQb()
+    handle = state.downloaders.default()
     state.config.dry_run = False
-    state.qb_client = fake
+    handle._dry_run = False
+    handle._client = fake
     state.runner.adapters["mteam"] = MTeamAdapter(SiteConfig(
         name="mteam", api_key="FAKE-KEY",
         search_url="https://api.m-team.cc/api/torrent/search",
@@ -562,7 +568,8 @@ def live_mteam(client):
         yield fake
     finally:
         state.config.dry_run = old_dry
-        state.qb_client = old_qb
+        handle._dry_run = True
+        handle.reset_client()
         state.runner.adapters.pop("mteam", None)
 
 
@@ -636,6 +643,56 @@ class TestReviewAcceptResolvesMteam:
                            follow_redirects=False)
         assert resp.status_code == 303
         assert live_mteam.calls[0]["urls"] == "https://hhanclub.net/download.php?id=1&passkey=X"
+
+    def test_accept_uses_tasks_downloader_settings(self, client, live_mteam):
+        """采纳派发按 task.downloader_id 落到对应实例的 save_path/category/tag。
+
+        v0.6.1 陷阱：旧代码回落到 config.qbittorrent（即默认实例），多台
+        下载器时「指定实例」形同虚设——种子会进错目录、打错分类。
+        """
+        import asyncio
+        from audio_hub import registry_store
+        from audio_hub.config import DownloaderConfig
+
+        _setup_admin(client)
+        token = _csrf(client)
+        asyncio.run(repo.upsert_downloader(app.state.db, DownloaderConfig(
+            id="nas2", name="NAS 二号", host="nas2.local", port=8080,
+            save_path="/nas2/seeds", category="music-2", tag="tag2",
+        )))
+        state = app.state
+        state.downloaders.replace(
+            asyncio.run(registry_store.load_downloader_configs(state.db)))
+        fake2 = _FakeQb()
+        h2 = state.downloaders.get("nas2")
+        h2._dry_run = False
+        h2._client = fake2
+        try:
+            tid = str(uuid.uuid4())
+            asyncio.run(repo.create_task(state.db, Task(
+                id=tid, info_hash=uuid.uuid4().hex, site="hhanclub",
+                title="指定 nas2 的待审 FLAC", state=TaskState.SCORED,
+                confidence="medium", reject_reason="pending_review",
+                download_url="https://hhanclub.net/download.php?id=2&passkey=X",
+                size_bytes=300 * 1024**2, quality="flac_16",
+                downloader_id="nas2",
+            )))
+            resp = client.post(f"/review/{tid}/accept", data={"csrf_token": token},
+                               follow_redirects=False)
+            assert resp.status_code == 303
+            assert resp.headers["location"] == "/review?ok=accepted"
+
+            assert len(fake2.calls) == 1, "任务指定 nas2，却派到了别的实例"
+            call = fake2.calls[0]
+            assert call["save_path"] == "/nas2/seeds"
+            assert call["category"] == "music-2"
+            assert call["tags"] == ["tag2", "hhanclub"]
+            assert live_mteam.calls == [], "默认实例不应被碰"
+        finally:
+            h2._dry_run = True
+            h2.reset_client()
+            state.downloaders.replace(
+                asyncio.run(registry_store.load_downloader_configs(state.db)))
 
 
 async def _get_task(tid):

@@ -31,8 +31,9 @@ PURGE_AFTER_DAYS = 30
 #: detail 摘要长度（表格单元格内一行）
 _SUMMARY_LEN = 80
 
-#: 事件种类的下拉选项基线：NOTIFY_KINDS 之外还有流水线自身的两种
-_BASE_KINDS = (*NOTIFY_KINDS, "adapter_error", "round_summary")
+#: 事件种类的下拉选项基线：NOTIFY_KINDS 已覆盖全部实际产出的事件种类
+#: （含 adapter_error / round_summary；v0.6.1 起二者并入 NOTIFY_KINDS）
+_BASE_KINDS = NOTIFY_KINDS
 
 
 @router.get("/events", response_class=HTMLResponse)

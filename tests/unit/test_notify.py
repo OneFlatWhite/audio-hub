@@ -60,3 +60,57 @@ class TestDbNotifier:
         # 空 site/title/detail 存 NULL 而非空串，便于 SQL 判空
         [q] = await repo.list_events(test_db, kind="quarantined")
         assert q.site is None and q.title is None and q.detail is None
+
+
+# ── 推送过滤：v0.6 新事件种类能过 kinds 白名单（项 3）───────────────────
+
+class TestPushKindsFilter:
+    """NOTIFY_KINDS 补全后，新事件默认进白名单、可被 choices 校验接受。
+
+    陷阱：若 NOTIFY_KINDS 漏了 v0.6 新事件，设置页 choices 会拒绝它们，
+    而默认白名单不含它们时订阅命中 / 站点熔断等关键告警永远推不出去。
+    """
+
+    def test_v06_kinds_accepted_by_default(self):
+        from audio_hub.config import NotifyConfig
+        from audio_hub.notify.webhook_notify import build_push_sinks
+
+        sinks = build_push_sinks(NotifyConfig(generic_webhook_url="https://x.example.com"))
+        assert len(sinks) == 1
+        sink = sinks[0]
+        for kind in (
+            "archive_skipped", "scrape_failed",
+            "subscription_hit", "subscription_upgrade", "subscription_completed",
+            "hr_satisfied", "series_completed",
+            "site_circuit_open", "site_auth_expired", "downloader_unreachable",
+        ):
+            assert sink.accepts(Event(kind=kind, site="", title="", detail={})), \
+                f"默认白名单漏了 {kind}"
+
+    def test_kinds_whitelist_still_filters(self):
+        from audio_hub.config import NotifyConfig
+        from audio_hub.notify.webhook_notify import build_push_sinks
+
+        sinks = build_push_sinks(NotifyConfig(
+            generic_webhook_url="https://x.example.com", kinds=["subscription_hit"],
+        ))
+        sink = sinks[0]
+        assert sink.accepts(Event(kind="subscription_hit", site="", title="", detail={}))
+        assert not sink.accepts(Event(kind="dispatched", site="", title="", detail={}))
+
+    def test_validate_form_accepts_new_kinds(self):
+        from audio_hub.settings_store import NOTIFY_SPECS, validate_form
+
+        resolved, encoded = validate_form(NOTIFY_SPECS, {
+            "notify_kinds": "site_auth_expired, subscription_completed , hr_satisfied",
+        })
+        assert resolved["notify_kinds"] == [
+            "site_auth_expired", "subscription_completed", "hr_satisfied",
+        ]
+
+    def test_validate_form_rejects_unknown_kind(self):
+        import pytest
+        from audio_hub.settings_store import NOTIFY_SPECS, SettingsError, validate_form
+
+        with pytest.raises(SettingsError):
+            validate_form(NOTIFY_SPECS, {"notify_kinds": "dispatched,not_a_kind"})

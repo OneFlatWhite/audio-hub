@@ -290,8 +290,13 @@ class TestRealDispatchResolvesDownloadUrl:
         assert by_state.get("dispatched") == 1
 
     @pytest.mark.asyncio
-    async def test_resolve_failure_persists_failed_task(self, app_config, db):
-        """换取直链失败 → 不碰 qb，task 标 failed 并记录原因。"""
+    async def test_resolve_failure_retries_next_round(self, app_config, db):
+        """换取直链失败 → 不碰 qb，订阅保持活跃，下一轮重试。
+
+        v0.6.1：一次性订阅若因派发失败留在 failed 态就永远完不成
+        （hit 已记录、任务已 failed，引擎不会再推它），所以派发失败
+        必须回滚——删 hit、任务退回 discovered，下轮引擎重新决策。
+        """
         cfg = app_config.model_copy(update={"dry_run": False})
         entry = WatchEntry(id=str(uuid.uuid4()), query="周杰伦",
                            kind=WatchKind.MUSIC, min_confidence="medium")
@@ -308,11 +313,26 @@ class TestRealDispatchResolvesDownloadUrl:
         assert summary["dispatched"] == 0
         assert summary["dispatch_failed"] == 1
         assert qb.calls == []
-        async with db.execute("SELECT state, error_message FROM tasks") as cur:
+        async with db.execute("SELECT id, state, error_message FROM tasks") as cur:
             row = await cur.fetchone()
-        assert row["state"] == "failed"
-        assert "resolve_download_url_failed" in row["error_message"]
-        assert "genDlToken" in row["error_message"]
+        assert row["state"] == "discovered", "失败应回滚回 discovered 以便下轮重试"
+        assert row["error_message"] is None
+        async with db.execute(
+            "SELECT COUNT(*) AS n FROM subscription_hits WHERE task_id = ?",
+            (row["id"],),
+        ) as cur:
+            assert (await cur.fetchone())["n"] == 0, "hit 未删，下轮会被 has_hit 挡住"
+        watch = await repo.get_watch_entry(db, entry.id)
+        assert watch.status.value == "active", "订阅不应被标完成"
+
+        # 下一轮：适配器恢复，任务被重新派发成功
+        adapter.fail = False
+        summary2 = await runner.run_once()
+        assert summary2["dispatched"] == 1
+        assert summary2["dispatch_failed"] == 0
+        assert len(qb.calls) == 1
+        async with db.execute("SELECT state FROM tasks WHERE id = ?", (row["id"],)) as cur:
+            assert (await cur.fetchone())["state"] == "dispatched"
 
     @pytest.mark.asyncio
     async def test_dry_run_never_resolves(self, app_config, db):

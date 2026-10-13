@@ -38,6 +38,15 @@ kind="secret" 的键在 DB 中存 Fernet token，启动时解密进内存。
 site_enabled:* / site_rss:* / site_api_key:* / site_hr_*:* 这组键不再出现在设置页：
 站点配置的权威源改为 sites 表（/sites 页维护，见 registry_store）。前缀常量保留，
 只供 registry_store.seed_from_yaml 把旧覆盖项合并进 sites 后删除。
+
+qBittorrent 组同样已迁出（v0.6.1）
+---------------------------------
+qb_host / qb_port / qb_api_key / qb_save_path / qb_category / qb_tag 这组键曾把
+改动写进 config.qbittorrent + app_settings，但 v0.6 起运行时的下载器配置来自
+downloaders 表（registry_store.seed_from_yaml 只在表空时导入一次），首启后改
+这里永远不生效 —— 设置页留着它就是「保存成功」的假象。故该组从设置页撤下，
+连接参数在 /downloaders 页维护；存量 app_settings 里的 qb_* 键由
+registry_store.seed_from_yaml 收编进默认下载器行后删除（与站点键同口径）。
 """
 
 from __future__ import annotations
@@ -167,34 +176,6 @@ GENERAL_SPECS: tuple[Spec, ...] = (
         "search.auth_check_hours",
         hint="热生效：保存后立即重排 site_auth_check 任务。",
         lo=1, hi=720,
-    ),
-    Spec(
-        "qb_host", "qBittorrent 主机", "str", SCOPE_RESTART, "qbittorrent.host",
-        hint="需重启：qb 客户端在启动时创建并验证连通性。",
-        min_len=1,
-    ),
-    Spec(
-        "qb_port", "qBittorrent 端口", "int", SCOPE_RESTART, "qbittorrent.port",
-        hint="需重启：同上。", lo=1, hi=65535,
-    ),
-    Spec(
-        "qb_save_path", "种子保存路径", "str", SCOPE_HOT, "qbittorrent.save_path",
-        hint="热生效：派发时实时读取。必须是 qb 所在主机能写到的路径。",
-        min_len=1,
-    ),
-    Spec(
-        "qb_category", "qb 分类", "str", SCOPE_HOT, "qbittorrent.category",
-        hint="热生效。",
-    ),
-    Spec(
-        "qb_tag", "qb 标签", "str", SCOPE_HOT, "qbittorrent.tag",
-        hint="热生效。",
-    ),
-    Spec(
-        "qb_api_key", "qBittorrent API Key", "secret", SCOPE_RESTART,
-        "qbittorrent.api_key",
-        hint="只写不读：保存后 Fernet 加密入库，界面永不回显。留空表示不修改。"
-             "需重启：客户端在启动时用 Key 认证。",
     ),
 )
 
@@ -346,11 +327,16 @@ NOTIFY_SPECS: tuple[Spec, ...] = (
 )
 
 
-def credential_status(config) -> dict:
+def credential_status(config, downloaders=None) -> dict:
     """计算 qb 与各站点的凭据配置状态，供界面展示。
 
     config.sites 在启动时已由 registry_store.load_site_configs 从 sites 表回填，
     站点热重建（rebuild_adapters）也会同步更新它，故这里读到的就是 DB 的现状。
+
+    downloaders：DownloaderRegistry（v0.6.1）。v0.6 起下载器凭据的权威源是
+    downloaders 表，config.qbittorrent 只是首启种子 —— 给出注册表时 qb 状态
+    读默认下载器（账密或 API Key 任一即视为已配置），否则回落旧字段
+    （仅兼容无注册表的旧调用方 / 单元测试）。
 
     为什么按站点类型判断而非笼统的 `rss_url or api_key`：
     原实现对 NexusPHP 站实际测的是 rss_url 有无（与 passkey 无关），
@@ -384,8 +370,16 @@ def credential_status(config) -> dict:
             "creds": items,
             "unknown": not needs,   # 未注册站点，无法判断凭据需求
         })
+    if downloaders is not None:
+        default_dl = downloaders.default()
+        qb_ready = bool(
+            default_dl and (default_dl.config.username or default_dl.config.api_key)
+        )
+    else:
+        qb_ready = bool(config.qbittorrent.api_key)
     return {
-        "qb_api_key": bool(config.qbittorrent.api_key),
+        # 键名沿用 qb_api_key（模板不变），语义为「默认下载器凭据已配置」
+        "qb_api_key": qb_ready,
         "abs_token": bool(config.scrape.abs_token),
         "wecom_webhook": bool(config.notify.wecom_webhook),
         "telegram_bot_token": bool(config.notify.telegram_bot_token),
@@ -674,6 +668,9 @@ def _rebuild_adapters_sync(app, config) -> None:
         logger.warning("runner 尚未就绪，站点改动需重启生效")
         return
     runner.adapters = build_adapters(config.sites)
+    # 做种监视器持有 config.sites 的快照（站点级 H&R 覆盖），必须同步刷新，
+    # 否则站点改动后要等到重启才按新阈值轮询
+    runner.seeding_monitor.refresh_sites(config.sites)
     logger.info(f"适配器已按新配置重建: {list(runner.adapters)}")
 
 

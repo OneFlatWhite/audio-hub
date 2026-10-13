@@ -288,11 +288,11 @@ async def review_accept(
         # 订阅引擎送进待审的命中也要回写：否则详情页永远停在 review
         await repo.set_hit_task(db, row["info_hash"], row["id"], HitDecision.DISPATCHED)
     else:
-        qb_client = getattr(request.app.state, "qb_client", None)
-        # 直链解析走 runner.dispatcher（与流水线同一套适配器查找），馒头的 genDlToken
-        # 占位 URL 不能直接交给 qb；runner 未就绪时传 None → 原样派发
+        # 派发走 runner.dispatcher（注册表解析下载器 + 与流水线同一套适配器直链换取），
+        # 不再读 app.state.qb_client —— 那只是默认实例别名，且落盘参数要按任务归属实例取。
+        # runner 未就绪时传 None → _dispatch_task 以「派发器未就绪」失败而非 500。
         dispatcher = getattr(getattr(request.app.state, "runner", None), "dispatcher", None)
-        err = await _dispatch_task(db, config, row, qb_client, dispatcher=dispatcher)
+        err = await _dispatch_task(db, config, row, dispatcher)
         if err:
             return RedirectResponse(f"/review?err={err}", status_code=303)
 
@@ -351,6 +351,19 @@ async def settings_page(
     if not user.get("is_admin"):
         return RedirectResponse("/dashboard?err=need_admin", status_code=303)
 
+    # 默认下载器的只读摘要（指引卡用）：v0.6 起权威源是 downloaders 表，
+    # 只暴露连接参数与凭据形态，绝不回显凭据本身。
+    registry = getattr(request.app.state, "downloaders", None)
+    default_dl = registry.default() if registry is not None else None
+    dl_info = None
+    if default_dl is not None:
+        c = default_dl.config
+        dl_info = {
+            "id": c.id, "name": c.name, "host": c.host, "port": c.port,
+            "save_path": c.save_path, "category": c.category, "tag": c.tag,
+            "auth_label": "账密" if c.username else ("API Key" if c.api_key else "❌ 未配置"),
+        }
+
     templates = request.app.state.templates
     ctx = await _common(request, db, config, user)
     ctx.update({
@@ -360,11 +373,13 @@ async def settings_page(
         "ok": ok, "flash_ok": _flash(request, "ok"),
         "err": _flash(request, "err"),
         "groups": routes_settings.build_settings_groups(config),
+        "default_downloader": dl_info,
         # 凭据只写不读：仅暴露是否已配置，绝不回显明文或密文。
         # 由 settings_store.credential_status 按站点类型判断所需凭据 ——
         # 原实现 `bool(s.rss_url or s.api_key)` 对 NexusPHP 站测的是
         # rss_url 有无（与 passkey 无关），对 mteam 也判断错了必需项。
-        "secrets_status": settings_store.credential_status(config),
+        # qb 状态读下载器注册表（downloaders 表），不是 config.qbittorrent 种子值。
+        "secrets_status": settings_store.credential_status(config, registry),
     })
     return templates.TemplateResponse(request, "settings.html", ctx)
 
@@ -433,12 +448,13 @@ async def _record_decision(db, row: dict, decision: str, reason: str | None) -> 
     await db.commit()
 
 
-async def _dispatch_task(db, config, row: dict, qb_client, dispatcher=None) -> str | None:
+async def _dispatch_task(db, config, row: dict, dispatcher) -> str | None:
     """实跑模式下派发单个已采纳任务。成功返回 None，失败返回 _FLASH_ERR 的键。
 
     download_url 已在流水线轮次持久化到 tasks 表，故此处可直接真实派发，
-    不必等下一轮。qb_client 由 app.state 传入（受 lifespan 生命周期管理），
-    不用函数属性缓存 —— 那会持有游离于 app 生命周期之外的连接。
+    不必等下一轮。下载器与落盘参数全部经 dispatcher 的注册表解析
+    （task.downloader_id → 回落默认实例）：config.qbittorrent 只是首启种子，
+    运行时的权威源是 downloaders 表，直接读它会错过 /downloaders 页的改动。
 
     派发前经 dispatcher.resolve_download_url 换取直链：馒头持久化的是
     genDlToken 占位 URL，直接交给 qb 必失败；其他站点 / 无适配器时原样返回。
@@ -454,30 +470,43 @@ async def _dispatch_task(db, config, row: dict, qb_client, dispatcher=None) -> s
         await repo.set_task_state(db, row["id"], TaskState.FAILED,
                                   error_message="采纳时缺 download_url")
         return "dispatch_failed"
-    if qb_client is None:
-        logger.error("qb 客户端不可用（dry_run 或 API Key 无效），无法真实派发")
+    if dispatcher is None:
+        logger.error("派发器尚未就绪（runner 未装配），无法真实派发")
         await repo.set_task_state(db, row["id"], TaskState.FAILED,
-                                  error_message="qb 客户端不可用")
+                                  error_message="派发器未就绪")
         return "dispatch_failed"
 
-    if dispatcher is not None:
-        try:
-            url = await dispatcher.resolve_download_url(url, site=row["site"])
-        except AdapterError as e:
-            logger.error(f"采纳派发换取直链失败: site={row['site']} {e}")
-            await repo.set_task_state(db, row["id"], TaskState.FAILED,
-                                      error_message=f"换取下载直链失败: {e}")
-            return "resolve_failed"
+    # 落点解析与流水线同一套：task 级覆盖 → 默认下载器的 save_path / category / tag
+    target = dispatcher.resolve_target(
+        site=row["site"],
+        task_downloader_id=row.get("downloader_id"),
+        task_save_path=row.get("qb_save_path"),
+        task_category=row.get("qb_category"),
+    )
+    client = target.handle.client if target is not None else None
+    if client is None:
+        logger.error("下载器客户端不可用（dry_run 或凭据无效），无法真实派发")
+        await repo.set_task_state(db, row["id"], TaskState.FAILED,
+                                  error_message="下载器客户端不可用")
+        return "dispatch_failed"
+
+    try:
+        url = await dispatcher.resolve_download_url(url, site=row["site"])
+    except AdapterError as e:
+        logger.error(f"采纳派发换取直链失败: site={row['site']} {e}")
+        await repo.set_task_state(db, row["id"], TaskState.FAILED,
+                                  error_message=f"换取下载直链失败: {e}")
+        return "resolve_failed"
 
     from qbittorrentapi import Conflict409Error, LoginFailed
     from qbittorrentapi.exceptions import APIConnectionError
 
     try:
-        qb_client.torrents_add(
+        client.torrents_add(
             urls=url,
-            save_path=row.get("qb_save_path") or config.qbittorrent.save_path,
-            category=row.get("qb_category") or config.qbittorrent.category,
-            tags=[config.qbittorrent.tag, row["site"]],
+            save_path=target.save_path,
+            category=target.category,
+            tags=target.tags,
             is_paused=False,
         )
     except Conflict409Error:

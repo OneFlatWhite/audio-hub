@@ -140,20 +140,86 @@ async def _apply_legacy_overrides(db, legacy: dict[str, dict[str, str]]) -> int:
 
 
 # ────────────────────────────────────────────────────────────
-# 首启种子
+# 首启种子与旧键收编
 # ────────────────────────────────────────────────────────────
+
+#: 设置页旧「qBittorrent」组的覆盖键 → downloaders 列（**仅供迁移**）。
+#: v0.6 起下载器连接参数在 downloaders 表（/downloaders 页），这组键不再由
+#: 设置页读写；qb_api_key 在 app_settings 里本就是 Fernet token，直接搬进
+#: api_key_enc 列，不解密再加密 —— 密钥文件换过的话解不开，搬运不该因此失败。
+LEGACY_QB_KEY_COLUMNS = {
+    "qb_host": "host",
+    "qb_port": "port",
+    "qb_save_path": "save_path",
+    "qb_category": "category",
+    "qb_tag": "tag",
+    "qb_api_key": "api_key_enc",
+}
+
+
+async def _merge_legacy_qb_overrides(db) -> int:
+    """把存量 app_settings 的 qb_* 键收编进默认下载器行，然后删除。返回收编键数。
+
+    首启种子里 config.qbittorrent 曾是「YAML + hydrate 合并 qb_* 覆盖」的结果，
+    故老库升级时收编与种子最终一致；v0.6.1 起 hydrate 不再认识这组键（spec 已撤），
+    收编改为直接读 app_settings 写 downloaders —— 否则首启后在旧设置页改过的值
+    会静默丢失：使用者以为生效了，运行时却永远读下载器表。
+    无论值是否应用成功旧键都删除：收编是一次性迁移，残留键没有意义。
+    """
+    placeholders = ",".join("?" * len(LEGACY_QB_KEY_COLUMNS))
+    async with db.execute(
+        f"SELECT key, value FROM app_settings WHERE key IN ({placeholders})",
+        tuple(LEGACY_QB_KEY_COLUMNS),
+    ) as cur:
+        rows = list(await cur.fetchall())
+    if not rows:
+        return 0
+
+    default = await repo.get_default_downloader(db)
+    if default is None:
+        # 表空时本函数在种子导入之后调用，理论上必有默认行；防御：不丢键，留下次
+        logger.warning("downloaders 表为空，qb_* 旧键本轮不收编")
+        return 0
+
+    sets: list[str] = []
+    params: list = []
+    for r in rows:
+        col = LEGACY_QB_KEY_COLUMNS[r["key"]]
+        value = r["value"]
+        if col == "port":
+            try:
+                value = int(value)
+            except (TypeError, ValueError):
+                logger.warning(f"旧设置键 {r['key']} 的值 {value!r} 不是端口数字，丢弃")
+                continue
+        sets.append(f"{col} = ?")
+        params.append(value)
+    if sets:
+        sets.append("updated_at = ?")
+        params.append(repo._now())
+        params.append(default.id)
+        await db.execute(f"UPDATE downloaders SET {', '.join(sets)} WHERE id = ?", params)
+
+    await db.execute(
+        f"DELETE FROM app_settings WHERE key IN ({placeholders})",
+        tuple(LEGACY_QB_KEY_COLUMNS),
+    )
+    await db.commit()
+    logger.info(f"旧设置键 qb_* 已收编进默认下载器 {default.id}: {[r['key'] for r in rows]}")
+    return len(rows)
 
 async def seed_from_yaml(db, config: AppConfig) -> dict:
     """把 YAML 的 sites / qbittorrent 段导入 DB（幂等），并收编旧覆盖项。
 
     返回统计 {"sites_added": n, "overrides_merged": n, "downloader_added": bool,
-    "tasks_backfilled": n}，供日志与测试断言。
+    "tasks_backfilled": n, "qb_overrides_merged": n}，供日志与测试断言。
 
-    必须在 hydrate_config 之后调用：qbittorrent 段可能被覆盖层（qb_api_key 等）改过，
-    导入时要拿合并后的值；但站点覆盖项由本函数自行合并，不经 hydrate。
+    站点覆盖项由本函数自行合并（不经 hydrate）；app_settings 里的旧 qb_* 键
+    在下载器种子导入后收编进默认下载器行并删除（v0.6.1：设置页该组已撤下，
+    hydrate 不再认识这些键，不收编的话首启后改过的值会静默丢失）。
     """
     stats = {"sites_added": 0, "overrides_merged": 0,
-             "downloader_added": False, "tasks_backfilled": 0}
+             "downloader_added": False, "tasks_backfilled": 0, "qb_overrides_merged": 0}
 
     existing_ids = {r["id"] for r in await repo.list_site_rows(db)}
     for s in config.sites:
@@ -180,6 +246,10 @@ async def seed_from_yaml(db, config: AppConfig) -> dict:
         })
         await repo.upsert_downloader(db, qb)
         stats["downloader_added"] = True
+
+    # 收编设置页旧「qBittorrent」组的 app_settings 键（必须在种子之后：
+    # 表空时上面刚建好的默认行就是收编目标）
+    stats["qb_overrides_merged"] = await _merge_legacy_qb_overrides(db)
 
     cur = await db.execute(
         "UPDATE tasks SET downloader_id = ? WHERE downloader_id IS NULL",

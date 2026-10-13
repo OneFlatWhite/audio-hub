@@ -311,6 +311,24 @@ class TestDecideCompletion:
         await _decide(test_db, w, [torrent("周杰伦 - 叶惠美 [FLAC]")])
         assert (await repo.get_watch_entry(test_db, w.id)).status == SubStatus.ACTIVE
 
+    async def test_real_run_defers_completion_to_dispatch(self, test_db):
+        """实跑（dry_run=False）：一次性订阅不得在此刻 completed。
+
+        陷阱：命中 ≠ 已进下载器。若 decide 时就标完成，派发失败（直链换取
+        失败、qb 不可达）后订阅已完结，永远不会重试——用户看到「订阅完成」
+        但库里什么都没有。completed 由 scheduler 在派发确认成功后补标。
+        """
+        w = await add_watch(test_db, sub_type=SubType.ALBUM, query="叶惠美", album="叶惠美")
+        rec = Recorder()
+        hits = await _decide(test_db, w, [torrent("周杰伦 - 叶惠美 [FLAC]")],
+                             notifier=rec, dry_run=False)
+        assert hits[0].decision == HitDecision.DISPATCHED
+        stored = await repo.get_watch_entry(test_db, w.id)
+        assert stored.status == SubStatus.ACTIVE, "实跑命中不应立即完结"
+        assert stored.completed_at is None
+        assert rec.kinds() == [EVENT_SUBSCRIPTION_HIT], \
+            "subscription_completed 事件应延后到派发确认"
+
     async def test_standalone_audiobook_completes(self, test_db):
         w = await add_watch(test_db, kind=WatchKind.AUDIOBOOK, query="三体", author="刘慈欣",
                             artist="", sub_type=SubType.AUDIOBOOK, min_confidence="low")

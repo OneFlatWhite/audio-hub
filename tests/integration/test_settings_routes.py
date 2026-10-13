@@ -223,20 +223,26 @@ class TestHotSettings:
         assert resp.status_code == 303
         assert "err=" in resp.headers["location"]
 
-    def test_qb_save_path_applies_immediately(self, client):
-        _setup_admin(client)
-        resp = _post_settings(client, "/settings/qbittorrent",
-                              {"qb_save_path": "/musiclab/new-seeds"})
-        assert resp.status_code == 303, resp.text[:200]
-        assert app.state.config.qbittorrent.save_path == "/musiclab/new-seeds"
+    def test_qb_group_endpoint_removed(self, client):
+        """v0.6.1：qb 组端点已撤下，连接与路径配置在下载器中心。
 
-    def test_qb_save_path_empty_rejected(self, client):
+        旧双轨的陷阱是设置页存一份、下载器中心又存一份，两边漂移后
+        没人知道哪份生效。端点必须 404，而不是静默收进旧键。
+        """
         _setup_admin(client)
         before = app.state.config.qbittorrent.save_path
         resp = _post_settings(client, "/settings/qbittorrent",
-                              {"qb_save_path": "   "})
-        assert resp.status_code == 303
-        assert "err=" in resp.headers["location"]
+                              {"qb_save_path": "/musiclab/new-seeds"})
+        assert resp.status_code == 404, resp.status_code
+        assert app.state.config.qbittorrent.save_path == before
+        assert "qb_save_path" not in asyncio.run(store.load_overrides(app.state.db))
+
+    def test_legacy_qb_keys_no_longer_hydrate(self, client):
+        """旧库里的 qb_* 覆盖键不再进入启动覆盖层（已被收编进下载器注册表）。"""
+        _setup_admin(client)
+        before = app.state.config.qbittorrent.save_path
+        resp = _post_settings(client, "/settings/qbittorrent", {"qb_save_path": "   "})
+        assert resp.status_code == 404
         assert app.state.config.qbittorrent.save_path == before
 
     def test_site_enable_rebuilds_adapters(self, client):
@@ -252,6 +258,8 @@ class TestHotSettings:
         assert site.enabled is True
         assert "hhanclub" in app.state.runner.adapters, \
             "适配器未重建，站点开关未热生效"
+        # 做种监视器的站点快照（H&R 覆盖）必须同步刷新，否则改阈值要等重启
+        assert app.state.runner.seeding_monitor._site_cfg["hhanclub"].enabled is True
 
     def test_site_disable_rebuilds_adapters(self, client):
         _setup_admin(client)
@@ -360,41 +368,40 @@ class TestMissingFieldSemantics:
     def test_empty_secret_does_not_overwrite(self, client):
         """凭据留空表示不修改（只写不读约定）。"""
         _setup_admin(client)
-        _post_settings(client, "/settings/qbittorrent",
-                       {"qb_api_key": "FIRST_KEY_VALUE"})
+        _post_settings(client, "/settings/notify",
+                       {"wecom_webhook": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=FIRST"})
         first = asyncio.run(store.load_overrides(app.state.db))
-        assert "qb_api_key" in first
+        assert "wecom_webhook" in first
 
-        # 再提交一次，secret 留空
-        _post_settings(client, "/settings/qbittorrent",
-                       {"qb_api_key": "", "qb_save_path": "/musiclab/seeds"})
+        # 再提交一次，secret 留空（带上另一字段避免「无变更」短路）
+        _post_settings(client, "/settings/notify",
+                       {"wecom_webhook": "", "telegram_chat_id": "12345"})
         second = asyncio.run(store.load_overrides(app.state.db))
-        assert second.get("qb_api_key") == first["qb_api_key"], \
+        assert second.get("wecom_webhook") == first["wecom_webhook"], \
             "留空的凭据被覆盖了"
 
     def test_secret_stored_encrypted_not_plaintext(self, client):
         """凭据在库里必须是 Fernet token，明文不落盘。"""
         _setup_admin(client)
-        _post_settings(client, "/settings/qbittorrent",
-                       {"qb_api_key": "SUPER_SECRET_KEY_123"})
+        _post_settings(client, "/settings/notify",
+                       {"wecom_webhook": "https://hooks.example.com/SUPER_SECRET_KEY_123"})
         overrides = asyncio.run(store.load_overrides(app.state.db))
-        stored = overrides["qb_api_key"]
-        assert stored != "SUPER_SECRET_KEY_123", "凭据以明文入库"
-        assert "SUPER_SECRET_KEY_123" not in stored
+        stored = overrides["wecom_webhook"]
+        assert "SUPER_SECRET_KEY_123" not in stored, "凭据以明文入库"
 
         # 且能解回原值（启动时 hydrate 依赖这一点）
         from audio_hub.crypto import decrypt_value
-        assert decrypt_value(stored) == "SUPER_SECRET_KEY_123"
+        assert decrypt_value(stored) == "https://hooks.example.com/SUPER_SECRET_KEY_123"
 
     def test_secret_never_rendered_in_page(self, client):
         """设置页不得回显凭据明文或密文。"""
         _setup_admin(client)
-        _post_settings(client, "/settings/qbittorrent",
-                       {"qb_api_key": "SUPER_SECRET_KEY_123"})
+        _post_settings(client, "/settings/notify",
+                       {"wecom_webhook": "https://hooks.example.com/SUPER_SECRET_KEY_123"})
         page = client.get("/settings")
         assert "SUPER_SECRET_KEY_123" not in page.text
         overrides = asyncio.run(store.load_overrides(app.state.db))
-        assert overrides["qb_api_key"] not in page.text
+        assert overrides["wecom_webhook"] not in page.text
 
     def test_no_change_submission_reports_error(self, client):
         """什么都没改就提交，应给出提示而非静默成功。"""
@@ -411,10 +418,12 @@ class TestSettingsPageRender:
         _setup_admin(client)
         page = client.get("/settings")
         assert page.status_code == 200
-        for action in ("/settings/general", "/settings/qbittorrent"):
-            assert f'action="{action}"' in page.text, f"缺少表单 {action}"
+        assert 'action="/settings/general"' in page.text
         # v0.6：站点组已迁出设置页
         assert 'action="/settings/sites"' not in page.text
+        # v0.6.1：qBittorrent 组也迁出，只留指向下载器中心的只读指引卡
+        assert 'action="/settings/qbittorrent"' not in page.text
+        assert "/downloaders" in page.text, "缺少 qBittorrent 指引卡"
 
     def test_page_marks_scope_per_field(self, client):
         """每个字段都应标注热生效 / 需重启，不含糊。"""
@@ -639,12 +648,12 @@ class TestSecretsKeyMissing:
         token = _csrf(client)
         monkeypatch.setenv("AUDIO_HUB_SECRETS_KEY", str(cfg_dir / "missing" / "secrets.key"))
 
-        resp = client.post("/settings/qbittorrent", data={
-            "qb_api_key": "SOME_KEY", "csrf_token": token,
+        resp = client.post("/settings/notify", data={
+            "wecom_webhook": "https://hooks.example.com/SOME_KEY", "csrf_token": token,
         }, follow_redirects=False)
         assert resp.status_code == 303, f"应重定向而非 {resp.status_code}: {resp.text[:200]}"
         assert "err=secrets_key" in resp.headers["location"]
-        assert "qb_api_key" not in asyncio.run(store.load_overrides(app.state.db))
+        assert "wecom_webhook" not in asyncio.run(store.load_overrides(app.state.db))
 
         # 页面把键翻译成可操作的文案
         page = client.get("/settings?err=secrets_key")

@@ -12,6 +12,7 @@ from .engine import (
     build_queries,
     build_site_priority,
     decide,
+    is_one_shot,
     run_rss_capture_once,
     run_subscription_search_once,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "build_queries",
     "build_site_priority",
     "decide",
+    "is_one_shot",
     "run_rss_capture_once",
     "run_subscription_search_once",
 ]

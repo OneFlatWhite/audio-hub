@@ -1878,6 +1878,21 @@ async def set_hit_task(
     return cur.rowcount
 
 
+async def delete_hits_for_task(db, task_id: str) -> int:
+    """删除某任务对应的命中流水（派发失败回滚用），返回删除行数。
+
+    命中留着有两个副作用：has_hit 挡住同一种子的重新决策，decision=dispatched /
+    upgrade 又让 has_album 把该专辑视为「已拥有」—— 派发一旦失败，订阅就永远
+    等不到重试。删除后下一轮引擎可重新决策重新派发；失败的事实由 tasks 表里的
+    任务行承担审计（本函数不动任务行）。
+    """
+    cur = await db.execute(
+        "DELETE FROM subscription_hits WHERE task_id = ?", (task_id,),
+    )
+    await db.commit()
+    return cur.rowcount if cur.rowcount else 0
+
+
 async def list_owned_albums(db, watch_id: str) -> list[dict]:
     """该订阅「已获得」的专辑清单：按 album_key 聚合，每组取最高音质档与最近一次的标题 / 站点 / 时间。
 

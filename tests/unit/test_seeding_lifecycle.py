@@ -341,3 +341,34 @@ class TestManualActions:
         await mon.mark_satisfied(tid)             # 幂等：不重复发事件
         assert len(notifier.events) == 1
         assert qb.paused == []                    # 手动标记不碰 qb
+
+
+# ── 站点快照热更新（项 4）────────────────────────────────────
+
+class TestRefreshSites:
+    """refresh_sites 让做种监视器立刻按新 H&R 阈值轮询。
+
+    陷阱：SeedingMonitor 构造时把 config.sites 拷成 _site_cfg 快照，
+    站点中心改 H&R 后 config.sites 已整体替换，监视器却仍按旧阈值跑，
+    界面「已生效」与实际行为不一致，要到重启才收敛。
+    """
+
+    async def test_refresh_applies_new_hr_thresholds(self, test_db):
+        tid = await _task(test_db, HASH_A, site="mteam")
+        qb = FakeQb([_torrent(HASH_A)])
+        mon = _monitor(test_db, qb)
+        await mon.poll_once()
+        rec = await repo.get_seed_record(test_db, tid)
+        assert rec.required_seconds == 10 * 3600 and rec.required_ratio == 0.5
+
+        mon.refresh_sites([
+            SiteConfig(name="hhanclub", enabled=False),
+            SiteConfig(name="mteam", enabled=False,
+                       hr_min_seed_hours=48, hr_min_ratio=2.0),
+        ])
+
+        tid2 = await _task(test_db, HASH_B, site="mteam")
+        qb.torrents.append(_torrent(HASH_B))
+        await mon.poll_once()
+        rec2 = await repo.get_seed_record(test_db, tid2)
+        assert rec2.required_seconds == 48 * 3600 and rec2.required_ratio == 2.0

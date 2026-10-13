@@ -115,6 +115,15 @@ class SeedingMonitor:
         self._running = False
         self._site_cfg = {s.name: s for s in config.sites}
 
+    def refresh_sites(self, sites) -> None:
+        """刷新站点快照（站点级 H&R 覆盖等）。
+
+        构造时的 config.sites 是一份快照；设置页改站点（rebuild_adapters 整体替换
+        config.sites）后若不刷新，requirements_for 会一直用旧阈值到重启 ——
+        界面显示「已生效」而轮询实际按旧规则跑，是最伤信任的隐错。
+        """
+        self._site_cfg = {s.name: s for s in sites}
+
     # ── qb 客户端 ────────────────────────────────────────────
 
     def _get_client(self):

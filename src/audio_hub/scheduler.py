@@ -27,11 +27,13 @@ from . import repo
 from .adapters.registry import build_adapters
 from .completion.monitor import CompletionMonitor
 from .downloaders.registry import DownloaderRegistry
-from .models import HitDecision, Task, TaskState
+from .models import HitDecision, SubStatus, Task, TaskState
+from .notify.base import Event
 from .notify.log_notify import LogNotifier
 from .pipeline.dispatcher import Dispatcher
 from .seeding.lifecycle import SeedingMonitor
 from .subscription import engine as sub_engine
+from .timeutil import utcnow
 
 # 默认搜索并发上限（PRD §8.5：每站独立预算）
 DEFAULT_MAX_CONCURRENCY = 2
@@ -109,9 +111,52 @@ class PipelineRunner:
                 downloader_id=result.downloader_ids.get(task.info_hash),
                 dry_run=self.config.dry_run,
             )
+            await self._complete_one_shot_subscription(task)
         for task, reason in result.failed:
             await self.notifier.failed(task.site, task.title, reason)
+            await self._rollback_failed_dispatch(task, reason)
         return {"dispatched": result.ok_count, "dispatch_failed": len(result.failed)}
+
+    async def _complete_one_shot_subscription(self, task: Task) -> None:
+        """一次性订阅的完结标记：实跑下延后到派发确认成功才置 completed。
+
+        引擎 decide 时任务只是 DISCOVERED（没碰 qb）；若那时就标 completed，
+        qb 不在线 / 直链换取失败会把订阅永远卡在「已完成但没下到」。
+        dry_run 无实发，引擎已在 decide 当场完结，这里直接跳过。
+        """
+        if self.config.dry_run or not task.watch_id:
+            return
+        watch = await repo.get_watch_entry(self.db, task.watch_id)
+        if watch is None or watch.status == SubStatus.COMPLETED:
+            return
+        if not sub_engine.is_one_shot(watch):
+            return
+        await repo.set_sub_status(self.db, watch.id, SubStatus.COMPLETED,
+                                  completed_at=utcnow())
+        await self.notifier.emit(Event(
+            kind=sub_engine.EVENT_SUBSCRIPTION_COMPLETED, site=task.site,
+            title=f"订阅已完成：{watch.query}",
+            detail={"watch_id": watch.id, "sub_type": watch.sub_type.value,
+                    "album_key": task.album_key or "", "task_id": task.id},
+        ))
+
+    async def _rollback_failed_dispatch(self, task: Task, reason: str) -> None:
+        """派发失败的订阅任务回滚：撤回命中流水，任务重置回 DISCOVERED 等下轮重试。
+
+        命中留着会让该专辑被 has_album 视为「已拥有」、同种子被 has_hit 挡住，
+        订阅保持 active 却永远等不到重试。回滚后下一轮引擎重新决策重新派发；
+        候选若已从 RSS 消失，订阅停在 active、任务停在 DISCOVERED —— 诚实，
+        且候选再次出现时能继续。失败本身有 tasks.error_message 与 failed 事件记账。
+        """
+        if self.config.dry_run or not task.watch_id:
+            return
+        removed = await repo.delete_hits_for_task(self.db, task.id)
+        await repo.set_task_state(self.db, task.id, TaskState.DISCOVERED,
+                                  error_message=None)
+        if removed:
+            logger.warning(
+                f"派发失败，订阅保持活跃等待下轮重试: {task.title[:60]!r} | {reason}"
+            )
 
     # ── 各 job 入口 ──
 

@@ -159,10 +159,22 @@ class SeedingConfig(BaseModel):
     on_satisfied: Literal["keep", "pause"] = "keep"
 
 
-#: 通知事件种类的全集，也是设置页 notify.kinds 的合法值集合
+#: 通知事件种类的全集，也是设置页 notify.kinds 的合法值集合。
+#: 与代码里实际产出的事件一一对应（grep `Event(kind=` / `EVENT_*` 常量核对）；
+#: "test" 是推送测试专用、不落事件流，不在其列。
 NOTIFY_KINDS: tuple[str, ...] = (
-    "dispatched", "completed", "routed", "quarantined",
-    "hr_satisfied", "series_completed", "failed",
+    # 派发与归档链路
+    "dispatched", "completed", "failed", "routed", "quarantined",
+    "archive_skipped", "scrape_failed",
+    # 订阅引擎（v0.6）
+    "subscription_hit", "subscription_upgrade", "subscription_completed",
+    # 做种与连载
+    "hr_satisfied", "series_completed",
+    # 站点与下载器健康
+    "adapter_error", "site_circuit_open", "site_auth_expired",
+    "downloader_unreachable",
+    # 轮次汇总
+    "round_summary",
 )
 
 

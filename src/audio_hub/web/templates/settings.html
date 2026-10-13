@@ -35,14 +35,6 @@
 <div class="panel">
   <h2>{{ g.title }}</h2>
   {% if g.note %}<p class="hint">{{ g.note }}</p>{% endif %}
-  {% if g.action == '/settings/qbittorrent' %}
-  {# v0.6：多 qb 实例的增删改 / 测试连接 / 默认切换在下载器中心。本组仍可编辑默认实例
-     的连接参数（读写兼容旧覆盖层），但推荐改用新页面。 #}
-  <div class="flash ok" style="margin-bottom:12px">
-    qBittorrent 连接配置已迁至<a href="/downloaders"><b>下载器中心</b></a>：支持多实例、测试连接、默认切换与热生效。
-    下方表单仅保留用于兼容旧覆盖层，改动不会同步到下载器表。
-  </div>
-  {% endif %}
 
   {% if g.fields %}
   <form method="post" action="{{ g.action }}">
@@ -125,6 +117,32 @@
 </div>
 {% endfor %}
 
+{# ── qBittorrent 指引卡（v0.6.1：可编辑表单已撤下）─────────────
+   旧表单把改动写进 config.qbittorrent + app_settings，而运行时的权威源是
+   downloaders 表 —— 首启后改这里永远不生效，「保存成功」是假象。
+   故只读展示当前默认实例，编辑入口指向下载器中心。 #}
+<div class="panel">
+  <h2>qBittorrent</h2>
+  <p class="hint">连接参数已迁移到<a href="/downloaders"><b>下载器中心</b></a>管理：
+    支持多实例、测试连接、默认切换，保存即热生效。本页不再提供编辑。</p>
+  {% if default_downloader %}
+  <table>
+    <tbody>
+      <tr><td>默认实例</td>
+        <td class="mono">{{ default_downloader.name }}（{{ default_downloader.id }}）</td></tr>
+      <tr><td>地址</td>
+        <td class="mono">{{ default_downloader.host }}:{{ default_downloader.port }}</td></tr>
+      <tr><td>保存路径 / 分类 / 标签</td>
+        <td class="mono">{{ default_downloader.save_path }} ・ {{ default_downloader.category }}
+           ・ {{ default_downloader.tag }}</td></tr>
+      <tr><td>凭据形态</td><td>{{ default_downloader.auth_label }}</td></tr>
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">尚未配置下载器 —— 到<a href="/downloaders">下载器中心</a>添加。</p>
+  {% endif %}
+</div>
+
 {# ── 只读展示：刻意不放进覆盖层的项 ─────────────────────── #}
 <div class="panel">
   <h2>只读项（需改 config.yaml）</h2>
@@ -157,10 +175,10 @@
     <tbody>
       <tr>
         <td>qBittorrent</td>
-        <td>API Key</td>
+        <td>账密或 API Key</td>
         <td>{{ '✓ 已配置' if secrets_status.qb_api_key else '✗ 未配置' }}</td>
-        <td class="hint">在<a href="/downloaders">下载器中心</a>填写（也可用上方「qBittorrent」旧表单）。<b>实跑派发前必填</b>，
-          否则采纳待审项会因 qb 客户端不可用而失败。</td>
+        <td class="hint">在<a href="/downloaders">下载器中心</a>的默认实例上填写。<b>实跑派发前必填</b>，
+          否则采纳待审项会因下载器不可用而失败。</td>
       </tr>
       <tr>
         <td>Audiobookshelf</td>

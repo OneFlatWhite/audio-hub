@@ -3,9 +3,8 @@
 设计约束见 settings_store 模块文档。本文件只负责 HTTP 层：
 表单解析、权限、保存、把生效范围如实反馈给使用者。
 
-七类写端点，各自只接受自己那组字段：
+六类写端点，各自只接受自己那组字段：
     POST /settings/general      运行参数（模式 / 轮询 / 日志 / cookie）
-    POST /settings/qbittorrent  qb 连接与落盘
     POST /settings/paths        归档链路目录（全部需重启）
     POST /settings/validation   完成后文件校验
     POST /settings/scrape       刮削联动（MTW / ABS）
@@ -15,6 +14,11 @@
 
 站点开关 / 凭据 / 站点 H&R 规则（原 POST /settings/sites）已于 v0.6 迁到站点中心
 （sites 表 + /sites 页），设置页不再承载。
+
+qBittorrent 组（原 POST /settings/qbittorrent）于 v0.6.1 撤下：v0.6 起运行时
+下载器配置的权威源是 downloaders 表，改这组只会落 app_settings 而永远不生效
+——「保存成功」的假象比没有表单更害人。设置页改为只读指引卡，指向 /downloaders；
+存量 qb_* 覆盖键由 registry_store.seed_from_yaml 收编进默认下载器行。
 
 均要求管理员 + CSRF。改配置影响面大于改订阅项，故比页面版写操作
 多一层 require_admin —— 普通用户能审片，但不该能关掉空跑保护。
@@ -49,9 +53,6 @@ GENERAL_KEYS = frozenset({
     "circuit_fail_threshold", "circuit_open_minutes",
     "rss_interval_minutes", "subscription_scan_minutes", "auth_check_hours",
 })
-QB_KEYS = frozenset({
-    "qb_host", "qb_port", "qb_save_path", "qb_category", "qb_tag", "qb_api_key",
-})
 PATHS_KEYS = frozenset(s.key for s in store.PATHS_SPECS)
 VALIDATION_KEYS = frozenset(s.key for s in store.VALIDATION_SPECS)
 SCRAPE_KEYS = frozenset(s.key for s in store.SCRAPE_SPECS)
@@ -65,9 +66,6 @@ _GROUPS: tuple[tuple[str, str, str, frozenset[str], str], ...] = (
     ("/settings/general", "运行参数",
      "dry_run 是安全闸：切到实跑会真实下载并占用 PT 站配额。",
      GENERAL_KEYS, "saved_general"),
-    ("/settings/qbittorrent", "qBittorrent",
-     "保存路径必须是 qb 所在主机能写到的路径（容器内视角）。",
-     QB_KEYS, "saved_qb"),
     ("/settings/paths", "归档路径",
      ("全部需重启：归档 / 校验 / 回收模块启动时按这些路径建目录并校验可写性。"
       "全部为容器内视角。"),
@@ -216,14 +214,6 @@ async def save_general(
     return await _save(request, "/settings/general", await request.form())
 
 
-@router.post("/settings/qbittorrent")
-async def save_qbittorrent(
-    request: Request,
-    _user: dict = Depends(require_admin_csrf),
-):
-    return await _save(request, "/settings/qbittorrent", await request.form())
-
-
 @router.post("/settings/paths")
 async def save_paths(
     request: Request,
@@ -353,11 +343,8 @@ def _field(config, spec: store.Spec) -> dict:
 
 def _secret_placeholder(config, spec: store.Spec) -> str:
     """secret 输入框的占位文案：告知当前是否已配置，但绝不回显值。"""
-    if spec.key == "qb_api_key":
-        has = bool(config.qbittorrent.api_key)
-        return "留空表示不修改（当前已配置）" if has else "未配置 —— 实跑派发前必填"
     if spec.path:
-        # 其余 secret（ABS token / 推送凭据）：path 指向解密后的明文字段
+        # secret 的 path 指向解密后的明文字段（ABS token / 推送凭据等）
         obj, attr = store._resolve(config, spec.path)
         has = bool(getattr(obj, attr, ""))
         return "留空表示不修改（当前已配置）" if has else "未配置（可选）"

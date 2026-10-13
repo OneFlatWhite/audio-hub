@@ -298,8 +298,12 @@ def _rank_key(m: SubMatch, site_priority: dict[str, int]) -> tuple:
     )
 
 
-def _is_one_shot(watch: WatchEntry) -> bool:
-    """首次派发即完成的订阅：专辑型，或未绑连载的有声书型。"""
+def is_one_shot(watch: WatchEntry) -> bool:
+    """首次派发即完成的订阅：专辑型，或未绑连载的有声书型。
+
+    公开给调度层：scheduler._dispatch_created 在实跑派发确认成功后据此
+    决定要不要把订阅置 completed（decide 只在 dry_run 时当场完结，见下）。
+    """
     if watch.sub_type == SubType.ALBUM:
         return True
     return watch.sub_type == SubType.AUDIOBOOK and watch.series_id is None
@@ -458,7 +462,11 @@ async def decide(
         if watch.kind == WatchKind.AUDIOBOOK and watch.series_id is not None:
             await register_task(db, task, notifier)
 
-        if decision == HitDecision.DISPATCHED and _is_one_shot(watch) \
+        # 一次性订阅的完结：dry_run 没有真实派发，命中即完成（维持现状）；
+        # 实跑时任务才刚建为 DISCOVERED、还没碰 qb —— completed 延后到
+        # scheduler._dispatch_created 确认派发成功，否则 qb 不在线 / 直链换取
+        # 失败会把订阅永远卡在「已完成但没下到」，且不再重试。
+        if dry_run and decision == HitDecision.DISPATCHED and is_one_shot(watch) \
                 and watch.status != SubStatus.COMPLETED:
             await repo.set_sub_status(db, watch.id, SubStatus.COMPLETED, completed_at=now)
             watch.status = SubStatus.COMPLETED
