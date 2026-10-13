@@ -149,6 +149,11 @@ class TransmissionFacade:
             ),
             seeding_time=int(getattr(t, "seconds_seeding", 0) or 0),
             ratio=float(getattr(t, "upload_ratio", 0) or 0.0),
+            # v0.14 进度条字段（qb 原生同名语义）：progress 0..1、dlspeed B/s、
+            # eta 秒（-1 = 未知）
+            progress=float(getattr(t, "percent_done", 0) or 0),
+            dlspeed=int(getattr(t, "rate_download", 0) or 0),
+            eta=int(getattr(t, "eta", 0) or -1),
         )
 
     def torrents_info(self, tag=None, **_ignored):

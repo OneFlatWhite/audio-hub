@@ -33,11 +33,11 @@ def keypair(monkeypatch):
     return pem, pub_b64
 
 
-def _issue(pem: bytes, user="starer", days=0) -> str:
+def _issue(pem: bytes, user="starer", days=0, jti="testjti01") -> str:
     """用测试私钥签一个授权码（与 scripts/issue_license.py 同逻辑）。"""
     key = serialization_load(pem)
     payload = json.dumps({
-        "v": 1, "user": user, "repo": lic.DEFAULT_REPO,
+        "v": 1, "user": user, "repo": lic.DEFAULT_REPO, "jti": jti,
         "issued_at": int(time.time()),
         "exp": int(time.time() + days * 86400) if days else None,
     }, sort_keys=True).encode()
@@ -161,3 +161,102 @@ def test_gate_redirects_when_required_and_invalid(client, monkeypatch):
     # 放行名单不受限
     assert client.get("/health").status_code == 200
     assert client.get("/activate").status_code == 200
+
+
+# ── 在线复核（取消 Star 自动吊销）───────────────────────────
+
+async def test_revalidate_revoked(keypair, monkeypatch):
+    """发放端返回 revoked=true → 本地标记吊销，check_state.valid 变 False。"""
+
+    pem, _ = keypair
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_VERIFY_URL", "https://issuer.example/status")
+
+    db = None  # revalidate/check_state 只做 SQL，测试用临时内存库
+    import tempfile
+
+    from audio_hub.db import init_db
+
+    db = await init_db(tempfile.mktemp(suffix=".db"))
+    try:
+        key = _issue(pem, user="starer")
+        await lic.set_stored_key(db, key)
+
+        async def fetch(url, params):
+            assert params["jti"]  # jti 随码校验
+            return {"revoked": True}
+
+        out = await lic.revalidate(db, fetch=fetch)
+        assert out == {"checked": True, "revoked": True}
+        state = await lic.check_state(db)
+        assert state["valid"] is False and state["revoked"] is True
+    finally:
+        await db.close()
+
+
+async def test_revalidate_still_starred(keypair, monkeypatch):
+    pem, _ = keypair
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_VERIFY_URL", "https://issuer.example/status")
+
+    import tempfile
+
+    from audio_hub.db import init_db
+
+    db = await init_db(tempfile.mktemp(suffix=".db"))
+    try:
+        await lic.set_stored_key(db, _issue(pem, user="starer"))
+
+        async def fetch(url, params):
+            return {"revoked": False}
+
+        out = await lic.revalidate(db, fetch=fetch)
+        assert out == {"checked": True, "revoked": False}
+        state = await lic.check_state(db)
+        assert state["valid"] is True and state["revoked"] is False
+    finally:
+        await db.close()
+
+
+async def test_revalidate_network_failure_keeps_state(keypair, monkeypatch):
+    """复核网络失败：保持原状态（宽限期内照常可用）。"""
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_VERIFY_URL", "https://issuer.example/status")
+
+    import tempfile
+
+    from audio_hub.db import init_db
+
+    db = await init_db(tempfile.mktemp(suffix=".db"))
+    try:
+        await lic.set_stored_key(db, _issue(keypair[0]))
+
+        async def fetch(url, params):
+            raise ConnectionError("issuer down")
+
+        out = await lic.revalidate(db, fetch=fetch)
+        assert out["checked"] is False
+        state = await lic.check_state(db)
+        assert state["valid"] is True and state["revoked"] is False
+    finally:
+        await db.close()
+
+
+async def test_check_state_stale_after_grace(keypair, monkeypatch):
+    """复核超期（宽限 N 天没联上发放端）→ valid False。"""
+    pem, _ = keypair
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_VERIFY_URL", "https://issuer.example/status")
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_GRACE_DAYS", "30")
+
+    import tempfile
+
+    from audio_hub.db import init_db
+
+    db = await init_db(tempfile.mktemp(suffix=".db"))
+    try:
+        await lic.set_stored_key(db, _issue(pem))
+        # 上次复核时间拨到 40 天前
+        await lic._set_meta(db, "_x", "")  # 触发建表路径
+        await lic._set_meta(db, lic._LAST_CHECK_KEY, str(int(time.time()) - 40 * 86400))
+        await lic._set_meta(db, lic._REVOKED_KEY, "0")
+        state = await lic.check_state(db)
+        assert state["valid"] is False and state["stale"] is True
+    finally:
+        await db.close()

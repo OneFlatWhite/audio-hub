@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import sys
 import time
@@ -73,6 +74,7 @@ def cmd_issue(args: argparse.Namespace) -> int:
         "v": 1,
         "user": args.user,
         "repo": REPO,
+        "jti": args.jti or hashlib.sha256(f"{args.user}:{time.time()}".encode()).hexdigest()[:12],
         "issued_at": int(time.time()),
         "exp": int(time.time() + args.days * 86400) if args.days else None,
     }
@@ -93,6 +95,7 @@ def main() -> int:
     i = sub.add_parser("issue", help="签发授权码")
     i.add_argument("--user", required=True, help="GitHub 用户名（写进授权）")
     i.add_argument("--days", type=int, default=0, help="有效期天数；0 = 永久")
+    i.add_argument("--jti", default="", help="授权唯一 ID（配合发放端吊销核对；默认自动生成）")
     i.add_argument("--private-key", default="./license-keys/license_ed25519.pem")
     i.set_defaults(func=cmd_issue)
     args = ap.parse_args()

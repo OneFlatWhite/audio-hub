@@ -10,6 +10,17 @@ audio-hub 源码全量开放（见 LICENSE）；运行时需要一份**免费授
 2. 打开发放页（作者部署，见下），GitHub 登录 —— 页面自动校验你 Star 过，签出授权码；
 3. 打开 audio-hub 的 `/activate` 页粘贴授权码，点激活。
 
+## 吊销（取消 Star 自动失效）
+
+- 授权码带唯一 `jti`；发放 Worker 把 `{jti → 用户}` 记进 KV；
+- Worker 每日 cron 拉取仓库 **Stargazers 公开列表**（无需用户配合），
+  台账里不在列表的用户自动标记吊销；
+- 程序侧环境变量 `AUDIO_HUB_LICENSE_VERIFY_URL=https://<worker>/api/status`
+  开启在线复核：启动时 + 每 24 小时自动核对一次；
+- **离线宽限**：距上次成功核对超过 `AUDIO_HUB_LICENSE_GRACE_DAYS`（默认 30 天）
+  即视为过期——NAS 断网照样能用一段时间，不会突然锁死；
+- 被吊销 / 超期的部署打开任意页面会进入 `/activate`，重新点 Star 领新码即可恢复。
+
 ## 作者侧：一次性准备
 
 ```bash

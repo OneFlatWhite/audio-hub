@@ -8,6 +8,16 @@
 <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v={{ version }}">
 </head>
 <body>
+{% macro keyform() %}
+<form method="post" action="/activate">
+  <div class="field">
+    <label for="lk">授权码</label>
+    <textarea name="license_key" id="lk" rows="3" placeholder="AH1.xxxx.xxxx"></textarea>
+  </div>
+  <button class="btn-primary" type="submit">保存</button>
+</form>
+{% endmacro %}
+
 <div class="center">
   <div class="authbox">
     <img class="auth-logo" src="{{ url_for('static', path='/logo.svg') }}" alt="audio-hub">
@@ -22,14 +32,16 @@
     <p class="sub">感谢支持，请<a href="/login">前往登录</a>。</p>
     <details class="adv">
       <summary>更换 / 清除授权码</summary>
-      <form method="post" action="/activate" style="margin-top:10px">
-        <div class="field">
-          <label for="lk">新的授权码（留空提交 = 清除）</label>
-          <textarea name="license_key" id="lk" rows="3" placeholder="AH1.xxxx.xxxx"></textarea>
-        </div>
-        <button class="btn-primary" type="submit">保存</button>
-      </form>
+      <div style="margin-top:10px">{{ keyform() }}</div>
     </details>
+    {% elif state.revoked %}
+    <p class="flash err">该授权码已被吊销：检测到仓库 Star 已取消。
+      重新点 Star 后到发放页领取新授权码，粘贴即可恢复。</p>
+    {{ keyform() }}
+    {% elif state.stale %}
+    <p class="flash err">授权复核超期：已超过 {{ grace_days }} 天未联到发放端完成在线核对。
+      恢复网络后程序会自动复核；也可重新领取授权码粘贴。</p>
+    {{ keyform() }}
     {% else %}
 
     <p class="sub">本项目源码全量开放。运行需要一份<strong>免费授权码</strong>，获取只要三步：</p>
@@ -39,17 +51,11 @@
       <p><b>③</b> 把拿到的授权码（AH1. 开头）粘贴到下面，点激活。</p>
     </div>
 
-    <form method="post" action="/activate">
-      <div class="field">
-        <label for="lk">授权码</label>
-        <textarea name="license_key" id="lk" rows="3" placeholder="AH1.xxxx.xxxx" required></textarea>
-      </div>
-      <button class="btn-primary" type="submit">激活</button>
-    </form>
+    {{ keyform() }}
 
     {% if state.required %}
     <p class="hint" style="margin-top:14px">当前部署启用了强制授权（AUDIO_HUB_LICENSE_REQUIRED=1），
-      激活前无法使用其它页面。</p>
+      激活前无法使用其它页面。取消 Star 后授权会在下次在线复核时自动吊销。</p>
     {% else %}
     <p class="hint" style="margin-top:14px">当前部署未启用强制授权（可正常使用）；
       设置 AUDIO_HUB_LICENSE_REQUIRED=1 可开启强制。</p>

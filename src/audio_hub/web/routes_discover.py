@@ -17,6 +17,7 @@ from loguru import logger
 from .. import repo
 from ..discover.aggregator import WallCache, collect_wall, search_wall
 from ..discover.covers import covers_dir, fill_covers, is_valid_key, read_meta
+from ..discover.pinyin_map import apply_artist_map, build_pinyin_index
 from ..models import SubType, WatchEntry, WatchKind
 from ..pipeline.title_parser import album_key, normalize_key
 from ..timeutil import utcnow
@@ -221,12 +222,16 @@ async def discover_page(
     if site:
         cards = [c for c in cards if site in c.sites]
 
+    # 订阅索引 + 拼音映射（先于封面：中文名能显著提高 iTunes 封面命中率）
+    entries = await repo.list_watch_entries(db, enabled_only=True)
+    artists, albums = _subscribed_index(entries, kind)
+    pinyin_index = build_pinyin_index(entries, kind)
+    if pinyin_index:
+        apply_artist_map(cards, pinyin_index)
+
     await fill_covers(
         cards, cache_dir=covers_dir(config), provider=config.discover.cover_provider,
     )
-
-    entries = await repo.list_watch_entries(db, enabled_only=True)
-    artists, albums = _subscribed_index(entries, kind)
 
     # 限速与真失败分列：限速（如 audiences RSS 2 分钟间隔）是预期内的临时状态，
     # 且旧数据已沿用，标红「失败」会误导用户以为站点挂了

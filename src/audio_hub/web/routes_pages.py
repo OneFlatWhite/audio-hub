@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC
+from typing import Any
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -273,6 +275,46 @@ async def records_sync_now(
     stats = await runner.run_completion_poll_once()
     logger.info(f"手动同步下载器状态（by {user['username']}）: {stats}")
     return RedirectResponse("/records?ok=synced", status_code=303)
+
+
+# ── 下载进度（命中记录页进度条数据源）────────────────────────
+
+#: 进度聚合缓存：命中记录页 5s 轮询，但下载器 API 查询节流到 8s
+_DLPROG: dict[str, Any] = {"at": 0.0, "data": {}}
+_DLPROG_TTL = 8.0
+
+
+@router.get("/api/download-progress")
+async def download_progress(request: Request, user: dict = Depends(require_user)):
+    """各下载器种子实时进度：{info_hash: {pct, dlspeed, eta, state}}（需登录）。
+
+    多下载器聚合，单台失败跳过；8 秒进程内节流避免多端打开页面打爆 API。
+    """
+    now = time.monotonic()
+    if now - _DLPROG["at"] < _DLPROG_TTL and _DLPROG["data"]:
+        return _DLPROG["data"]
+    data: dict[str, dict] = {}
+    registry = getattr(request.app.state, "downloaders", None)
+    if registry is not None:
+        for handle in registry.all_enabled():
+            client = handle.client
+            if client is None:
+                continue
+            try:
+                for t in client.torrents_info(tag=handle.config.tag):
+                    h = str(getattr(t, "hash", "") or "").lower()
+                    if not h:
+                        continue
+                    data[h] = {
+                        "pct": round(float(getattr(t, "progress", 0) or 0) * 100),
+                        "dlspeed": int(getattr(t, "dlspeed", 0) or 0),
+                        "eta": int(getattr(t, "eta", -1) if getattr(t, "eta", -1) is not None else -1),
+                        "state": str(getattr(t, "state", "") or ""),
+                    }
+            except Exception as e:  # noqa: BLE001 - 单台失败不拖垮整体
+                logger.debug(f"下载进度查询失败（{handle.id}）: {e}")
+    _DLPROG["at"], _DLPROG["data"] = now, data
+    return data
 
 
 # ── /review 待审队列（最高频页面，PRD §12.2）──────────────────

@@ -52,6 +52,7 @@ async def activate_page(
         "version": __version__,
         "csrf": "",
         "state": state,
+        "grace_days": license_mod.grace_seconds() // 86400,
         "flash_ok": _flash(request, "ok"),
         "flash_err": _flash(request, "err"),
         "repo_url": f"https://github.com/{license_mod.DEFAULT_REPO}",

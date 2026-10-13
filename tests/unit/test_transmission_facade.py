@@ -238,7 +238,8 @@ def test_facade_info_field_mapping():
     fac, tr = _facade()
     tr._torrents = [
         _tr_torrent(hash_string="ABC123", name="Album (2024)", download_dir="/downloads",
-                    seconds_seeding=3600, upload_ratio=2.5, labels=["hub", "music"]),
+                    seconds_seeding=3600, upload_ratio=2.5, labels=["hub", "music"],
+                    percent_done=0.42, rate_download=2_500_000, eta=1800),
     ]
     (t,) = fac.torrents_info()
     assert t.hash == "abc123"                       # qb 侧哈希一律小写
@@ -247,6 +248,10 @@ def test_facade_info_field_mapping():
     assert t.content_path == "/downloads/Album (2024)"  # tr 无 contentPath，按 dir+name 拼
     assert t.seeding_time == 3600
     assert t.ratio == 2.5
+    # v0.14 进度条字段（tr percent_done/rate_download/eta → qb progress/dlspeed/eta）
+    assert t.progress == pytest.approx(0.42)
+    assert t.dlspeed == 2_500_000
+    assert t.eta == 1800
 
 
 def test_facade_info_filters_by_tag():

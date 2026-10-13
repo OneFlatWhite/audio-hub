@@ -29,6 +29,18 @@ LICENSE_KEY_PREFIX = "AH1."
 LICENSE_SETTINGS_KEY = "license_key"
 DEFAULT_REPO = "OneFlatWhite/audio-hub"
 
+# ── 在线复核（吊销）─────────────────────────────────────────
+#: 发放端的复核端点（docs/license-issuer/worker.js 的 /api/status）。
+#: 配置后，程序会定期核对本地授权码的 jti 是否已被吊销（用户取消 Star）。
+VERIFY_URL_ENV = "AUDIO_HUB_LICENSE_VERIFY_URL"
+#: 离线宽限：距上次成功复核超过该天数即视为过期（NAS 断网也能用一段时间）
+GRACE_ENV = "AUDIO_HUB_LICENSE_GRACE_DAYS"
+#: 复核间隔（调度 job）
+REVALIDATE_INTERVAL_HOURS = 24
+
+_LAST_CHECK_KEY = "license_last_check"
+_REVOKED_KEY = "license_revoked"
+
 
 def public_key_b64() -> str:
     """验证公钥（32 字节 raw 的 base64）；未配置返回空串。"""
@@ -40,6 +52,19 @@ def license_required() -> bool:
     return os.environ.get("AUDIO_HUB_LICENSE_REQUIRED", "").strip().lower() in (
         "1", "true", "yes", "on",
     )
+
+
+def verify_url() -> str:
+    """发放端复核端点；未配置 = 不做在线复核（纯离线模式，无吊销能力）。"""
+    return os.environ.get(VERIFY_URL_ENV, "").strip()
+
+
+def grace_seconds() -> int:
+    """复核宽限时长（秒），默认 30 天。"""
+    try:
+        return int(float(os.environ.get(GRACE_ENV, "30"))) * 86400
+    except ValueError:
+        return 30 * 86400
 
 
 def _b64u_decode(raw: str) -> bytes:
@@ -101,21 +126,90 @@ async def set_stored_key(db, key: str) -> None:
     await db.commit()
 
 
+async def _get_meta(db, key: str) -> str:
+    async with db.execute(
+        "SELECT value FROM app_settings WHERE key = ?", (key,)
+    ) as cur:
+        row = await cur.fetchone()
+    return (row["value"] or "").strip() if row else ""
+
+
+async def _set_meta(db, key: str, value: str) -> None:
+    await db.execute(
+        "INSERT INTO app_settings (key, value, updated_at) VALUES (?,?,datetime('now')) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+        (key, value),
+    )
+    await db.commit()
+
+
+async def _default_fetch(url: str, params: dict) -> dict:
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url, params=params)
+        r.raise_for_status()
+        return r.json()
+
+
+async def revalidate(db, *, fetch=None) -> dict:
+    """在线复核本地授权码是否被吊销（用户取消 Star 后发放端会吊销）。
+
+    - 无 key / 验签不过 / 未配置复核端点 / 无 jti（旧版码）→ 不改吊销状态；
+    - 复核失败（网络）→ 保持原状态（宽限期内仍可用，到期再复核）；
+    - 结果写 app_settings：license_last_check（unix秒）、license_revoked（0/1）。
+    可注入 fetch 供测试。
+    """
+    now = int(time.time())
+    await _set_meta(db, _LAST_CHECK_KEY, str(now))
+    key = await get_stored_key(db)
+    payload = verify_license(key)
+    if not payload:
+        return {"checked": False, "reason": "no-valid-key"}
+    if not verify_url():
+        await _set_meta(db, _REVOKED_KEY, "0")
+        return {"checked": False, "reason": "no-verify-url"}
+    jti = payload.get("jti")
+    if not jti:
+        # 旧版无 jti 的授权码无法在线核对：保持有效（grandfathered）
+        await _set_meta(db, _REVOKED_KEY, "0")
+        return {"checked": False, "reason": "no-jti"}
+    fetch = fetch or _default_fetch
+    try:
+        data = await fetch(verify_url(), {"jti": jti})
+        revoked = bool(data.get("revoked"))
+    except Exception as e:  # noqa: BLE001 - 网络失败保原状态，宽限期内照常可用
+        logger.debug(f"授权复核失败（保持原状态）: {e}")
+        return {"checked": False, "reason": f"unreachable: {type(e).__name__}"}
+    await _set_meta(db, _REVOKED_KEY, "1" if revoked else "0")
+    logger.info(f"授权复核完成: jti={jti} revoked={revoked}")
+    return {"checked": True, "revoked": revoked}
+
+
 async def check_state(db) -> dict[str, Any]:
     """当前授权状态（门禁与激活页共用）。
 
-    Returns:
-        {"required": bool, "configured": bool(公钥已配置),
-         "valid": bool, "payload": dict|None, "key": str}
+    valid = 签名有效 AND 未被吊销 AND（未配置在线复核 或 复核未超宽限期）。
     """
     required = license_required()
     pub = public_key_b64()
     key = await get_stored_key(db)
     payload = verify_license(key, pub) if key else None
+    revoked = await _get_meta(db, _REVOKED_KEY) == "1"
+    stale = False
+    if payload and verify_url():
+        try:
+            last = int(float(await _get_meta(db, _LAST_CHECK_KEY) or 0))
+        except ValueError:
+            last = 0
+        stale = (time.time() - last) > grace_seconds()
+    valid = payload is not None and not revoked and not stale
     return {
         "required": required,
         "configured": bool(pub),
-        "valid": payload is not None,
+        "valid": valid,
         "payload": payload,
         "key": key,
+        "revoked": revoked,
+        "stale": stale,
     }

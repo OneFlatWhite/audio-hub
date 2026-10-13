@@ -270,6 +270,16 @@ class PipelineRunner:
         logger.info(f"发现墙后台刷新完成: {summary}")
         return summary
 
+    async def run_license_revalidate_once(self) -> dict:
+        """license_revalidate job：在线复核授权码是否被吊销（取消 Star）。"""
+        from . import license as license_mod
+
+        try:
+            return await license_mod.revalidate(self.db)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"授权复核异常: {e}")
+            return {"error": str(e)}
+
     async def run_seeding_once(self) -> dict:
         """seeding_check job（与 /seeding 页手动触发共用）。
 
@@ -445,4 +455,15 @@ def build_scheduler(runner: PipelineRunner, config) -> AsyncIOScheduler:
             IntervalTrigger(minutes=auto_min), "discover_auto_refresh", "发现墙后台刷新",
         )
         logger.info(f"发现墙后台刷新已配置：每 {auto_min} 分钟")
+
+    # ── license_revalidate：授权码在线复核（取消 Star 自动吊销的执行端）──
+    from . import license as _license
+    if _license.license_required() and _license.verify_url() \
+            and hasattr(runner, "run_license_revalidate_once"):
+        _add(
+            scheduler, runner.run_license_revalidate_once,
+            IntervalTrigger(hours=_license.REVALIDATE_INTERVAL_HOURS),
+            "license_revalidate", "授权在线复核",
+        )
+        logger.info(f"授权复核已配置：每 {_license.REVALIDATE_INTERVAL_HOURS} 小时")
     return scheduler

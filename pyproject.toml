@@ -19,6 +19,7 @@ dependencies = [
     "apscheduler>=3.10",
     "qbittorrent-api>=2026.8",
     "transmission-rpc>=7",
+    "pypinyin>=0.53",
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "pyyaml>=6.0",

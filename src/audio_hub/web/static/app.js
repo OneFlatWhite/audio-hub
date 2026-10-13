@@ -111,6 +111,50 @@
     setTimeout(function () { el.remove(); }, 4000);
   });
 
+  /* ── 命中记录：下载进度条（5s 轮询 /api/download-progress）──── */
+  (function () {
+    const rows = document.querySelectorAll(".dlbar-wrap");
+    if (!rows.length) return;
+
+    function fmtSpeed(bps) {
+      if (!bps || bps <= 0) return "";
+      if (bps >= 1048576) return (bps / 1048576).toFixed(1) + " MB/s";
+      return Math.max(1, Math.round(bps / 1024)) + " KB/s";
+    }
+    function fmtEta(s) {
+      if (s === null || s === undefined || s < 0) return "";
+      if (s >= 86400) return Math.round(s / 86400) + " 天";
+      if (s >= 3600) return Math.round(s / 3600) + " 小时";
+      if (s >= 60) return Math.round(s / 60) + " 分钟";
+      return s + " 秒";
+    }
+
+    async function pull() {
+      try {
+        const resp = await fetch("/api/download-progress");
+        if (!resp.ok) return;
+        const data = await resp.json();
+        document.querySelectorAll(".dlbar-wrap").forEach(function (el) {
+          const d = data[el.dataset.hash];
+          if (!d) return;
+          const pct = Math.max(0, Math.min(100, d.pct || 0));
+          el.querySelector(".seedbar > span").style.width = pct + "%";
+          el.querySelector(".seedbar").classList.toggle("done", pct >= 100);
+          const bits = [pct + "%"];
+          const sp = fmtSpeed(d.dlspeed);
+          if (sp && pct < 100) bits.push(sp);
+          const eta = fmtEta(d.eta);
+          if (eta && pct < 100) bits.push(eta + (sp ? "" : "后完成"));
+          el.querySelector(".dlmeta").textContent = bits.join(" · ");
+        });
+      } catch (_) { /* 下轮再取 */ }
+    }
+    pull();
+    setInterval(function () {
+      if (document.visibilityState === "visible") pull();
+    }, 5000);
+  })();
+
   /* ── 页面自动刷新：页面可见时周期整页重载 ──────────────────
      服务端渲染没有常驻连接，下载器状态的时效性靠它兜底。
      正在输入（表单聚焦）/ 菜单展开 / 订阅表单展开时绝不打扰；

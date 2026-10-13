@@ -18,6 +18,7 @@ v0.2：在 v0.1 的资源装配基础上接入 Web 界面与认证（PRD 第十�
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
@@ -142,6 +143,12 @@ async def lifespan(app: FastAPI):
 
     # 启动对账（崩溃恢复，PRD §13.6）
     await runner.monitor.reconcile_on_startup()
+
+    # ── 授权复核：启动后台拉一次（吊销 / 宽限状态的依据），失败不影响启动 ──
+    from . import license as _license_mod
+
+    if _license_mod.license_required() and _license_mod.verify_url():
+        asyncio.get_running_loop().create_task(_license_mod.revalidate(db))
 
     scheduler = build_scheduler(runner, config)
     scheduler.start()

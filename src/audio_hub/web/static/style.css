@@ -234,6 +234,8 @@ tbody tr:hover td { background: rgba(46, 58, 62, .03); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.num { white-space: nowrap; }
 td.nowrap, td > form { white-space: nowrap; }
+.dlbar-wrap { max-width: 240px; margin-top: 4px; }
+.dlbar-wrap .dlmeta { margin-top: 2px; font-variant-numeric: tabular-nums; }
 .mono { font-family: var(--font-mono); font-size: 12.5px; }
 .trunc { max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
