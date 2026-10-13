@@ -81,7 +81,7 @@ def parse_site_datetime(value: str) -> datetime | None:
         try:
             # 刻意解析为 naive：站点时间串无时区标记，下一行按 SITE_TZ 补全。
             # 若在此处带 %z 反而无法解析这类字符串。
-            naive = datetime.strptime(s[:26], fmt)  # noqa: DTZ007
+            naive = datetime.strptime(s[:26], fmt)
         except ValueError:
             continue
         return naive.replace(tzinfo=SITE_TZ).astimezone(UTC)

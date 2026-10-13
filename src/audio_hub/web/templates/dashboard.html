@@ -35,6 +35,44 @@
   </div>
 </div>
 
+{# ── v0.6 卡片：订阅概览。命中含待审 / 被拒（都是「发现了候选」）。 #}
+<div class="cards" style="margin-top:12px">
+  <div class="card"><div class="n">{{ subs.active }}</div><div class="l"><a href="/watchlist">订阅中</a></div></div>
+  <div class="card ok"><div class="n">{{ subs.completed }}</div><div class="l">已完成订阅</div></div>
+  <div class="card"><div class="n">{{ subs.today_hits }}</div><div class="l">今日命中</div></div>
+  <div class="card">
+    <div class="n" style="font-size:18px">
+      {%- if subs.pending_search %}即将
+      {%- elif subs.next_search_local %}{{ subs.next_search_local }}
+      {%- else %}—{% endif %}
+    </div>
+    <div class="l">下次搜索（每 {{ subs.interval_minutes }} 分钟）</div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>下载器 <a href="/downloaders" style="float:right;text-transform:none;letter-spacing:0;font-weight:400">管理 →</a></h2>
+  <table>
+    <thead><tr><th>名称</th><th>状态</th><th>地址</th><th>版本</th>
+      <th class="num">剩余空间</th><th class="num">在途任务</th></tr></thead>
+    <tbody>
+    {% for d in downloaders %}
+      <tr>
+        <td>{{ d.name }}{% if d.is_default %} <span class="hint">默认</span>{% endif %}</td>
+        <td><span class="dot {{ d.state }}"></span>{{ d.state_label }}
+          {%- if d.state == 'err' and d.error %} <span class="hint" title="{{ d.error }}">{{ d.error }}</span>{% endif %}</td>
+        <td class="mono">{{ d.endpoint }}</td>
+        <td class="mono">{{ d.version or '—' }}</td>
+        <td class="num">{{ d.free_gb ~ ' GB' if d.free_gb is not none else '—' }}</td>
+        <td class="num">{{ d.active_tasks }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="empty">尚无下载器，<a href="/downloaders">去下载器中心添加</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
 <div class="panel">
   <h2>站点健康</h2>
   <table>

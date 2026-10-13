@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -168,6 +168,57 @@ def _disk_usage() -> dict | None:
     except Exception as e:  # noqa: BLE001 - 磁盘信息属装饰性，失败即隐藏
         logger.debug(f"磁盘信息获取失败: {e}")
         return None
+
+
+async def _downloader_cards(db) -> list[dict]:
+    """总览「下载器」面板：每台下载器一行状态。
+
+    数据来自 downloaders 表 + 最近一次「测试连接」结果（last_test_json，
+    由 /downloaders/{id}/test 落库）；在途任务数取 count_active_tasks_by_downloader。
+    不做实时探测——总览页高频打开，不能每次去敲 qb。
+    """
+    downloaders = await repo.list_downloaders(db)
+    active = await repo.count_active_tasks_by_downloader(db)
+    cards = []
+    for d in downloaders:
+        test = d.last_test or {}
+        if not d.enabled:
+            state, label = "off", "已禁用"
+        elif test.get("ok") is True:
+            state, label = "ok", "连接正常"
+        elif test.get("ok") is False:
+            state, label = "err", "连接失败"
+        else:
+            state, label = "off", "未测试"
+        free_gb = test.get("free_space_bytes")
+        cards.append({
+            "id": d.id, "name": d.name, "endpoint": f"{d.host}:{d.port}",
+            "is_default": d.is_default, "state": state, "state_label": label,
+            "version": test.get("version") or "",
+            "error": test.get("error") or "",
+            "free_gb": round(free_gb / 1024**3, 1) if isinstance(free_gb, int | float) else None,
+            "active_tasks": active.get(d.id, 0),
+        })
+    return cards
+
+
+async def _subscription_overview(db, config) -> dict:
+    """总览「订阅概览」卡：订阅中 / 已完成 / 今日命中 / 下次搜索。
+
+    「今日」按站点本地时区（Asia/Shanghai）划界；DB 比较统一用 UTC（timeutil 约定）。
+    """
+    by_status = await repo.count_subscriptions_by_status(db)
+    today_local = utcnow().astimezone(SITE_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
+    next_at = await repo.next_subscription_search_at(db)
+    return {
+        "active": by_status.get(SubStatus.ACTIVE.value, 0),
+        "completed": by_status.get(SubStatus.COMPLETED.value, 0),
+        "today_hits": await repo.count_hits_since(db, today_local.astimezone(UTC)),
+        # 有从未搜过的活跃订阅时，下一轮扫描就会搜它，「下次搜索」显示为「即将」
+        "pending_search": await repo.has_pending_subscription_search(db),
+        "next_search_local": next_at.astimezone(SITE_TZ).strftime("%m-%d %H:%M") if next_at else None,
+        "interval_minutes": config.search.subscription_scan_minutes,
+    }
 
 
 # ── /watchlist 订阅：v0.6 起在 routes_subscriptions（列表 / 新建 / 详情 / 立即搜索 / 暂停恢复）──
