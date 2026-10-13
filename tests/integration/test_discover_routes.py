@@ -268,6 +268,26 @@ class TestSubscribe:
         assert resp.headers["location"] == "/discover?kind=music&err=empty"
         assert not _all_entries()
 
+    def test_subscribe_dispatches_immediately(self, client, fake_wall, monkeypatch):
+        """一键订阅的首次搜索命中后立刻调用派发入口（不等调度器下一轮）。
+
+        dry_run 下任务是 SCORED，真实派发空转；这里验证的是「路由 → 派发入口」
+        的接线存在——v0.7.6 前任务要等一个扫描周期才被调度器看见。
+        """
+        calls: list[list] = []
+
+        async def fake_dispatch(tasks):
+            calls.append(list(tasks))
+            return {"dispatched": 0, "dispatch_failed": 0}
+
+        monkeypatch.setattr(app.state.runner, "dispatch_created", fake_dispatch)
+        _setup_admin(client)
+        resp = _post(client, "/discover/subscribe", kind="music", sub_type="artist",
+                     artist="周杰伦")
+        assert resp.status_code == 303
+        assert calls and calls[0], "立即派发入口未被调用"
+        assert all(t.watch_id for t in calls[0])
+
     def test_bad_params(self, client, fake_wall):
         _setup_admin(client)
         resp = _post(client, "/discover/subscribe", kind="movie", sub_type="artist", artist="x")

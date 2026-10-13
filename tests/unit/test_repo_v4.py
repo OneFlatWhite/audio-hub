@@ -75,6 +75,20 @@ class TestMigrationV4:
         [entry] = await repo.list_watch_entries(test_db)
         assert entry.series_id == 3
 
+    async def test_create_task_empty_hash_no_idempotent_reuse(self, test_db):
+        """空 info_hash 不做幂等复用：两个空哈希任务是两条独立记录。
+
+        v0.7.6 前的坍缩事故：适配器给出空哈希时，「同哈希复用」把不同专辑的
+        任务全并成一条。适配器层现保证合成伪哈希，此处是兜底。
+        """
+        id1 = await repo.create_task(test_db, Task(info_hash="", site="mteam", title="A"))
+        id2 = await repo.create_task(test_db, Task(info_hash="", site="mteam", title="B"))
+        assert id1 != id2
+        # 非空哈希仍保持幂等
+        id3 = await repo.create_task(test_db, Task(info_hash="h9", site="mteam", title="C"))
+        id4 = await repo.create_task(test_db, Task(info_hash="h9", site="mteam", title="C2"))
+        assert id3 == id4
+
 
 class TestLibraryItems:
     async def test_insert_list_count(self, test_db):

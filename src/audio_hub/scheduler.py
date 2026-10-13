@@ -99,6 +99,15 @@ class PipelineRunner:
 
     # ── 派发 ──
 
+    async def dispatch_created(self, tasks: list[Task]) -> dict:
+        """公开入口：路由层「立即搜索 / 一键订阅」建完任务后立刻派发。
+
+        否则 DISCOVERED 任务要等调度器下一轮（最长一个 subscription_scan 周期），
+        用户在界面上点了「立即搜索」却看不到下载，会以为功能坏了。
+        dry_run 下引擎建的是 SCORED 任务，这里自然空转。
+        """
+        return await self._dispatch_created(tasks)
+
     async def _dispatch_created(self, tasks: list[Task]) -> dict:
         """把引擎建好的 DISCOVERED 任务交给派发器；待审（SCORED）等不动。"""
         pending = [t for t in tasks if t.state == TaskState.DISCOVERED]

@@ -40,6 +40,7 @@ _FLASH_OK = {
     "paused": "订阅已暂停",
     "resumed": "订阅已恢复",
     "searched": "已完成一次搜索（结果见命中记录）",
+    "searched_dispatched": "搜索完成，命中内容已立即派发下载器（见命中记录）",
     "search_no_sites": "没有可用站点，未发出任何请求 —— 请到「站点中心」启用并通过认证",
     "search_deferred": "本轮站点请求预算已用完，该订阅已顺延到下一轮",
 }
@@ -274,7 +275,12 @@ def _adapters_of(request: Request) -> dict:
 
 
 async def _search_one(request: Request, db, config, watch_id: str) -> str:
-    """对单条订阅立即搜索一次，返回 flash 键（不抛异常）。"""
+    """对单条订阅立即搜索一次并立即派发命中任务，返回 flash 键（不抛异常）。
+
+    v0.7.6 起立即派发：引擎建的 DISCOVERED 任务原先要等调度器下一轮
+    （最长一个 subscription_scan 周期），界面上点了「立即搜索」却看不到
+    下载动作，体验如同功能损坏。dry_run 下任务是 SCORED，派发自然空转。
+    """
     try:
         summary = await run_subscription_search_once(
             db, _adapters_of(request), config=config,
@@ -288,6 +294,16 @@ async def _search_one(request: Request, db, config, watch_id: str) -> str:
         return "search_no_sites"
     if watch_id in summary.deferred:
         return "search_deferred"
+    runner = getattr(request.app.state, "runner", None)
+    created = [t for t in summary.created_tasks if t.watch_id == watch_id]
+    if runner is not None and created:
+        try:
+            result = await runner.dispatch_created(created)
+        except Exception as e:  # noqa: BLE001 - 派发失败由事件/任务错误记账，不影响搜索结论
+            logger.exception(f"订阅 {watch_id[:8]} 立即派发失败: {e}")
+        else:
+            if result.get("dispatched"):
+                return "searched_dispatched"
     return "searched"
 
 

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 from abc import ABC, abstractmethod
@@ -23,6 +24,16 @@ HTTP_TIMEOUT = 30.0
 
 #: 未配置 User-Agent 时的默认值（mteam 等站点要求非空 UA）
 DEFAULT_USER_AGENT = "audio-hub/0.6"
+
+
+def synthetic_info_hash(site: str, key: str) -> str:
+    """站点给不出真实 info_hash 时的确定性伪哈希（sha1 hex，40 字符）。
+
+    任务幂等（create_task）、命中去重（has_hit）、做种对账都以 info_hash 为身份键；
+    空字符串会让「同哈希复用」把所有空哈希种子坍缩成同一条记录。
+    用站点内唯一且稳定的键（种子 ID）合成，保证跨轮次一致。
+    """
+    return hashlib.sha1(f"{site}:{key}".encode()).hexdigest()
 
 # ── 统一分类枚举 ────────────────────────────────────────────
 

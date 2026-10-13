@@ -43,6 +43,7 @@ from .base import (
     parse_size_text,
     strip_noise,
     suggest_category_kind,
+    synthetic_info_hash,
 )
 
 # NexusPHP RSS 默认超时（秒）
@@ -479,6 +480,9 @@ class NexusPhpAdapter(BaseAdapter):
         category = self._resolve_category(parsed["category"], site_category)
 
         return NormalizedTorrent(
+            # HTML 搜索页不带 info_hash 字段：用种子 ID 合成确定性伪哈希，
+            # 空哈希会让 create_task 幂等把不同种子坍缩成同一任务
+            info_hash=synthetic_info_hash(self.site_name, torrent_id),
             title=title,
             title_normalized=normalize_title(title),
             site=self.site_name,
@@ -542,8 +546,12 @@ class NexusPhpAdapter(BaseAdapter):
         enclosure_url = enclosure.attrib.get("url", "") if enclosure else ""
         enclosure_len = enclosure.attrib.get("length", "") if enclosure else ""
 
-        # info_hash：优先 guid，其次从 enclosure url 解析
+        # info_hash：优先 guid，其次从 enclosure url 解析；都没有则用种子 ID 合成
+        # （空哈希会让 create_task 幂等把不同种子坍缩成同一任务）
+        torrent_id = self._id_from_url(enclosure_url)
         info_hash = guid or self._hash_from_url(enclosure_url)
+        if not info_hash and torrent_id:
+            info_hash = synthetic_info_hash(self.site_name, torrent_id)
 
         # 体积：优先 enclosure@length，其次从标题解析
         size = 0
@@ -570,7 +578,7 @@ class NexusPhpAdapter(BaseAdapter):
             pub_date=_parse_pubdate(pub_date_str),
             discount=parsed["discount"],
             format_tags=parsed["format_tags"],
-            torrent_id=self._id_from_url(enclosure_url),
+            torrent_id=torrent_id,
             source="rss",
         )
 

@@ -78,6 +78,20 @@ class TestParseSearchHtml:
         rows2 = make(rss_url="").parse_search_html(load("nexusphp_search_result.html"))
         assert rows2[0].download_url == "https://hdsky.me/download.php?id=100001"
 
+    def test_info_hash_synthesized_from_torrent_id(self):
+        """HTML 搜索页无 info_hash 字段：用种子 ID 合成确定性伪哈希。
+
+        空哈希会让 create_task 的幂等查询把所有空哈希种子坍缩成同一任务
+        （v0.7.6 前真实发生：14 条命中共享 1 个任务，批量下载只剩 1 个）。
+        """
+        rows = make().parse_search_html(load("nexusphp_search_result.html"))
+        for t in rows:
+            assert len(t.info_hash) == 40
+            int(t.info_hash, 16)                     # 合法 hex
+        again = make().parse_search_html(load("nexusphp_search_result.html"))
+        assert [t.info_hash for t in rows] == [t.info_hash for t in again]   # 确定性
+        assert len({t.info_hash for t in rows}) == len(rows)                 # 唯一性
+
     def test_has_next_page(self):
         html = load("nexusphp_search_result.html")
         assert _has_next_page(html, 1) is True

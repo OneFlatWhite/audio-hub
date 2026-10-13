@@ -355,6 +355,32 @@ class TestRealResponseShape:
         item["category"] = "406"
         assert make_adapter()._parse_torrent(item).category == MediaCategory.VIDEO
 
+    def test_real_infohash_passthrough(self):
+        t = make_adapter()._parse_torrent(self._item())
+        assert t.info_hash == "ab" * 20
+
+    def test_null_infohash_synthesized_from_id(self):
+        """实测 search 响应 infoHash=null：用种子 ID 合成稳定伪哈希。
+
+        空哈希会让 create_task 幂等把不同种子坍缩成同一任务（v0.7.6 修复）。
+        """
+        item = self._item()
+        item["infoHash"] = None
+        t = make_adapter()._parse_torrent(item)
+        assert len(t.info_hash) == 40
+        int(t.info_hash, 16)                         # 合法 hex
+        # 确定性：同 id 必同哈希（去重/幂等依赖）；不同 id 不同哈希
+        same = self._item()
+        same["infoHash"] = None
+        assert make_adapter()._parse_torrent(same).info_hash == t.info_hash
+        other = self._item()
+        other.update({"infoHash": None, "id": "999"})
+        assert make_adapter()._parse_torrent(other).info_hash != t.info_hash
+        # 键缺失（不只是 null）也要兜底
+        missing = self._item()
+        del missing["infoHash"]
+        assert make_adapter()._parse_torrent(missing).info_hash == t.info_hash
+
 
 class TestSearchKindMapping:
     @pytest.mark.asyncio

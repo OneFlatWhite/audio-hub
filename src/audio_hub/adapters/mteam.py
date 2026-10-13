@@ -33,6 +33,7 @@ from .base import (
     normalize_title,
     parse_size_text,
     suggest_category_kind,
+    synthetic_info_hash,
 )
 
 _TIMEOUT = 30.0
@@ -374,6 +375,10 @@ class MTeamAdapter(BaseAdapter):
 
         info_hash = raw.get("infoHash") or raw.get("info_hash") or raw.get("hash") or ""
         torrent_id = str(raw.get("id") or raw.get("torrentId") or "")
+        if not info_hash and torrent_id:
+            # 2026-10 实测：search 响应带 infoHash 键但值为 null，身份键用种子 ID 合成
+            # （稳定且跨轮次一致，否则 create_task 幂等会把空哈希种子坍缩成同一任务）
+            info_hash = synthetic_info_hash(self.site_name, torrent_id)
 
         # 分类：真实响应是字符串 ID（如 "442"），早期文档假设的 dict.mode 结构保留兼容
         category = self._resolve_category(raw, title)

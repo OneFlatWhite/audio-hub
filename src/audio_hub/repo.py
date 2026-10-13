@@ -252,16 +252,22 @@ async def upsert_torrent_seen(
 # ── tasks（全链路状态机）────────────────────────────────────
 
 async def create_task(db, task: Task) -> str:
-    """创建任务。若同 info_hash 已有任务则复用其 id（幂等）。"""
+    """创建任务。若同 info_hash 已有任务则复用其 id（幂等）。
+
+    空 info_hash 不参与幂等查询：空串匹配会把所有缺哈希的种子坍缩成
+    同一个任务（v0.7.6 前真实发生过：mteam search 的 infoHash 为 null、
+    NexusPHP HTML 搜索页无哈希字段）。适配器层现保证合成伪哈希，此处兜底。
+    """
     if not task.id:
         task.id = str(uuid.uuid4())
 
-    async with db.execute(
-        "SELECT id FROM tasks WHERE info_hash = ?", (task.info_hash,)
-    ) as cur:
-        existing = await cur.fetchone()
-    if existing:
-        return existing["id"]
+    if task.info_hash:
+        async with db.execute(
+            "SELECT id FROM tasks WHERE info_hash = ?", (task.info_hash,)
+        ) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            return existing["id"]
 
     await db.execute(
         """INSERT INTO tasks

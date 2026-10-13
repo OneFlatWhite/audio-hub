@@ -2,6 +2,23 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.6] - 2026-10-13
+
+修「订阅明星不批量下载」事故：所有命中的 info_hash 全空，被任务幂等坍缩成 1 个任务；
+且界面「立即搜索」建完任务后要等调度器下一轮（最长一个扫描周期）才派发。
+**测试 1074 → 1079**，ruff 0 error。
+
+### 修复
+
+- **任务坍缩（根因）**：mteam search 响应的 `infoHash` 实测为 null、NexusPHP HTML
+  搜索页无哈希字段，导致命中记录与任务的 info_hash 全空；`create_task` 的
+  「同哈希复用」把不同专辑的任务全并成一条（实测 14 条命中共享 1 个任务）。
+  现适配器层用种子 ID 合成确定性伪哈希（`synthetic_info_hash`，sha1），
+  `create_task` 对空哈希不再做幂等查询（兜底）
+- **「立即搜索」不立即派发**：路由层 `_search_one`（订阅项 search-now 与发现墙
+  一键订阅共用）建完 DISCOVERED 任务后现在直接调 `runner.dispatch_created`
+  立即派发；有命中派发成功时 flash 显示「已立即派发下载器」
+
 ## [0.7.5] - 2026-10-13
 
 静态资源缓存与 CSRF 小修。**测试 1073 → 1074**，ruff 0 error。

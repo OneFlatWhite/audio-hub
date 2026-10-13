@@ -139,7 +139,7 @@ PAGES = [
 ]
 
 # 本轮发布号。与 __version__ 双向校验：一边忘改另一边就会报出来。
-EXPECTED_VERSION = "0.7.5"
+EXPECTED_VERSION = "0.7.6"
 
 
 def main() -> int:

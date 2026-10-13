@@ -56,6 +56,7 @@ DISCOUNT_TITLES = {
 _FLASH_OK = {
     "added": "订阅已添加",
     "added_searched": "订阅已添加，并已完成首次搜索（结果见命中记录）",
+    "added_dispatched": "订阅已添加，命中内容已立即派发下载器（见命中记录）",
     "added_no_sites": "订阅已添加，但当前没有可用站点，首次搜索未执行 —— 请到「站点中心」启用并通过认证",
     "added_deferred": "订阅已添加，本轮站点请求预算已用完，稍后自动搜索",
     "refreshed": "已刷新；5 分钟内刚拉过的站点沿用了旧数据（卡片上方标注）",
@@ -274,8 +275,8 @@ async def discover_subscribe(
     logger.info(f"发现墙一键订阅（by {user['username']}）: {entry.sub_type.value} {entry.query!r}")
     key = await _search_one(request, db, config, entry.id)
     ok = {
-        "searched": "added_searched", "search_no_sites": "added_no_sites",
-        "search_deferred": "added_deferred",
+        "searched": "added_searched", "searched_dispatched": "added_dispatched",
+        "search_no_sites": "added_no_sites", "search_deferred": "added_deferred",
     }.get(key, "added")
     if key == "search_failed":
         return _redirect(kind, err=key)
