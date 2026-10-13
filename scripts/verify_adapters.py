@@ -169,67 +169,83 @@ async def check_nexusphp_search(config) -> dict[str, str]:
 
 
 async def main_async(args) -> int:
+    from audio_hub.bootstrap import bootstrap_runtime
+
+    # v0.6 起站点权威源是 sites 表：先按服务启动的同一条链路装配
+    # （库不存在时降级为纯 YAML，不建库）。诊断场景显式 require_valid_auth=False
+    # —— 目的恰恰是把 unconfigured / expired 的站验一遍，门禁对它没有意义。
     config = load_config()
-    adapters = build_adapters(config)
+    ctx = await bootstrap_runtime(config)
+    try:
+        config = ctx.config
+        for note in ctx.notes:
+            print(f"⚠️  {note}")
+        adapters = build_adapters(config.sites, require_valid_auth=False)
 
-    if not adapters:
-        print("❌ 没有可用适配器。检查 config.yaml 的 sites 是否 enabled、凭据是否已加密填入。")
-        return 1
+        if not adapters:
+            print("❌ 没有可用适配器。检查 /sites 或 config.yaml 的站点是否 enabled、"
+                  "凭据是否已填写。")
+            return 1
 
-    targets = {args.site: adapters[args.site]} if args.site and args.site in adapters else adapters
-    if args.site and args.site not in adapters:
-        print(f"❌ 站点 {args.site!r} 不可用。可选: {sorted(adapters)}")
-        return 1
+        targets = (
+            {args.site: adapters[args.site]} if args.site and args.site in adapters else adapters
+        )
+        if args.site and args.site not in adapters:
+            print(f"❌ 站点 {args.site!r} 不可用。可选: {sorted(adapters)}")
+            return 1
 
-    print("=" * 70)
-    print(f"  audio-hub 站点验证 | {datetime.now().astimezone():%Y-%m-%d %H:%M:%S} | dry_run={config.dry_run}")
-    print("=" * 70)
+        print("=" * 70)
+        print(f"  audio-hub 站点验证 | {datetime.now().astimezone():%Y-%m-%d %H:%M:%S} | "
+              f"dry_run={config.dry_run}")
+        print("=" * 70)
 
-    all_ok = True
-    for name, adapter in targets.items():
-        print(f"\n[{name}] 验证中...", flush=True)
-        r = await verify_one(name, adapter, args.save_samples)
-        all_ok = all_ok and r["ok"]
+        all_ok = True
+        for name, adapter in targets.items():
+            print(f"\n[{name}] 验证中...", flush=True)
+            r = await verify_one(name, adapter, args.save_samples)
+            all_ok = all_ok and r["ok"]
 
-        icon = "✅" if r["ok"] else "❌"
-        print(f"{icon} {name}: {r['count']} 条 | {r['elapsed_s']}s")
-        if r["error"]:
-            print(f"   错误: {r['error']}")
-        if r["category_breakdown"]:
-            print(f"   类型分布: {r['category_breakdown']}")
-            music = r["category_breakdown"].get("music", 0)
-            video = r["category_breakdown"].get("video", 0)
-            unknown = r["category_breakdown"].get("unknown", 0)
-            if video > music:
-                print(f"   ⚠️  video({video}) > music({music})：分类过滤可能未生效")
-            if unknown > 0:
-                print(f"   ⚠️  {unknown} 条 UNKNOWN：类型判别关键词需按真实标题补充")
-        for s in r["sample_titles"][:3]:
-            print(f"     · [{s['category']}] {s['title']} ({s['size_mb']}MB)")
-        if r.get("sample_file"):
-            print(f"   样本已存: {r['sample_file']}")
+            icon = "✅" if r["ok"] else "❌"
+            print(f"{icon} {name}: {r['count']} 条 | {r['elapsed_s']}s")
+            if r["error"]:
+                print(f"   错误: {r['error']}")
+            if r["category_breakdown"]:
+                print(f"   类型分布: {r['category_breakdown']}")
+                music = r["category_breakdown"].get("music", 0)
+                video = r["category_breakdown"].get("video", 0)
+                unknown = r["category_breakdown"].get("unknown", 0)
+                if video > music:
+                    print(f"   ⚠️  video({video}) > music({music})：分类过滤可能未生效")
+                if unknown > 0:
+                    print(f"   ⚠️  {unknown} 条 UNKNOWN：类型判别关键词需按真实标题补充")
+            for s in r["sample_titles"][:3]:
+                print(f"     · [{s['category']}] {s['title']} ({s['size_mb']}MB)")
+            if r.get("sample_file"):
+                print(f"   样本已存: {r['sample_file']}")
 
-    # ── 专项风险验证 ──
-    if not args.site or args.site == "hhanclub":
-        print("\n" + "-" * 70)
-        print("专项验证 1：憨憨 cat410=1 是否生效")
-        print("  " + await check_hhanclub_cat_filter(config))
+        # ── 专项风险验证 ──
+        if not args.site or args.site == "hhanclub":
+            print("\n" + "-" * 70)
+            print("专项验证 1：憨憨 cat410=1 是否生效")
+            print("  " + await check_hhanclub_cat_filter(config))
 
-    if not args.site:
-        print("\n专项验证 2：NexusPHP RSS search 参数是否被忽略")
-        for site, msg in (await check_nexusphp_search(config)).items():
-            print(f"  [{site}] {msg}")
+        if not args.site:
+            print("\n专项验证 2：NexusPHP RSS search 参数是否被忽略")
+            for site, msg in (await check_nexusphp_search(config)).items():
+                print(f"  [{site}] {msg}")
 
-    if (not args.site or args.site == "mteam") and "mteam" in adapters:
-        print("\n专项验证 3：馒头双域名可用性")
-        mt = adapters["mteam"]
-        print(f"  当前 base URL 顺序: {mt._base_urls}")
-        print(f"  本轮实际使用: {mt._active_base or '（未发起 API 请求）'}")
+        if (not args.site or args.site == "mteam") and "mteam" in adapters:
+            print("\n专项验证 3：馒头双域名可用性")
+            mt = adapters["mteam"]
+            print(f"  当前 base URL 顺序: {mt._base_urls}")
+            print(f"  本轮实际使用: {mt._active_base or '（未发起 API 请求）'}")
 
-    print("\n" + "=" * 70)
-    print(f"总结: {'✅ 全部可用' if all_ok else '⚠️ 存在失败站点，见上方详情'}")
-    print("=" * 70)
-    return 0 if all_ok else 1
+        print("\n" + "=" * 70)
+        print(f"总结: {'✅ 全部可用' if all_ok else '⚠️ 存在失败站点，见上方详情'}")
+        print("=" * 70)
+        return 0 if all_ok else 1
+    finally:
+        await ctx.close()
 
 
 def main() -> int:

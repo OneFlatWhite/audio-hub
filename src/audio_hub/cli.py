@@ -99,6 +99,9 @@ async def cmd_status(config) -> int:
 
 
 async def cmd_run_once(config, no_dry_run: bool) -> int:
+    from .bootstrap import bootstrap_runtime
+    from .downloaders.registry import DownloaderRegistry
+    from .main import _make_qb_client
     from .notify.log_notify import LogNotifier
     from .scheduler import PipelineRunner
 
@@ -106,17 +109,21 @@ async def cmd_run_once(config, no_dry_run: bool) -> int:
         config = config.model_copy(update={"dry_run": False})
         logger.warning("已关闭 dry_run，将真实派发下载到 qb！")
 
-    db = await init_db(config.db_path)
+    # 与服务启动同一条装配链路（v0.6）：站点 / 下载器以 DB 为准，
+    # 直接用 YAML 会被认证门禁拦成零适配器、且拿不到下载器中心的实例。
+    ctx = await bootstrap_runtime(config, create_db=True)
+    db = ctx.db
     try:
-        qb_client = None
+        registry = DownloaderRegistry(
+            ctx.downloaders, client_factory=_make_qb_client, dry_run=config.dry_run,
+        )
         if not config.dry_run:
-            from .main import _make_qb_client
-            qb_client = _make_qb_client(config.qbittorrent)
-            if qb_client is None:
-                print("❌ 实跑模式但 qb 连接失败，中止")
+            default_dl = registry.default()
+            if default_dl is None or default_dl.client is None:
+                print("❌ 实跑模式但默认下载器连接失败，中止（到 /downloaders 检查凭据）")
                 return 1
 
-        runner = PipelineRunner(db, config, qb_client=qb_client, notifier=LogNotifier())
+        runner = PipelineRunner(db, config, notifier=LogNotifier(), registry=registry)
         await runner.monitor.reconcile_on_startup()
         summary = await runner.run_once()
 
@@ -129,23 +136,34 @@ async def cmd_run_once(config, no_dry_run: bool) -> int:
 
 
 async def cmd_verify_adapters(config) -> int:
-    """四站连通性验证（PRD 阶段 4）。需真实凭据。"""
+    """四站连通性验证（PRD 阶段 4）。需真实凭据。
+
+    诊断场景显式传 require_valid_auth=False：这里的目的是把未验过 / 已过期的
+    凭据验一遍，门禁（auth_status != valid 不建适配器）对它没有意义。
+    """
     from .adapters.registry import build_adapters
+    from .bootstrap import bootstrap_runtime
 
-    adapters = build_adapters(config)
-    if not adapters:
-        print("❌ 没有可用适配器，检查 config.yaml")
-        return 1
+    ctx = await bootstrap_runtime(config)
+    try:
+        for note in ctx.notes:
+            print(f"⚠️  {note}")
+        adapters = build_adapters(ctx.config.sites, require_valid_auth=False)
+        if not adapters:
+            print("❌ 没有可用适配器，检查 /sites 或 config.yaml")
+            return 1
 
-    print(f"验证 {len(adapters)} 个站点...\n")
-    any_ok = False
-    for name, adapter in adapters.items():
-        print(f"[{name}] ", end="", flush=True)
-        ok, msg = await adapter.health_check()
-        print(f"{'✅' if ok else '❌'} {msg}")
-        if ok:
-            any_ok = True
-    return 0 if any_ok else 1
+        print(f"验证 {len(adapters)} 个站点...\n")
+        any_ok = False
+        for name, adapter in adapters.items():
+            print(f"[{name}] ", end="", flush=True)
+            ok, msg = await adapter.health_check()
+            print(f"{'✅' if ok else '❌'} {msg}")
+            if ok:
+                any_ok = True
+        return 0 if any_ok else 1
+    finally:
+        await ctx.close()
 
 
 def main(argv: list[str] | None = None) -> int:

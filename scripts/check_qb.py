@@ -8,7 +8,7 @@
 看不出到底是网络、凭据还是路径的问题）：
 
 1. 网络可达：WSL 能否连到 NAS 的 qb WebUI 端口
-2. 凭据有效：API Key 能否通过 qb v5.2.x 认证
+2. 凭据有效：账密或 API Key 能否通过 qb 认证（与服务一致：账密优先，Key 兜底）
 3. 路径正确：save_path 是 **qb 所在主机的视角**，不是本机路径
 
 第 3 点最容易翻车：qb 在 NAS 上，save_path 若写成本机 WSL 路径
@@ -20,8 +20,9 @@
 用法（WSL 内）：
     cd ~/audio-hub && .venv/bin/python /mnt/d/Documents/audio-hub/scripts/check_qb.py
 
-它会自动沿用 serve_dev.sh 的配置与密钥路径，并叠加数据库里的
-界面覆盖项 —— 也就是说你在设置页改过 qb_host / api_key 之后，
+它会自动沿用 serve_dev.sh 的配置与密钥路径，并读取数据库里的
+downloaders 表（v0.6 起下载器的权威源，/downloaders 页维护）与
+app_settings 旧覆盖项 —— 也就是说你在页面上改过 host / 凭据之后，
 **不必重启服务**就能用本脚本验证新值是否可用。
 """
 
@@ -52,7 +53,7 @@ QB_HTTP_HINTS = {
         "       ② 「绕过以下 IP 地址列表的认证」未包含你的 WSL 出口 IP\n"
         "       也可能是 CSRF 保护拦截了跨主机请求。"
     ),
-    401: "凭据被拒：API Key 无效、已过期，或 qb 版本 < 5.2 不支持 API Key。",
+    401: "凭据被拒：账密错误、API Key 无效或已过期；qb < 5.2 不支持 API Key（可改用账密）。",
     404: "路径不对：qb 的 WebUI 可能配了「备用 WebUI」或子路径前缀。",
 }
 
@@ -85,6 +86,24 @@ def find_key(cfg_dir: Path) -> Path | None:
     return p if p.exists() else None
 
 
+def _open_db_readonly(db_path: Path) -> sqlite3.Connection:
+    """只读打开数据库。
+
+    优先只读 URI；但 WAL 模式下若 -wal 有数据而 -shm 不存在（服务被强杀
+    等非正常关闭），只读连接会因无法创建 -shm 而失败。此时回退到普通连接
+    + PRAGMA query_only（仍只 SELECT，绝不写数据），避免因读不到而静默用
+    YAML 旧值诊断 —— 那会验错配置：你在界面填的 NAS host 是 restart 级
+    覆盖项，只存在 DB 里，YAML 仍是 localhost。
+    """
+    try:
+        conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA query_only = ON")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def apply_db_overrides(config) -> list[str]:
     """把数据库覆盖层叠加到 config（复用项目自身的解码与应用逻辑）。
 
@@ -96,19 +115,9 @@ def apply_db_overrides(config) -> list[str]:
         say(f"  （数据库尚不存在，无界面覆盖项: {db_path}）")
         return []
 
-    # 优先只读打开；但 WAL 模式下若 -wal 有数据而 -shm 不存在（服务被强杀
-    # 等非正常关闭），只读连接会因无法创建 -shm 而失败。此时回退到普通连接
-    # + PRAGMA query_only（仍只 SELECT，绝不写数据），避免因读不到覆盖层而
-    # 静默用 YAML 旧值诊断 —— 那会验错配置：你在界面填的 NAS host 是
-    # restart 级覆盖项，只存在 DB 里，YAML 仍是 localhost。
     conn = None
     try:
-        try:
-            conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
-        except sqlite3.OperationalError:
-            conn = sqlite3.connect(str(db_path))
-            conn.execute("PRAGMA query_only = ON")
-        conn.row_factory = sqlite3.Row
+        conn = _open_db_readonly(db_path)
         rows = conn.execute("SELECT key, value FROM app_settings").fetchall()
     except sqlite3.Error as e:
         say(f"  ⚠️  读取覆盖层失败，将仅按 YAML 诊断: {e}")
@@ -140,14 +149,72 @@ def apply_db_overrides(config) -> list[str]:
     return applied
 
 
+def read_default_downloader(db_path: Path):
+    """只读 downloaders 表，返回默认下载器配置（含解密凭据）；无库 / 表空 / 失败返回 None。
+
+    选择顺序与 repo.get_default_downloader 一致：is_default 优先，
+    其次优先级最高的已启用实例。行 → DownloaderConfig 复用
+    repo.downloader_config_from_row（解密逻辑的唯一来源，不另造一份）。
+    """
+    conn = None
+    try:
+        conn = _open_db_readonly(db_path)
+        row = conn.execute(
+            "SELECT * FROM downloaders "
+            "ORDER BY is_default DESC, enabled DESC, priority DESC, name LIMIT 1",
+        ).fetchone()
+    except sqlite3.Error as e:
+        say(f"  ⚠️  读取 downloaders 表失败，将按 YAML qbittorrent 段诊断: {e}")
+        return None
+    finally:
+        if conn is not None:
+            with contextlib.suppress(Exception):
+                conn.close()
+    if row is None:
+        return None
+
+    from audio_hub import repo
+    return repo.downloader_config_from_row(row)
+
+
+def resolve_effective_downloader(config):
+    """决定诊断用哪个下载器：downloaders 表默认实例优先，无库 / 表空回落 YAML qb 段。
+
+    返回 (DownloaderConfig, 来源, 备注)；来源为 "db" 或 "yaml"。
+    config.qbittorrent 在调用前已被 apply_db_overrides 叠加过界面覆盖项。
+    """
+    db_path = Path(config.db_path)
+    if db_path.exists():
+        dl = read_default_downloader(db_path)
+        if dl is not None:
+            return dl, "db", []
+        return config.qbittorrent, "yaml", [
+            ("downloaders 表为空，按 YAML qbittorrent 段诊断；"
+             "服务下次启动会把该段种子导入 /downloaders"),
+        ]
+    return config.qbittorrent, "yaml", []
+
+
+def qb_auth_kwargs(dl) -> tuple[dict, str]:
+    """认证参数：账密优先，API Key 兜底（与 main._make_qb_client 的顺序一致）。
+
+    返回 (Client 关键字参数, 形态说明)；形态为空串表示无任何凭据。
+    """
+    if dl.username:
+        return {"username": dl.username, "password": dl.password}, "账密"
+    if dl.api_key:
+        return {"api_key": dl.api_key}, "API Key"
+    return {}, ""
+
+
 # probe_tcp / probe_http 已迁入 audio_hub.downloaders.probe（v0.6，与下载器中心页
 # 「测试连接」共用）；本脚本在 main() 把 src 加进 sys.path 后再导入。
 
 
-def check_save_path(config) -> None:
+def check_save_path(dl) -> None:
     """save_path 语义检查：这是 qb 所在主机的路径，不是本机路径。"""
-    host = config.qbittorrent.host
-    sp = config.qbittorrent.save_path
+    host = dl.host
+    sp = dl.save_path
     remote = host not in LOCAL_HOSTS
 
     say(f"  save_path      : {sp}")
@@ -207,23 +274,35 @@ def main() -> int:
         say(f"!! 配置加载失败: {type(e).__name__}: {e}")
         return 2
 
-    hr("① 生效配置（YAML + 界面覆盖层）")
+    hr("① 生效配置（YAML + 界面覆盖层 + downloaders 表）")
     applied = apply_db_overrides(config)
     if applied:
         say(f"  已叠加界面覆盖项 {len(applied)} 项: {applied}")
     else:
         say("  无界面覆盖项，使用 YAML 原值")
     say("")
-    qb = config.qbittorrent
+    # v0.6 起下载器的权威源是 downloaders 表（/downloaders 页维护）；
+    # 库不存在或表空时回落到叠加过覆盖项的 YAML qbittorrent 段。
+    qb, source, notes = resolve_effective_downloader(config)
+    origin = "downloaders 表（/downloaders 页）" if source == "db" else "YAML qbittorrent 段"
+    say(f"  诊断对象       : {qb.name}（id={qb.id}），配置来自 {origin}")
+    for note in notes:
+        say(f"  ⚠️  {note}")
     say(f"  dry_run        : {config.dry_run}"
         f"  ({'空跑，不会真实下载' if config.dry_run else '实跑，会真实派发！'})")
     say(f"  qb host:port   : {qb.host}:{qb.port}")
-    say(f"  qb api_key     : {'已配置（' + str(len(qb.api_key)) + ' 字符）' if qb.api_key else '❌ 未配置'}")
+    auth_kwargs, auth_label = qb_auth_kwargs(qb)
+    if auth_label == "账密":
+        say(f"  qb 凭据        : 账密（用户 {qb.username}，密码 {len(qb.password)} 字符）")
+    elif auth_label == "API Key":
+        say(f"  qb 凭据        : API Key（{len(qb.api_key)} 字符）")
+    else:
+        say("  qb 凭据        : ❌ 未配置（账密与 API Key 均为空）")
     say(f"  qb category    : {qb.category}")
     say(f"  qb tag         : {qb.tag}")
 
     hr("② save_path 语义检查")
-    check_save_path(config)
+    check_save_path(qb)
 
     hr("③ TCP 可达性")
     ok, err = probe_tcp(qb.host, qb.port)
@@ -247,11 +326,11 @@ def main() -> int:
         say("")
         say(f"  ⚠️  {QB_HTTP_HINTS[code]}")
 
-    hr("⑤ API Key 认证")
-    if not qb.api_key:
-        say("  ⏭️  跳过：未配置 api_key")
-        say("     在设置页「qBittorrent → API Key」填写后重跑本脚本。")
-        say("     获取路径：qb WebUI → 选项 → Web用户界面 → 认证 → API Key 生成")
+    hr(f"⑤ 认证（{auth_label or '无凭据'}）")
+    if not auth_kwargs:
+        say("  ⏭️  跳过：未配置凭据")
+        say("     在 /downloaders 页给默认下载器填账密或 API Key 后重跑本脚本。")
+        say("     （API Key 获取：qb WebUI → 选项 → Web用户界面 → 认证 → API Key 生成）")
         return 1
 
     try:
@@ -262,15 +341,13 @@ def main() -> int:
 
     client = None
     try:
-        client = qbittorrentapi.Client(
-            host=qb.host, port=qb.port, api_key=qb.api_key,
-        )
+        client = qbittorrentapi.Client(host=qb.host, port=qb.port, **auth_kwargs)
         client.auth_log_in()
-        say("  ✓ 认证成功")
+        say(f"  ✓ 认证成功（{auth_label}）")
         say(f"    qb 版本        : {client.app.version}")
         say(f"    WebAPI 版本    : {client.app.web_api_version}")
     except TypeError as e:
-        say(f"  ❌ 当前 qbittorrentapi 版本不支持 api_key 参数: {e}")
+        say(f"  ❌ 当前 qbittorrentapi 版本不支持所用认证参数: {e}")
         say("     pyproject 要求 qbittorrent-api>=2026.8，请确认已安装该版本：")
         say("       .venv/bin/pip show qbittorrent-api")
         return 1
@@ -278,9 +355,9 @@ def main() -> int:
         say(f"  ❌ 认证失败: {type(e).__name__}: {e}")
         say("")
         say("  常见原因：")
-        say("    · API Key 复制时带了空格或换行")
+        say("    · 账密错误；或 API Key 复制时带了空格或换行")
         say("    · Key 已被重新生成（旧的立即失效）")
-        say("    · qb 版本 < 5.2.0，不支持 API Key 认证")
+        say("    · qb 版本 < 5.2.0，不支持 API Key 认证（可改用账密）")
         say("    · qb WebUI 的 Host 头验证 / IP 白名单拦截（见上方 HTTP 响应）")
         return 1
     finally:
@@ -290,9 +367,7 @@ def main() -> int:
 
     hr("⑥ qb 侧真实路径参照")
     try:
-        client2 = qbittorrentapi.Client(
-            host=qb.host, port=qb.port, api_key=qb.api_key,
-        )
+        client2 = qbittorrentapi.Client(host=qb.host, port=qb.port, **auth_kwargs)
         client2.auth_log_in()
         try:
             say(f"  qb 默认保存路径  : {client2.app_default_save_path()}")
@@ -319,8 +394,8 @@ def main() -> int:
 
     hr("⑦ 结论")
     problems = []
-    if not qb.api_key:
-        problems.append("qb api_key 未配置")
+    if not auth_kwargs:
+        problems.append("qb 凭据未配置（账密与 API Key 均为空，到 /downloaders 页填写）")
     remote = qb.host not in LOCAL_HOSTS
     if remote and qb.save_path.startswith(("/home/", "/mnt/", "/tmp/", "/root/")):
         problems.append(f"save_path 是本机路径，qb 在 {qb.host} 上写不到")
@@ -329,8 +404,8 @@ def main() -> int:
         say("")
         if config.dry_run:
             say("  下一步（切实跑）：")
-            say("    1. 设置页 → qBittorrent：确认 save_path 是 qb 侧路径，保存")
-            say("    2. 设置页 → 站点：填完整 RSS 地址（含 passkey），保存")
+            say("    1. /downloaders 页：确认默认下载器的 save_path 是 qb 侧路径，保存")
+            say("    2. /sites 页：填完整 RSS 地址（含 passkey），保存并跑凭据验证")
             say("    3. 设置页 → 运行参数：运行模式改为「实跑」，保存")
             say("       （dry_run 是启动时固化项，保存后页面会挂橙色横幅）")
             say("    4. 重启服务：Ctrl+C 后重跑 serve_dev.sh")
