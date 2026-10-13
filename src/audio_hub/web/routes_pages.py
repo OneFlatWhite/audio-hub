@@ -49,6 +49,8 @@ async def _common(request: Request, db, config, user: dict) -> dict:
         # 是因为「界面显示实跑但运行时仍空跑」这种不一致，在任何页面
         # 都可能误导使用者做出错误判断（比如以为不会真下载）。
         "restart_pending": await settings_store.is_restart_pending(db),
+        # 新版本检测（v0.15）：update_check job 每日更新；None = 未检测/已关闭
+        "update_info": getattr(request.app.state, "update_info", None),
     }
 
 

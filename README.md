@@ -382,13 +382,18 @@ python -m audio_hub.cli verify-adapters
 ## 十二、部署与授权（v0.13）
 
 - **NAS（群晖）部署**：整 compose 抄走即用，见 [docs/deploy-nas.md](docs/deploy-nas.md)；
+- **安全升级 / 回滚**：升级永远手动、绝不自动动环境，步骤见
+  [docs/UPGRADE.md](docs/UPGRADE.md)（程序只做每日一次的「有新版本」提示，
+  `AUDIO_HUB_NO_UPDATE_CHECK=1` 可关）；
 - **Docker 镜像发布**：推 `v*` 标签自动构建多架构镜像到
   `ghcr.io/oneflatwhite/audio-hub`（工作流见 [.github/workflows/docker.yml](.github/workflows/docker.yml)）；
 - **授权码（star 换码）**：源码全量开放、运行需免费授权码——给仓库点 Star 后
   经发放页自动签出，`/activate` 页粘贴激活；机制与自建发放服务见
   [docs/LICENSE-ACTIVATION.md](docs/LICENSE-ACTIVATION.md)，许可条款见 [LICENSE](LICENSE)
   （可运行、可学习、可提 Issue；不得修改后再分发或移除授权机制）；
-- **Wiki**：部署 FAQ、站点适配清单与版本说明整理在仓库 Wiki，欢迎通过 Issue 补充。
+- **Wiki**：使用手册在仓库 `docs/wiki/`（[Home](docs/wiki/Home.md)：
+  上手流程、页面导览、订阅写法、状态含义、授权 FAQ）；
+  仓库 Wiki 启用后 `bash scripts/push_wiki.sh` 一键同步过去。
 
 ---
 

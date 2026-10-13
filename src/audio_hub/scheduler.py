@@ -280,6 +280,16 @@ class PipelineRunner:
             logger.warning(f"授权复核异常: {e}")
             return {"error": str(e)}
 
+    async def run_update_check_once(self) -> dict | None:
+        """update_check job：拉 GitHub 最新 release，结果挂 app.state 供横幅显示。"""
+        from . import updates
+
+        try:
+            return await updates.check(self.app)
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"新版本检测异常: {e}")
+            return None
+
     async def run_seeding_once(self) -> dict:
         """seeding_check job（与 /seeding 页手动触发共用）。
 
@@ -466,4 +476,13 @@ def build_scheduler(runner: PipelineRunner, config) -> AsyncIOScheduler:
             "license_revalidate", "授权在线复核",
         )
         logger.info(f"授权复核已配置：每 {_license.REVALIDATE_INTERVAL_HOURS} 小时")
+
+    # ── update_check：每日拉一次 GitHub 最新 release，仅提示不自动升级 ──
+    from . import updates as _updates
+    if not _updates.opt_out() and hasattr(runner, "run_update_check_once"):
+        _add(
+            scheduler, runner.run_update_check_once,
+            IntervalTrigger(hours=24), "update_check", "新版本检测",
+        )
+        logger.info("新版本检测已配置：每 24 小时（AUDIO_HUB_NO_UPDATE_CHECK=1 可关）")
     return scheduler

@@ -150,6 +150,12 @@ async def lifespan(app: FastAPI):
     if _license_mod.license_required() and _license_mod.verify_url():
         asyncio.get_running_loop().create_task(_license_mod.revalidate(db))
 
+    # ── 新版本检测：启动拉一次（此后每日 job 负责），只提示不自动升级 ──
+    from . import updates as _updates
+
+    if not _updates.opt_out():
+        asyncio.get_running_loop().create_task(_updates.check(app))
+
     scheduler = build_scheduler(runner, config)
     scheduler.start()
 

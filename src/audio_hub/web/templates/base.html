@@ -70,6 +70,13 @@
     {% if flash_ok %}<div class="flash ok" data-autohide>{{ flash_ok }}</div>{% endif %}
     {% if flash_err %}<div class="flash err" data-autohide>{{ flash_err }}</div>{% endif %}
 
+    {% if update_info and update_info.newer %}
+    <a class="update-banner" href="{{ update_info.url }}" target="_blank" rel="noopener">
+      发现新版本 v{{ update_info.latest }}（当前 v{{ version }}）· 点此查看更新内容；
+      升级步骤见 docs/UPGRADE.md（手动升级，程序不会自动动你的环境）
+    </a>
+    {% endif %}
+
     {% block content %}{% endblock %}
   </main>
 </div>

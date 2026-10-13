@@ -332,6 +332,16 @@ html[data-theme="dark"] .pill.low { color: var(--err); }
 .flash.ok { border-color: rgba(61, 138, 31, .35); background: var(--ok-dim); }
 .flash.err { border-color: rgba(216, 67, 58, .35); background: var(--err-dim); }
 
+/* 新版本提示条：可点击整条跳 release 页 */
+.update-banner {
+  display: block;
+  padding: 10px 14px; border-radius: var(--radius); margin-bottom: 16px;
+  background: var(--accent-dim); border: 1px solid rgba(176, 31, 36, .35);
+  color: var(--accent); font-weight: 600; font-size: 13.5px;
+}
+html[data-theme="dark"] .update-banner { color: var(--accent); border-color: rgba(222, 75, 82, .4); }
+.update-banner:hover { text-decoration: none; filter: brightness(1.03); }
+
 .hint { color: var(--muted); font-size: 12px; margin-top: 5px; }
 .empty { color: var(--muted); text-align: center; padding: 34px 0; }
 .kbd {
