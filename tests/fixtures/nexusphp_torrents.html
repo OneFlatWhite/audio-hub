@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>HHanClub :: 种子</title></head>
+<body>
+<form method="get" action="torrents.php" id="searchbox">
+  <table class="searchbox">
+    <tr>
+      <td class="rowfollow">
+        <span class="nowrap"><input type="checkbox" name="cat401" value="1"><img class="c_movies" src="pic/category/movie.png" alt="电影" title="电影"></span>
+        <span class="nowrap"><input type="checkbox" name="cat402" value="1"><img class="c_tv" src="pic/category/tv.png" alt="电视剧" title="电视剧"></span>
+        <span class="nowrap"><input type="checkbox" name="cat408" value="1"><img class="c_music" src="pic/category/music.png" alt="音乐 Music" title="音乐 Music"></span>
+        <span class="nowrap"><input type="checkbox" name="cat410" value="1"><img class="c_audiobook" src="pic/category/audiobook.png" alt="有声书 Audio Book" title="有声书 Audio Book"></span>
+        <span class="nowrap"><input type="checkbox" name="cat411" value="1"><label for="cat411">其他 Misc</label></span>
+        <!-- 重复的 cat408 复选框（移动端布局）应当被去重 -->
+        <span class="nowrap"><input type="checkbox" name="cat408" value="1"><img alt="音乐 Music" title="音乐 Music" src="x.png"></span>
+        <input type="hidden" name="incldead" value="0">
+        <input type="text" name="search" value="">
+      </td>
+    </tr>
+  </table>
+</form>
+<table class="torrents">
+  <tr><td class="colhead">类型</td><td class="colhead">标题</td></tr>
+</table>
+</body>
+</html>

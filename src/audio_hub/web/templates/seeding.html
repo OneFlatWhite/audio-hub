@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}做种 · audio-hub{% endblock %}
+{% block h1 %}做种与 H&amp;R{% endblock %}
+
+{% block content %}
+{% if not seeding_enabled %}
+<div class="flash err">做种跟踪已在设置中关闭，周期轮询不会运行；下方「立即检查」仍可手动同步一次。</div>
+{% endif %}
+
+<div class="cards" style="margin-bottom:18px">
+  <div class="card warn"><div class="n">{{ status_counts.seeding }}</div><div class="l">未达标 · 做种中</div></div>
+  <div class="card ok"><div class="n">{{ status_counts.satisfied }}</div><div class="l">已达标</div></div>
+  <div class="card"><div class="n">{{ status_counts.paused }}</div><div class="l">已暂停</div></div>
+  <div class="card"><div class="n">{{ status_counts.removed }}</div><div class="l">已移除</div></div>
+</div>
+
+<div class="filters">
+  <a href="/seeding" class="{{ 'active' if not current_status }}">全部</a>
+  <a href="/seeding?status=seeding" class="{{ 'active' if current_status == 'seeding' }}">做种中</a>
+  <a href="/seeding?status=satisfied" class="{{ 'active' if current_status == 'satisfied' }}">已达标</a>
+  <a href="/seeding?status=paused" class="{{ 'active' if current_status == 'paused' }}">已暂停</a>
+  <a href="/seeding?status=removed" class="{{ 'active' if current_status == 'removed' }}">已移除</a>
+  <form method="post" action="/seeding/check-now{{ '?status=' ~ current_status if current_status }}" style="margin-left:auto">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="btn-sm" type="submit" title="从 qBittorrent 同步一次做种时长与分享率">立即检查</button>
+  </form>
+</div>
+
+<div class="panel">
+  <table class="seedtable">
+    <thead><tr>
+      <th>站点</th><th>标题</th>
+      <th class="num">已做种</th><th class="num">分享率</th>
+      <th class="num">要求</th>
+      <th>进度 / 状态</th><th>更新时间</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for r in seed_records %}
+      {% set x = seed_extra[r.task_id] %}
+      {% set qs = '?status=' ~ current_status if current_status else '' %}
+      <tr class="seedrow {{ r.status }}">
+        <td class="mono">{{ r.site }}</td>
+        <td class="trunc" title="{{ x.title or r.info_hash }}">
+          {{ x.title or '—' }}
+          <div class="hint mono" title="{{ r.info_hash }}">{{ r.task_id[:8] }}</div>
+        </td>
+        <td class="num">{{ '%.1f'|format(r.seed_seconds / 3600) }} h</td>
+        <td class="num">{{ '%.2f'|format(r.ratio) }}</td>
+        <td class="num mono">
+          {{ '%.0f'|format(r.required_seconds / 3600) ~ ' h' if r.required_seconds is not none else '—' }}
+          <span class="muted">或</span>
+          {{ '%.2f'|format(r.required_ratio) if r.required_ratio is not none else '—' }}
+        </td>
+        <td class="seedcell">
+          <div class="seedbar {{ 'done' if r.status == 'satisfied' }}"
+               title="时长 {{ x.time_pct }}% · 分享率 {{ x.ratio_pct }}%">
+            <span style="width:{{ x.pct }}%"></span>
+          </div>
+          <span class="pill {{ 'high' if r.status == 'satisfied' else ('medium' if r.status == 'seeding' else '') }}">{{ r.status }}</span>
+          <span class="hint">{{ x.pct }}%</span>
+          {% if r.hr_satisfied_at %}
+          <div class="hint mono">达标 {{ r.hr_satisfied_at.strftime('%Y-%m-%d %H:%M') }}</div>
+          {% endif %}
+        </td>
+        <td class="mono">{{ r.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="seedacts">
+          {% if r.status in ('seeding', 'satisfied') %}
+          <form method="post" action="/seeding/{{ r.task_id }}/pause{{ qs }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm" type="submit"
+                    data-confirm="暂停做种「{{ x.title or r.task_id[:8] }}」？未达标前暂停可能触发站点 H&amp;R 警告。">暂停</button>
+          </form>
+          {% elif r.status == 'paused' %}
+          <form method="post" action="/seeding/{{ r.task_id }}/resume{{ qs }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm btn-ok" type="submit">恢复</button>
+          </form>
+          {% endif %}
+          {% if not r.hr_satisfied_at and r.status != 'removed' %}
+          <form method="post" action="/seeding/{{ r.task_id }}/mark-satisfied{{ qs }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm" type="submit"
+                    data-confirm="手动标记为 H&amp;R 达标？仅在站点已确认免除义务时使用。">标记达标</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="empty">
+        暂无做种记录。实跑模式下派发的任务会在这里跟踪做种时长与分享率。<br>
+        默认要求：{{ default_min_seed_hours }} 小时 / 分享率 {{ '%.2f'|format(default_min_ratio) }}，
+        每 {{ check_interval_minutes }} 分钟检查一次，达标后 <span class="mono">{{ on_satisfied }}</span>。
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="hint">
+  共 {{ total_count }} 条，当前第 {{ page }} 页。进度取「时长进度」与「分享率进度」的较大者，任一达到 100% 即视为 H&amp;R 达标。
+  站点级要求可在设置页按站点覆盖；达标后动作：<span class="mono">{{ on_satisfied }}</span>。
+  {% if page > 1 %}<a href="/seeding?page={{ page - 1 }}{{ '&status=' ~ current_status if current_status }}">上一页</a>{% endif %}
+  {% if has_next %}<a href="/seeding?page={{ page + 1 }}{{ '&status=' ~ current_status if current_status }}">下一页</a>{% endif %}
+</p>
+{% endblock %}

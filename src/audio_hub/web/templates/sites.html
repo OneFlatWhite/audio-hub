@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}站点中心 · audio-hub{% endblock %}
+{% block h1 %}站点中心{% endblock %}
+
+{% block content %}
+{% if detail and (flash_ok or flash_err) %}<p class="hint" style="margin:-10px 0 14px">详情：{{ detail }}</p>{% endif %}
+
+<div class="panel">
+  <h2>站点</h2>
+  <table>
+    <thead><tr>
+      <th>站点</th><th>状态</th><th>类型</th><th>凭据</th><th>账号</th>
+      <th>认证检查</th><th>上次成功</th><th class="num">连续失败</th><th>最后错误</th>
+      {% if is_admin %}<th>操作</th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for s in sites %}
+      <tr>
+        <td><a class="mono" href="/sites/{{ s.id }}/edit">{{ s.name }}</a>
+          {% if s.priority %}<span class="hint">优先级 {{ s.priority }}</span>{% endif %}</td>
+        <td>
+          <span class="pill {{ s.state_css }}">{{ s.state_label }}</span>
+          {# 熔断与最后错误是次级提示，主状态为「未认证」时也要能看到上一轮发生了什么 #}
+          {% if s.circuit_tripped and s.state != 'circuit_open' %}
+            <div class="hint"><span class="dot err"></span>熔断中{% if s.circuit_until_local %} · 熔断至 {{ s.circuit_until_local }}{% endif %}</div>
+          {% elif s.state == 'circuit_open' and s.circuit_until_local %}
+            <div class="hint">熔断至 {{ s.circuit_until_local }}</div>
+          {% endif %}
+          {% if s.state == 'auth_failed' and s.auth_error %}
+            <div class="hint trunc" title="{{ s.auth_error }}">{{ s.auth_error }}</div>
+          {% endif %}
+        </td>
+        <td>{{ 'mTorrent REST' if s.adapter_type == 'mteam' else 'NexusPHP' }}</td>
+        <td class="mono" style="font-size:12px">
+          {% if s.adapter_type == 'mteam' %}
+            API Key {{ '✓' if s.has_api_key else '✗' }}
+          {% else %}
+            Cookie {{ '✓' if s.has_cookie else '✗' }} · RSS {{ '✓' if s.has_rss else '✗' }}
+          {% endif %}
+        </td>
+        <td>
+          {% if s.user_info and s.user_info.username %}
+            {{ s.user_info.username }}{% if s.user_info.level %} <span class="pill">{{ s.user_info.level }}</span>{% endif %}
+            <div class="hint">↑{{ s.user_info.uploaded or '—' }} ↓{{ s.user_info.downloaded or '—' }}
+              {% if s.user_info.ratio %}· 分享率 {{ s.user_info.ratio }}{% endif %}</div>
+          {% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td class="mono">{{ s.auth_checked_local or '—' }}</td>
+        <td class="mono">{{ s.last_success_at or '—' }}</td>
+        <td class="num">{{ s.consecutive_fail }}</td>
+        <td class="mono trunc" title="{{ s.last_error or '' }}">{{ s.last_error or '—' }}</td>
+        {% if is_admin %}
+        <td style="white-space:nowrap">
+          <a class="btn btn-sm" href="/sites/{{ s.id }}/edit">编辑</a>
+          {% if s.enabled %}
+            <form method="post" action="/sites/{{ s.id }}/toggle" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <input type="hidden" name="enabled" value="0">
+              <button class="btn-sm" type="submit">禁用</button>
+            </form>
+          {% elif s.auth_status == 'valid' %}
+            <form method="post" action="/sites/{{ s.id }}/toggle" style="display:inline">
+              <input type="hidden" name="csrf_token" value="{{ csrf }}">
+              <input type="hidden" name="enabled" value="1">
+              <button class="btn-sm btn-ok" type="submit">启用</button>
+            </form>
+          {% else %}
+            <button class="btn-sm" type="button" disabled title="需先通过「测试认证」">启用</button>
+          {% endif %}
+        </td>
+        {% endif %}
+      </tr>
+    {% else %}
+      <tr><td colspan="{{ 10 if is_admin else 9 }}" class="empty">尚未配置站点</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">
+    状态口径：<span class="pill exclude">未配置</span> 无凭据 →
+    <span class="pill medium">未认证</span> 有凭据未验 →
+    <span class="pill low">认证失效</span> 验证失败 →
+    <span class="pill exclude">已禁用</span> 认证通过但关着 →
+    <span class="pill medium">熔断中</span> 连续失败暂停 →
+    <span class="pill high">正常</span>。
+    只有认证通过的站点才能启用、才会参与自动搜索。凭据只显示是否已配置，绝不回显。
+  </p>
+</div>
+
+{% if is_admin %}
+<div class="panel">
+  <h2>添加站点</h2>
+  {% if addable %}
+    <a class="btn btn-primary" href="/sites/new">新建站点</a>
+    <span class="hint">可添加：{% for n in addable %}<span class="mono">{{ site_labels[n] if n in site_labels else n }}</span>{% if not loop.last %}、{% endif %}{% endfor %}</span>
+  {% else %}
+    <p class="hint">所有已支持的站点都已添加。</p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

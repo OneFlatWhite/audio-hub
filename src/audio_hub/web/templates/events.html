@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}事件 · audio-hub{% endblock %}
+{% block h1 %}事件流{% endblock %}
+
+{% block content %}
+<div class="cards" style="margin-bottom:18px">
+  <div class="card"><div class="n">{{ total_count }}</div><div class="l">{{ '当前筛选' if (current_kind or current_level) else '全部事件' }}</div></div>
+  <div class="card {{ 'err' if error_count }}"><div class="n">{{ error_count }}</div><div class="l">错误</div></div>
+</div>
+
+{# ── 筛选：下拉 + 快捷标签。下拉是主入口（种类可能很多）；
+   标签只放最常用的两个与各 kind 计数，便于一眼看出分布。 #}
+<form method="get" action="/events" class="filters">
+  <label for="flt-kind" style="margin:0">种类</label>
+  <select name="kind" id="flt-kind" style="width:auto">
+    <option value="" {{ 'selected' if not current_kind }}>全部</option>
+    {% for k in kind_options %}
+    <option value="{{ k }}" {{ 'selected' if current_kind == k }}>{{ k }}{% if kind_counts[k] %} ({{ kind_counts[k] }}){% endif %}</option>
+    {% endfor %}
+  </select>
+  <label for="flt-level" style="margin:0">级别</label>
+  <select name="level" id="flt-level" style="width:auto">
+    <option value="" {{ 'selected' if not current_level }}>全部</option>
+    {% for lv in level_options %}
+    <option value="{{ lv }}" {{ 'selected' if current_level == lv }}>{{ lv }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn-sm">筛选</button>
+  <a href="/events" class="{{ 'active' if not current_kind and not current_level }}">全部</a>
+  <a href="/events?level=error" class="{{ 'active' if current_level == 'error' }}">仅错误</a>
+</form>
+
+<div class="panel">
+  <table>
+    <thead><tr>
+      <th>时间</th><th>级别</th><th>种类</th><th>站点</th><th>标题</th><th>详情</th>
+    </tr></thead>
+    <tbody>
+    {% for ev in events %}
+      <tr>
+        <td class="mono">{{ ev.created_at.strftime('%m-%d %H:%M:%S') }}</td>
+        <td><span class="dot {{ 'err' if ev.level == 'error' else ('off' if ev.level == 'warning' else 'ok') }}"></span>{{ ev.level }}</td>
+        <td class="mono"><a href="/events?kind={{ ev.kind }}">{{ ev.kind }}</a></td>
+        <td class="mono">{{ ev.site or '—' }}</td>
+        <td class="trunc" title="{{ ev.title or '' }}">{{ ev.title or '—' }}</td>
+        <td class="mono">
+          {% if ev.detail_pretty %}
+          {# 摘要一行放 summary，点开看缩进全文；pre 继承 mono #}
+          <details>
+            <summary class="trunc" title="点击展开完整 detail">{{ ev.detail_summary }}</summary>
+            <pre style="margin:6px 0 0;white-space:pre-wrap;word-break:break-all">{{ ev.detail_pretty }}</pre>
+          </details>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="empty">
+        暂无事件。每轮流水线的汇总、派发、失败与站点异常都会记录到这里。
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="hint">
+  第 {{ page }} 页，每页 {{ page_size }} 条。事件同时写入结构化日志；外部推送渠道可在设置 → 通知中配置。
+  {% if page > 1 %}<a href="/events?page={{ page - 1 }}{{ '&kind=' ~ current_kind if current_kind }}{{ '&level=' ~ current_level if current_level }}">上一页</a>{% endif %}
+  {% if has_next %}<a href="/events?page={{ page + 1 }}{{ '&kind=' ~ current_kind if current_kind }}{{ '&level=' ~ current_level if current_level }}">下一页</a>{% endif %}
+</p>
+
+<div class="panel">
+  <h2>清理</h2>
+  <form method="post" action="/events/clear" style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="btn-err" type="submit"
+            data-confirm="删除 {{ purge_after_days }} 天前的全部事件？近 {{ purge_after_days }} 天的记录会保留。">
+      清理 {{ purge_after_days }} 天前的事件
+    </button>
+  </form>
+  <span class="hint">只删旧记录；近期事件是回看故障的唯一依据，一律保留。</span>
+</div>
+{% endblock %}

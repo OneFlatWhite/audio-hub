@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}资料库 · audio-hub{% endblock %}
+{% block h1 %}资料库{% endblock %}
+
+{% block content %}
+<div class="cards" style="margin-bottom:18px">
+  <div class="card"><div class="n">{{ music_count }}</div><div class="l">音乐</div></div>
+  <div class="card"><div class="n">{{ audiobook_count }}</div><div class="l">有声书</div></div>
+  <div class="card {{ 'warn' if recycle_count }}"><div class="n">{{ recycle_count }}</div><div class="l">回收站待清理</div></div>
+</div>
+
+<div class="filters">
+  <a href="/library" class="{{ 'active' if not current_kind }}">全部</a>
+  <a href="/library?kind=music" class="{{ 'active' if current_kind == 'music' }}">音乐</a>
+  <a href="/library?kind=audiobook" class="{{ 'active' if current_kind == 'audiobook' }}">有声书</a>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr>
+      <th>标题（规范化）</th><th>类型</th><th>音质</th><th class="num">质量分</th>
+      <th>路径</th><th>入库时间</th>
+    </tr></thead>
+    <tbody>
+    {% for it in library_items %}
+      <tr>
+        <td class="trunc" title="{{ it.title_norm }}">{{ it.title_norm }}</td>
+        <td><span class="pill {{ it.kind.value }}">{{ it.kind.value }}</span></td>
+        <td class="mono">{{ it.quality or '—' }}</td>
+        <td class="num">{{ it.quality_score }}</td>
+        <td class="mono trunc" title="{{ it.path }}">{{ it.path }}</td>
+        <td class="mono">{{ it.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="empty">
+        资料库为空。任务完成并通过校验后，归档结果会出现在这里。<br>
+        <span class="mono">{{ library_music }}</span> · <span class="mono">{{ library_audiobook }}</span>
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="hint">
+  共 {{ total_count }} 条，当前第 {{ page }} 页。
+  {% if page > 1 %}<a href="/library?page={{ page - 1 }}{{ '&kind=' ~ current_kind if current_kind }}">上一页</a>{% endif %}
+  {% if has_next %}<a href="/library?page={{ page + 1 }}{{ '&kind=' ~ current_kind if current_kind }}">下一页</a>{% endif %}
+</p>
+
+<div class="panel" id="recycle">
+  <h2>回收区</h2>
+  <p class="hint">
+    升级替换下来的旧版本会移到 <span class="mono">{{ recycle_dir }}</span>，
+    保留 {{ recycle_retention_days }} 天后自动清理。恢复会把目录移回原路径（原路径若已被新版占用，新版会转入回收区）。
+  </p>
+  <table>
+    <thead><tr>
+      <th>原路径</th><th>回收路径</th><th>原因</th><th>回收时间</th><th>操作</th>
+    </tr></thead>
+    <tbody>
+    {% for e in recycle_entries %}
+      <tr>
+        <td class="mono trunc" title="{{ e.original_path }}">{{ e.original_path }}</td>
+        <td class="mono trunc" title="{{ e.recycle_path }}">{{ e.recycle_path }}</td>
+        <td><span class="pill low">{{ e.reason or '—' }}</span></td>
+        <td class="mono">{{ e.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td>
+          <form method="post" action="/library/recycle/{{ e.id }}/restore" style="display:inline">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm btn-ok" type="submit"
+                    data-confirm="把回收区内容恢复到原路径？若原路径已被新版本占用，新版本会转入回收区。">恢复</button>
+          </form>
+          <form method="post" action="/library/recycle/{{ e.id }}/purge" style="display:inline">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm btn-err" type="submit"
+                    data-confirm="彻底删除该回收区目录？此操作不可恢复。">彻底删除</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="empty">回收区为空。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

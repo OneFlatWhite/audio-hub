@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>初始化管理员 · audio-hub</title>
+<link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+<div class="center">
+  <div class="authbox">
+    <h1>创建管理员</h1>
+    <p class="sub">首次启动，请设置登录凭据</p>
+
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+    <form method="post" action="/setup">
+      <div class="field">
+        <label for="u">用户名</label>
+        <input id="u" name="username" required autocomplete="username" autofocus>
+        <p class="hint">{{ hint_username or '不要用 admin，避开扫描字典第一批' }}</p>
+      </div>
+      <div class="field">
+        <label for="p">密码</label>
+        <input id="p" name="password" type="password" required minlength="8"
+               autocomplete="new-password">
+        <p class="hint">至少 8 位。用 Argon2id 哈希存储。</p>
+      </div>
+      <div class="field">
+        <label for="p2">确认密码</label>
+        <input id="p2" name="password2" type="password" required minlength="8"
+               autocomplete="new-password">
+      </div>
+      <button class="btn-primary" type="submit">创建并登录</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>

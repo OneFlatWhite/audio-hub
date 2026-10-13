@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>HDSky torrents</title>
+    <link>https://hdsky.me/</link>
+    <description>Synthetic sample, English bracket style</description>
+
+    <item>
+      <title>[FLAC] 陳奕迅 - 打得火熱 (2000) [16bit/44.1kHz] 850 MB</title>
+      <link>https://hdsky.me/details.php?id=200001</link>
+      <description>繁体标题，测试 opencc 繁转简归一化</description>
+      <pubDate>Tue, 30 Sep 2026 09:00:00 +0800</pubDate>
+      <guid isPermaLink="false">11112222333344445555666677778888aaaabbbb</guid>
+      <category>Music</category>
+      <enclosure url="https://hdsky.me/download.php?id=200001&amp;passkey=REDACTED" length="891289600" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title>[Free] Bach Goldberg Variations - Glenn Gould [FLAC 24bit]</title>
+      <link>https://hdsky.me/details.php?id=200002</link>
+      <description>含 Free 标记，测试优惠解析</description>
+      <pubDate>Tue, 30 Sep 2026 09:30:00 +0800</pubDate>
+      <guid isPermaLink="false">22223333444455556666777788889999bbbbcccc</guid>
+      <category>Music</category>
+      <enclosure url="https://hdsky.me/download.php?id=200002&amp;passkey=REDACTED" length="1610612736" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title>[2UP] Daft Punk - Random Access Memories (2013) [FLAC]</title>
+      <link>https://hdsky.me/details.php?id=200003</link>
+      <description>双倍上传标记</description>
+      <pubDate>Tue, 30 Sep 2026 10:00:00 +0800</pubDate>
+      <guid isPermaLink="false">33334444555566667777888899990000ccccdddd</guid>
+      <category>Music</category>
+      <enclosure url="https://hdsky.me/download.php?id=200003&amp;passkey=REDACTED" length="933232640" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title>The Dark Knight 2008 2160p UHD BluRay REMUX HEVC</title>
+      <link>https://hdsky.me/details.php?id=200004</link>
+      <description>视频内容，应判为 VIDEO 并排除</description>
+      <pubDate>Tue, 30 Sep 2026 10:30:00 +0800</pubDate>
+      <guid isPermaLink="false">44445555666677778888999900001111ddddeeee</guid>
+      <category>Movies</category>
+      <enclosure url="https://hdsky.me/download.php?id=200004&amp;passkey=REDACTED" length="64424509440" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title>Some Unknown Torrent Without Tags</title>
+      <link>https://hdsky.me/details.php?id=200005</link>
+      <description>无任何类型标记，应判为 UNKNOWN</description>
+      <pubDate>Tue, 30 Sep 2026 11:00:00 +0800</pubDate>
+      <guid isPermaLink="false">55556666777788889999000011112222eeeeffff</guid>
+      <category>Other</category>
+      <enclosure url="https://hdsky.me/download.php?id=200005&amp;passkey=REDACTED" length="734003200" type="application/x-bittorrent"/>
+    </item>
+
+  </channel>
+</rss>

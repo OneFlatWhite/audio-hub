@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}{{ (downloader.name if downloader else '新建下载器') }} · 下载器中心 · audio-hub{% endblock %}
+{% block h1 %}{% if downloader %}下载器 · {{ downloader.name }}{% else %}新建下载器{% endif %}{% endblock %}
+
+{% block content %}
+{% if detail and (flash_ok or flash_err) %}<p class="hint" style="margin:-10px 0 14px">详情：{{ detail }}</p>{% endif %}
+
+<p class="hint" style="margin-bottom:14px">
+  <a href="/downloaders">← 返回下载器中心</a>
+  {% if downloader %} · <span class="mono">{{ downloader.id }}</span>
+    {% if downloader.is_default %}<span class="pill high">默认</span>{% endif %}
+    {% if not downloader.enabled %}<span class="pill exclude">已禁用</span>{% endif %}
+  {% endif %}
+</p>
+
+<div class="panel">
+  <h2>连接参数</h2>
+  <form method="post" action="{{ '/downloaders/' ~ downloader.id if downloader else '/downloaders' }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="row">
+      <div class="field">
+        <label>id（小写字母 / 数字 / 连字符 / 下划线）</label>
+        {% if downloader %}
+          <input type="text" value="{{ downloader.id }}" disabled>
+        {% else %}
+          <input type="text" name="id" required pattern="[a-z0-9][a-z0-9_-]{0,31}" placeholder="nas-qb" autocomplete="off">
+          <p class="hint">保存后不可更改；任务与订阅用它引用下载器。</p>
+        {% endif %}
+      </div>
+      <div class="field">
+        <label>名称</label>
+        <input type="text" name="name" required value="{{ downloader.name if downloader else '' }}" placeholder="NAS qBittorrent">
+      </div>
+      <div class="field">
+        <label>优先级（越大越优先；同为空闲时的参考）</label>
+        <input type="number" name="priority" value="{{ downloader.priority if downloader else 0 }}">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>主机（IP 或主机名，不含 http://）</label>
+        <input type="text" name="host" required value="{{ downloader.host if downloader else '' }}" placeholder="192.168.1.10">
+      </div>
+      <div class="field">
+        <label>WebUI 端口</label>
+        <input type="number" name="port" required min="1" max="65535" value="{{ downloader.port if downloader else 8085 }}">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>用户名（留空则用 API Key 认证）</label>
+        <input type="text" name="username" autocomplete="off" value="{{ downloader.username if downloader else '' }}">
+      </div>
+      <div class="field">
+        <label>密码{% if downloader %} · {{ '已配置' if downloader.has_password else '未配置' }}{% endif %}</label>
+        <input type="password" name="password" autocomplete="new-password" placeholder="{{ '留空 = 不修改' if downloader else '' }}">
+      </div>
+      <div class="field">
+        <label>API Key（qb 5.2+）{% if downloader %} · {{ '已配置' if downloader.has_api_key else '未配置' }}{% endif %}</label>
+        <input type="password" name="api_key" autocomplete="off" placeholder="{{ '留空 = 不修改' if downloader else 'qb WebUI → 选项 → Web用户界面 → API Key' }}">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>保存路径（<b>qb 所在主机</b>的路径）</label>
+        <input type="text" name="save_path" required value="{{ downloader.save_path if downloader else '/musiclab/seeds' }}">
+        <p class="hint">派发时的默认值；订阅项 / 任务可覆盖。「测试连接」会显示 qb 自己的默认保存路径作参照。</p>
+      </div>
+      <div class="field">
+        <label>分类</label>
+        <input type="text" name="category" value="{{ downloader.category if downloader else 'audio-hub' }}">
+      </div>
+      <div class="field">
+        <label>标签（完成监听按此筛选种子）</label>
+        <input type="text" name="tag" value="{{ downloader.tag if downloader else 'hub' }}">
+      </div>
+    </div>
+
+    <button class="btn-primary" type="submit">{{ '保存' if downloader else '创建' }}</button>
+    <span class="hint">凭据 Fernet 加密入库，界面永不回显；保存后注册表热重建。</span>
+  </form>
+</div>
+
+{% if downloader and is_admin %}
+<div class="panel">
+  <h2>测试与状态</h2>
+  <form method="post" action="/downloaders/{{ downloader.id }}/test" style="display:inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button type="submit">测试连接</button>
+  </form>
+  <span class="hint">只读探测：TCP → 登录 → 版本 / 默认保存路径 / 剩余空间 / 活跃种子数。</span>
+  {% if downloader.last_test %}
+  <table style="margin-top:10px">
+    <tbody>
+      <tr><td>结果</td><td>{% if downloader.last_test.ok %}<span class="dot ok"></span>通过{% else %}<span class="dot err"></span>失败{% endif %}
+        {% if downloader.last_test.error %} · <span class="trunc" title="{{ downloader.last_test.error }}">{{ downloader.last_test.error }}</span>{% endif %}</td></tr>
+      <tr><td>qB 版本</td><td class="mono">{{ downloader.last_test.version or '—' }} / API {{ downloader.last_test.api_version or '—' }}</td></tr>
+      <tr><td>qb 默认保存路径</td><td class="mono">{{ downloader.last_test.default_save_path or '—' }}</td></tr>
+      <tr><td>剩余空间</td><td class="mono">{{ downloader.last_test.free_space_bytes | filesize }}</td></tr>
+      <tr><td>活跃种子</td><td class="mono">{{ downloader.last_test.active_torrents if downloader.last_test.active_torrents is not none else '—' }}</td></tr>
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

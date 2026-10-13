@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}隔离区 · audio-hub{% endblock %}
+{% block h1 %}隔离区{% endblock %}
+
+{% block content %}
+<div class="cards" style="margin-bottom:18px">
+  <div class="card {{ 'warn' if status_counts.held }}"><div class="n">{{ status_counts.held }}</div><div class="l">待处理</div></div>
+  <div class="card"><div class="n">{{ status_counts.released }}</div><div class="l">已放行</div></div>
+  <div class="card"><div class="n">{{ status_counts.discarded }}</div><div class="l">已丢弃</div></div>
+</div>
+
+<div class="filters">
+  <a href="/quarantine?status=held" class="{{ 'active' if current_status == 'held' }}">待处理</a>
+  <a href="/quarantine?status=released" class="{{ 'active' if current_status == 'released' }}">已放行</a>
+  <a href="/quarantine?status=discarded" class="{{ 'active' if current_status == 'discarded' }}">已丢弃</a>
+  <a href="/quarantine?status=all" class="{{ 'active' if current_status == 'all' }}">全部</a>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr>
+      <th>暂存路径</th><th>任务</th><th>原因</th><th>状态</th><th>隔离时间</th><th>处理时间</th><th>操作</th>
+    </tr></thead>
+    <tbody>
+    {% for q in quarantine_items %}
+      <tr>
+        <td class="mono trunc" title="{{ q.scratch_path }}">{{ q.scratch_path }}</td>
+        <td class="mono">{{ (q.task_id or '')[:8] or '—' }}</td>
+        <td>
+          {% for r in q.reasons %}<span class="pill low">{{ r }}</span> {% else %}—{% endfor %}
+        </td>
+        <td><span class="pill {{ 'medium' if q.status == 'held' else ('high' if q.status == 'released' else '') }}">{{ q.status }}</span></td>
+        <td class="mono">{{ q.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td class="mono">{{ q.resolved_at.strftime('%Y-%m-%d %H:%M') if q.resolved_at else '—' }}</td>
+        <td>
+          {% if q.status == 'held' %}
+          <form method="post" action="/quarantine/{{ q.id }}/release" style="display:inline">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm btn-ok" type="submit"
+                    data-confirm="放行该内容？将跳过校验直接进入归档决策并入库。">放行</button>
+          </form>
+          <form method="post" action="/quarantine/{{ q.id }}/discard" style="display:inline">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm btn-err" type="submit"
+                    data-confirm="丢弃该隔离内容？隔离副本将被删除，任务标记为拒绝（原种不受影响）。">丢弃</button>
+          </form>
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="empty">
+        {% if current_status == 'held' %}没有待处理的隔离内容。{% else %}该状态下无记录。{% endif %}<br>
+        校验失败策略：<span class="mono">{{ validation_on_fail }}</span> · 隔离目录 <span class="mono">{{ quarantine_dir }}</span>
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="hint">
+  共 {{ total_count }} 条，当前第 {{ page }} 页。放行会跳过校验直接归档；丢弃只删除隔离副本，原种不变。
+  {% if page > 1 %}<a href="/quarantine?status={{ current_status }}&page={{ page - 1 }}">上一页</a>{% endif %}
+  {% if has_next %}<a href="/quarantine?status={{ current_status }}&page={{ page + 1 }}">下一页</a>{% endif %}
+</p>
+{% endblock %}

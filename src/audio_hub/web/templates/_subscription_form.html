@@ -1,0 +1,182 @@
+{# 订阅表单（新建 / 编辑共用）。edit_entry 为 None 时是新建。
+   字段显隐按 sub_type 联动，由 app.js 的 form[data-sub-form] 处理；无 JS 时全部字段可见，不影响提交。 #}
+{% set e = edit_entry %}
+{% set cur_type = e.sub_type.value if e else 'artist' %}
+<form method="post" action="{{ '/watchlist/' ~ e.id if e else '/watchlist' }}" data-sub-form
+      data-query-labels='{"artist":"歌手名","album":"专辑名","audiobook":"书名","keyword":"关键词"}'>
+  <input type="hidden" name="csrf_token" value="{{ csrf }}">
+
+  {% if no_valid_sites or no_downloaders %}
+  <div class="banner-restart" style="margin-bottom:14px">
+    {% if no_valid_sites %}<div>⚠ 当前没有<b>已启用且认证通过</b>的站点，订阅不会发出任何搜索 ——
+      <a href="/sites">去「站点中心」配置</a></div>{% endif %}
+    {% if no_downloaders %}<div>⚠ 当前没有<b>启用的下载器</b>，命中后无法派发 ——
+      <a href="/downloaders">去「下载器」配置</a></div>{% endif %}
+  </div>
+  {% endif %}
+
+  <div class="row">
+    <div style="max-width:160px">
+      <label>订阅类型</label>
+      <select name="sub_type">
+        {% for val, name, _css in sub_types %}
+        <option value="{{ val }}" {{ 'selected' if val == cur_type }}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div data-for="album">
+      <label>歌手</label>
+      <input name="artist" value="{{ e.artist if e else '' }}" placeholder="如：周杰伦">
+    </div>
+    <div style="flex:2">
+      <label data-query-label>名称</label>
+      <input name="query" required value="{{ e.query if e else '' }}" placeholder="歌手名 / 专辑名 / 书名 / 关键词">
+    </div>
+    <div data-for="audiobook">
+      <label>作者 / 演播（可选）</label>
+      <input name="author" value="{{ e.author if e else '' }}" placeholder="如：天下霸唱">
+    </div>
+    <div data-for="keyword" style="max-width:130px">
+      <label>分类</label>
+      <select name="kind">
+        <option value="music" {{ 'selected' if (e and e.kind.value == 'music') or not e }}>音乐</option>
+        <option value="audiobook" {{ 'selected' if e and e.kind.value == 'audiobook' }}>有声书</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:10px">
+    <div style="flex:2">
+      <label>别名（逗号分隔）</label>
+      <input name="aliases" value="{{ e.aliases|join(', ') if e else '' }}" placeholder="Jay Chou, 周杰倫">
+      <p class="hint">繁简变体与英文名会各自作为搜索词 / 匹配词，能明显降低漏抓</p>
+    </div>
+    <div style="max-width:180px">
+      <label>搜索间隔（小时）</label>
+      <input name="search_interval_hours" type="number" min="1" value="{{ e.search_interval_hours if e else 6 }}">
+    </div>
+    <div style="max-width:170px">
+      <label>最低置信度</label>
+      <select name="min_confidence">
+        {% for c in ['high', 'medium', 'low'] %}
+        <option value="{{ c }}" {{ 'selected' if (e and e.min_confidence == c) or (not e and c == 'high') }}>{{ c }}{{ '（保守，推荐）' if c == 'high' }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:10px;align-items:center">
+    <div class="check" style="flex:0 0 auto">
+      <input id="f-ad" name="auto_download" type="checkbox" value="true" {{ 'checked' if (e and e.auto_download) or not e }}>
+      <label for="f-ad" style="margin:0">达标即自动下载（否则进待审）</label>
+    </div>
+    <div class="check" style="flex:0 0 auto">
+      <input id="f-up" name="upgrade_enabled" type="checkbox" value="true" {{ 'checked' if e and e.upgrade_enabled }}>
+      <label for="f-up" style="margin:0">洗版：出现更高音质时替换已获得专辑</label>
+    </div>
+    {% if not e %}
+    <div class="check" data-for="audiobook" style="flex:0 0 auto">
+      <input id="f-series" name="series" type="checkbox" value="true">
+      <label for="f-series" style="margin:0">追更多卷（新建连载追踪，按卷登记）</label>
+    </div>
+    {% endif %}
+  </div>
+
+  <details class="adv" {{ 'open' if e and (e.sites or e.downloader_id or e.preferred_quality != 'any' or e.free_only or e.min_size_mb or e.max_size_mb or e.min_seeders or e.include_keywords or e.exclude_keywords or e.regex) }}>
+    <summary>高级：站点 / 下载器 / 过滤条件</summary>
+
+    <div class="row" style="margin-top:10px">
+      <div>
+        <label>限定站点（不选 = 全部可用站点）</label>
+        {% if valid_sites %}
+        <div class="checks">
+          {% for s in valid_sites %}
+          <span class="check">
+            <input id="site-{{ s.id }}" name="sites" type="checkbox" value="{{ s.id }}"
+                   {{ 'checked' if e and (s.id in e.sites or s.name in e.sites) }}>
+            <label for="site-{{ s.id }}" style="margin:0">{{ s.name }}</label>
+          </span>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="hint" style="margin:4px 0 0">暂无可选站点</p>
+        {% endif %}
+      </div>
+      <div style="max-width:220px">
+        <label>下载器</label>
+        <select name="downloader_id">
+          <option value="">默认{% if default_downloader_id %}（{{ downloader_names.get(default_downloader_id, default_downloader_id) }}）{% endif %}</option>
+          {% for d in downloaders %}
+          <option value="{{ d.id }}" {{ 'selected' if e and e.downloader_id == d.id }}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="max-width:150px">
+        <label>优先级</label>
+        <input name="priority" type="number" value="{{ e.priority if e else 0 }}">
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div>
+        <label>保存路径（覆盖下载器默认）</label>
+        <input name="save_path" value="{{ e.save_path or '' if e else '' }}" placeholder="/downloads/music">
+      </div>
+      <div style="max-width:180px">
+        <label>qB 分类</label>
+        <input name="qb_category" value="{{ e.qb_category or '' if e else '' }}">
+      </div>
+      <div style="max-width:220px">
+        <label>qB 标签（逗号分隔）</label>
+        <input name="qb_tags" value="{{ e.qb_tags|join(', ') if e else '' }}">
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div style="max-width:260px">
+        <label>音质偏好</label>
+        <select name="preferred_quality">
+          {% for val, name in quality_options %}
+          <option value="{{ val }}" {{ 'selected' if (e and e.preferred_quality == val) or (not e and val == 'any') }}>{{ name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div style="max-width:130px">
+        <label>体积下限 MB</label>
+        <input name="min_size_mb" type="number" min="0" value="{{ e.min_size_mb if e and e.min_size_mb is not none else '' }}">
+      </div>
+      <div style="max-width:130px">
+        <label>体积上限 MB</label>
+        <input name="max_size_mb" type="number" min="0" value="{{ e.max_size_mb if e and e.max_size_mb is not none else '' }}">
+      </div>
+      <div style="max-width:130px">
+        <label>最低做种数</label>
+        <input name="min_seeders" type="number" min="0" value="{{ e.min_seeders if e else 0 }}">
+      </div>
+      <div class="check" style="flex:0 0 auto;align-self:flex-end;padding-bottom:8px">
+        <input id="f-free" name="free_only" type="checkbox" value="true" {{ 'checked' if e and e.free_only }}>
+        <label for="f-free" style="margin:0">仅免费 / 2x 免费</label>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div>
+        <label>必含关键词（逗号分隔，任一命中即可）</label>
+        <input name="include_keywords" value="{{ e.include_keywords|join(', ') if e else '' }}" placeholder="FLAC, 24bit">
+      </div>
+      <div>
+        <label>排除关键词（逗号分隔）</label>
+        <input name="exclude_keywords" value="{{ e.exclude_keywords|join(', ') if e else '' }}" placeholder="Live, 伴奏, MV">
+      </div>
+      <div>
+        <label>标题正则（可选，忽略大小写）</label>
+        <input name="regex" class="mono" value="{{ e.regex or '' if e else '' }}" placeholder="周杰伦.*(FLAC|WAV)">
+      </div>
+    </div>
+  </details>
+
+  <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
+    <button class="btn-primary" type="submit">{{ '保存修改' if e else '添加并立即搜索' }}</button>
+    {% if not e %}<span class="hint" style="margin:0">添加后会立刻对可用站点做一次搜索，结果见该订阅的命中记录</span>{% endif %}
+  </div>
+</form>

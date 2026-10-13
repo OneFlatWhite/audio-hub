@@ -1,0 +1,211 @@
+{% extends "base.html" %}
+{% block title %}连载 · audio-hub{% endblock %}
+{% block h1 %}连载追踪{% endblock %}
+
+{% block content %}
+<style>
+  /* 连载进度：列表用细条，详情用「书脊」分格——每格一部，已到的亮起 */
+  .prog { display: flex; align-items: center; gap: 8px; min-width: 150px; }
+  .prog .bar { flex: 1; height: 6px; border-radius: 3px; background: var(--panel-2);
+               border: 1px solid var(--border); overflow: hidden; }
+  .prog .bar i { display: block; height: 100%; background: var(--accent); }
+  .prog .bar i.done { background: var(--ok); }
+  .prog .bar i.unknown { background: repeating-linear-gradient(90deg, var(--border) 0 4px,
+                           transparent 4px 8px); }
+  .prog .lbl { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted);
+               white-space: nowrap; }
+  .shelf { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 14px; }
+  .shelf b { display: inline-flex; align-items: center; justify-content: center;
+             min-width: 30px; height: 36px; padding: 0 4px; font-size: 11px; font-weight: 600;
+             border-radius: 3px; border: 1px solid var(--border); color: var(--muted);
+             background: var(--panel-2); font-variant-numeric: tabular-nums; }
+  .shelf b.got { color: #0b1a10; background: var(--ok); border-color: var(--ok); }
+  .shelf b.next { border-style: dashed; border-color: var(--accent); color: var(--accent); }
+  .detail-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .detail-head h2 { margin: 0; text-transform: none; letter-spacing: 0; font-size: 16px;
+                    color: var(--text); }
+  .detail-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, 1fr);
+                 gap: 18px; }
+  @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } }
+  tr.sel td { background: rgba(79,140,255,.08); }
+</style>
+
+<div class="cards" style="margin-bottom:18px">
+  <div class="card"><div class="n">{{ status_counts.active }}</div><div class="l">追踪中</div></div>
+  <div class="card ok"><div class="n">{{ status_counts.completed }}</div><div class="l">已完结</div></div>
+  <div class="card"><div class="n">{{ status_counts.paused }}</div><div class="l">已暂停</div></div>
+</div>
+
+{% if detail_series %}
+{% set ds = detail_series %}
+{% set got_parts = detail_parts | map(attribute='part_no') | list %}
+<div class="panel" id="series-detail">
+  <div class="detail-head">
+    <h2>{{ ds.name }}</h2>
+    <span class="pill {{ 'high' if ds.status == 'completed' else ('medium' if ds.status == 'active' else '') }}">{{ ds.status }}</span>
+    <span class="hint" style="margin:0">
+      订阅：{% if ds.watch_id %}<a href="/watchlist">{{ watch_names.get(ds.watch_id) or ds.watch_id[:8] }}</a>{% else %}—{% endif %}
+      · 更新 {{ ds.updated_at.strftime('%Y-%m-%d %H:%M') }}
+      · <a href="/series">返回列表</a>
+    </span>
+  </div>
+
+  {% if ds.total_parts and ds.total_parts <= 60 %}
+  <div class="shelf" title="已登记 {{ got_parts|length }} / {{ ds.total_parts }}">
+    {% for n in range(1, ds.total_parts + 1) %}
+      <b class="{{ 'got' if n in got_parts else ('next' if n == ds.last_part + 1) }}">{{ n }}</b>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="prog" style="margin:8px 0 14px;max-width:420px">
+    <div class="bar">
+      {% if ds.total_parts %}
+        <i class="{{ 'done' if ds.status == 'completed' }}" style="width:{{ (100 * got_parts|length / ds.total_parts)|round|int if got_parts else 0 }}%"></i>
+      {% else %}<i class="unknown" style="width:100%"></i>{% endif %}
+    </div>
+    <span class="lbl">{{ ds.last_part }} / {{ ds.total_parts if ds.total_parts else '未设定' }}</span>
+  </div>
+  {% endif %}
+
+  <div class="detail-grid">
+    <div>
+      <table>
+        <thead><tr><th class="num">分集</th><th>标题</th><th>任务</th><th>登记时间</th></tr></thead>
+        <tbody>
+        {% for p in detail_parts %}
+          <tr>
+            <td class="num">{{ p.part_no }}</td>
+            <td class="trunc" title="{{ p.title or '' }}">{{ p.title or '—' }}</td>
+            <td class="mono">{% if p.task_id %}<a href="/records">{{ p.task_id[:8] }}</a>{% else %}—{% endif %}</td>
+            <td class="mono">{{ p.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">尚未登记任何分集。订阅命中带分集号的标题后会自动出现在这里。</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div>
+      <form method="post" action="/series/{{ ds.id }}/edit">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <div class="field">
+          <label>连载名称</label>
+          <input name="name" required value="{{ ds.name }}">
+        </div>
+        <div class="row">
+          <div style="max-width:140px">
+            <label>总部数（留空=未知）</label>
+            <input name="total_parts" type="number" min="1" value="{{ ds.total_parts if ds.total_parts is not none else '' }}">
+          </div>
+          <div style="max-width:140px">
+            <label>状态</label>
+            <select name="status">
+              {% for st in editable_statuses %}
+              <option value="{{ st }}" {{ 'selected' if (ds.status if ds.status != 'completed' else 'active') == st }}>{{ st }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label>分集规则（正则，留空用默认）</label>
+          <input name="part_pattern" class="mono" value="{{ ds.part_pattern or '' }}" placeholder="{{ default_pattern }}">
+          <p class="hint">需含捕获组；取第一个非空组为分集号。</p>
+        </div>
+        <div class="row" style="align-items:center">
+          <button class="btn-primary" type="submit" style="flex:0">保存</button>
+          <button class="btn-sm btn-err" type="submit" form="del-{{ ds.id }}" style="flex:0"
+                  data-confirm="删除连载「{{ ds.name }}」及其 {{ detail_parts|length }} 条分集记录？订阅项会被解绑，但已下载内容不受影响。">删除连载</button>
+        </div>
+      </form>
+      <form id="del-{{ ds.id }}" method="post" action="/series/{{ ds.id }}/delete">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>建立连载</h2>
+  <form method="post" action="/series">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="row">
+      <div>
+        <label>有声书订阅项</label>
+        <select name="watch_id" required>
+          <option value="">— 选择订阅 —</option>
+          {% for e in book_entries %}
+          <option value="{{ e.id }}" {{ 'selected' if prefill_watch and prefill_watch.id == e.id }}>
+            {{ e.query }}{% if e.series_id is not none %}（已绑定连载 #{{ e.series_id }}）{% endif %}
+          </option>
+          {% endfor %}
+        </select>
+        {% if not book_entries %}<p class="hint">还没有有声书订阅，请先到 <a href="/watchlist">订阅项</a> 添加。</p>{% endif %}
+      </div>
+      <div>
+        <label>连载名称（留空=用订阅词）</label>
+        <input name="name" value="{{ prefill_watch.query if prefill_watch else '' }}" placeholder="如：三体">
+      </div>
+      <div style="max-width:140px">
+        <label>总部数（留空=未知）</label>
+        <input name="total_parts" type="number" min="1" placeholder="?">
+      </div>
+    </div>
+    <div class="field" style="margin-top:12px">
+      <label>分集规则（正则，留空用默认）</label>
+      <input name="part_pattern" class="mono" placeholder="{{ default_pattern }}">
+      <p class="hint">默认识别「第N集/部/卷/章/回/期」「Part N」「EP05 / E12」「(03)」。</p>
+    </div>
+    <button class="btn-primary" type="submit" {{ 'disabled' if not book_entries }}>建立</button>
+  </form>
+</div>
+
+<div class="filters">
+  <a href="/series" class="{{ 'active' if not current_status }}">全部</a>
+  <a href="/series?status=active" class="{{ 'active' if current_status == 'active' }}">追踪中</a>
+  <a href="/series?status=completed" class="{{ 'active' if current_status == 'completed' }}">已完结</a>
+  <a href="/series?status=paused" class="{{ 'active' if current_status == 'paused' }}">已暂停</a>
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr>
+      <th>名称</th><th>订阅项</th><th>进度</th><th class="num">已登记</th>
+      <th>分卷规则</th><th>状态</th><th>更新时间</th>
+    </tr></thead>
+    <tbody>
+    {% for s in series_rows %}
+      {% set n_parts = part_counts.get(s.id, 0) %}
+      <tr class="{{ 'sel' if detail_series and detail_series.id == s.id }}">
+        <td class="trunc" title="{{ s.name }}"><a href="/series/{{ s.id }}">{{ s.name }}</a></td>
+        <td class="trunc" title="{{ s.watch_id or '' }}">{{ (watch_names.get(s.watch_id) or s.watch_id[:8]) if s.watch_id else '—' }}</td>
+        <td>
+          <div class="prog">
+            <div class="bar">
+              {% if s.total_parts %}
+                <i class="{{ 'done' if s.status == 'completed' }}" style="width:{{ [100, (100 * n_parts / s.total_parts)|round|int]|min }}%"></i>
+              {% else %}<i class="unknown" style="width:100%"></i>{% endif %}
+            </div>
+            <span class="lbl">{{ s.last_part }} / {{ s.total_parts if s.total_parts else '未设定' }}</span>
+          </div>
+        </td>
+        <td class="num">{{ n_parts }}</td>
+        <td class="mono trunc" title="{{ s.part_pattern or '' }}">{{ s.part_pattern or '默认' }}</td>
+        <td><span class="pill {{ 'high' if s.status == 'completed' else ('medium' if s.status == 'active' else '') }}">{{ s.status }}</span></td>
+        <td class="mono">{{ s.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="empty">
+        尚无连载。在上方选择有声书订阅建立连载后，命中「第 N 部 / Part N」类标题时会自动登记分集并追踪进度。
+      </td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="hint">
+  共 {{ total_count }} 条，当前第 {{ page }} 页。
+  {% if page > 1 %}<a href="/series?page={{ page - 1 }}{{ '&status=' ~ current_status if current_status }}">上一页</a>{% endif %}
+  {% if has_next %}<a href="/series?page={{ page + 1 }}{{ '&status=' ~ current_status if current_status }}">下一页</a>{% endif %}
+</p>
+{% endblock %}

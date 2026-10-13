@@ -1,0 +1,454 @@
+"""页面路由：7 个页面（PRD §12.2）。
+
+渲染策略：服务端渲染完整页面 + 原生 fetch 做局部刷新。
+不使用 HTMX（避免额外运行时依赖），也不使用 CDN（NAS 内网需离线可用）。
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from loguru import logger
+
+from .. import repo, settings_store
+from ..models import HitDecision, SubStatus
+from ..timeutil import SITE_TZ, utcnow
+from . import auth
+from .deps import get_config, get_db, require_user, verify_csrf
+
+router = APIRouter(tags=["pages"])
+
+# 拒绝原因（PRD §13.7：原因分布直接指导规则迭代方向）
+REJECT_REASONS = [
+    ("wrong_version", "版本不对（Live/再版/合辑）"),
+    ("quality_mismatch", "音质不符"),
+    ("already_have", "已有"),
+    ("not_target", "非目标内容"),
+    ("fake_lossless", "疑似假无损/升频"),
+    ("other", "其他"),
+]
+
+
+async def _common(request: Request, db, config, user: dict) -> dict:
+    """所有页面共享的模板上下文（导航徽标、模式标识等）。
+
+    集中一处，避免 6 个页面路由各自拼凑导致字段漂移。
+    """
+    return {
+        "user": user,
+        "csrf": getattr(request.state, "csrf", ""),
+        "dry_run": config.dry_run,
+        "review_count": await repo.count_pending_review(db),
+        # 隔离区待处理数（held）：与待审队列同理，是需要人工介入的积压量
+        "quarantine_badge": await repo.count_quarantine_items(db, status="held"),
+        # 有待重启改动时全页面挂横幅。放在 _common 而非只在 settings 页，
+        # 是因为「界面显示实跑但运行时仍空跑」这种不一致，在任何页面
+        # 都可能误导使用者做出错误判断（比如以为不会真下载）。
+        "restart_pending": await settings_store.is_restart_pending(db),
+    }
+
+
+# query 参数 ok/err → 用户可读的 flash 文案
+_FLASH_OK = {
+    "added": "订阅项已添加",
+    "deleted": "订阅项已删除",
+    "accepted": "已采纳",
+    "rejected": "已拒绝",
+    "run_once": "已手动触发一轮，结果见总览与命中记录",
+    "password": "密码已修改",
+    "revoke": "已登出所有设备",
+    "saved_general": "运行参数已保存",
+    "saved_qb": "qBittorrent 设置已保存",
+    "saved_sites": "站点开关已保存，适配器已重建",
+    "saved_paths": "路径设置已保存，重启后生效",
+    "saved_validation": "校验设置已保存",
+    "saved_scrape": "刮削设置已保存",
+    "saved_seeding": "做种设置已保存",
+    "saved_notify": "通知设置已保存，推送渠道已重建",
+    "notify_test": "测试通知已发送，请到对应渠道查收",
+    "events_cleared": "已清理 30 天前的事件",
+}
+_FLASH_ERR = {
+    "empty": "查询词不能为空",
+    "notfound": "记录不存在",
+    "bad_reason": "请选择有效的拒绝原因",
+    "dispatch_failed": "派发失败，详见命中记录的错误信息",
+    # 采纳时经站点适配器换取下载直链（馒头 genDlToken）失败，任务已标记 failed
+    "resolve_failed": "换取下载直链失败（站点适配器报错），详见命中记录的错误信息",
+    "need_admin": "该页面仅管理员可访问",
+    "old_password": "当前密码不正确",
+    "weak_password": "新密码至少 8 位",
+    # 保存凭据时密钥文件缺失 / 不可读（部署问题，不是输入问题）
+    "secrets_key": "无法加密凭据：密钥文件不存在或不可读。请检查 AUDIO_HUB_SECRETS_KEY "
+                   "指向的文件，或运行 scripts/init_secrets.py 生成密钥后重试。",
+    # 通知测试：没有任何渠道可测 / 至少一个渠道发送失败（逐渠道结果在 detail）
+    "notify_none": "尚未配置任何推送渠道：请先在「通知推送」保存企微 Webhook、"
+                   "Telegram（Token + Chat ID）或通用 Webhook 地址。",
+    "notify_test_failed": "测试通知未全部成功",
+}
+
+
+def _flash(request: Request, kind: str) -> str | None:
+    """把 ?ok=xxx / ?err=xxx 转成可读文案。"""
+    key = request.query_params.get(kind)
+    if not key:
+        return None
+    table = _FLASH_OK if kind == "ok" else _FLASH_ERR
+    return table.get(key, key)
+
+
+# ── 首页重定向 ──────────────────────────────────────────────
+
+@router.get("/", response_class=HTMLResponse)
+async def index(request: Request, user: dict = Depends(require_user), db=Depends(get_db)):
+    """首次启动无管理员时引导到 /setup。"""
+    if await auth.count_users(db) == 0:
+        return RedirectResponse("/setup", status_code=303)
+    return RedirectResponse("/dashboard", status_code=303)
+
+
+# ── / 总览看板 ──────────────────────────────────────────────
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(
+    request: Request,
+    user: dict = Depends(require_user),
+    db=Depends(get_db),
+    config=Depends(get_config),
+):
+    templates = request.app.state.templates
+    by_state = await repo.count_tasks_by_state(db)
+    entries = await repo.list_watch_entries(db, enabled_only=False)
+    sites = await _site_status(db, config)
+
+    ctx = await _common(request, db, config, user)
+    # v0.4 卡片：隔离 / H&R / 连载 / 事件。全部是 COUNT / LIMIT 查询，空库返回 0 / []，
+    # 模板不需要额外的 None 判断；唯一可为 None 的是「最近完成的连载」。
+    last_completed = await repo.list_series(db, status="completed", limit=1)
+    ctx.update({
+        "active": "dashboard",
+        "by_state": by_state,
+        "watchlist_count": len(entries),
+        "enabled_count": sum(1 for e in entries if e.enabled),
+        "failed_count": by_state.get("failed", 0),
+        "sites": sites,
+        "disk": _disk_usage(),
+        # 隔离区待处理（held）：与导航徽标同源，卡片单独命名以免模板误用徽标语义
+        "quarantine_held": ctx["quarantine_badge"],
+        # H&R 未达标 = 仍在 seeding 状态的做种记录（satisfied / paused / removed 都不算）
+        "hr_pending": await repo.count_seed_records(db, status="seeding"),
+        "series_active": await repo.count_series(db, status="active"),
+        "series_last_completed": last_completed[0] if last_completed else None,
+        "recent_events": await repo.list_events(db, limit=10),
+        # v0.6 卡：下载器状态（来自 downloaders 表 + 最近测试）与订阅概览
+        "downloaders": await _downloader_cards(db),
+        "subs": await _subscription_overview(db, config),
+        "flash_ok": _flash(request, "ok"),
+        # 非管理员访问设置页会被弹回这里，需要能显示原因
+        "flash_err": _flash(request, "err"),
+    })
+    return templates.TemplateResponse(request, "dashboard.html", ctx)
+
+
+def _disk_usage() -> dict | None:
+    """磁盘余量（PRD §12.2 总览要求）。失败不阻断页面。"""
+    try:
+        import shutil
+        from pathlib import Path
+        p = Path("/volume1") if Path("/volume1").exists() else Path.cwd()
+        total, used, free = shutil.disk_usage(p)
+        return {
+            "path": str(p),
+            "total_gb": round(total / 1024**3, 1),
+            "free_gb": round(free / 1024**3, 1),
+            "used_pct": round(used / total * 100, 1) if total else 0,
+        }
+    except Exception as e:  # noqa: BLE001 - 磁盘信息属装饰性，失败即隐藏
+        logger.debug(f"磁盘信息获取失败: {e}")
+        return None
+
+
+# ── /watchlist 订阅：v0.6 起在 routes_subscriptions（列表 / 新建 / 详情 / 立即搜索 / 暂停恢复）──
+
+
+# ── /records 命中记录 ───────────────────────────────────────
+
+@router.get("/records", response_class=HTMLResponse)
+async def records_page(
+    request: Request,
+    state: str | None = Query(default=None),
+    limit: int = Query(default=200, le=1000),
+    user: dict = Depends(require_user),
+    db=Depends(get_db),
+    config=Depends(get_config),
+):
+    templates = request.app.state.templates
+    rows = await _query_tasks(db, state=state, limit=limit)
+    by_state = await repo.count_tasks_by_state(db)
+    ctx = await _common(request, db, config, user)
+    ctx.update({
+        "active": "records",
+        "tasks": rows, "by_state": by_state, "current_state": state,
+    })
+    return templates.TemplateResponse(request, "records.html", ctx)
+
+
+# ── /review 待审队列（最高频页面，PRD §12.2）──────────────────
+
+@router.get("/review", response_class=HTMLResponse)
+async def review_page(
+    request: Request,
+    user: dict = Depends(require_user),
+    db=Depends(get_db),
+    config=Depends(get_config),
+):
+    templates = request.app.state.templates
+    items = await _query_tasks(db, state="scored", limit=500, review_only=True)
+    # 按置信度倒序（PRD §12.2：high → medium → low）
+    rank = {"high": 0, "medium": 1, "low": 2}
+    items.sort(key=lambda r: (rank.get(r["confidence"], 3), -(r["score"] or 0)))
+    ctx = await _common(request, db, config, user)
+    ctx.update({
+        "active": "review",
+        "items": items, "reject_reasons": REJECT_REASONS, "count": len(items),
+        "flash_ok": _flash(request, "ok"), "flash_err": _flash(request, "err"),
+    })
+    return templates.TemplateResponse(request, "review.html", ctx)
+
+
+@router.post("/review/{task_id}/accept")
+async def review_accept(
+    task_id: str,
+    request: Request,
+    user: dict = Depends(verify_csrf),
+    db=Depends(get_db),
+    config=Depends(get_config),
+):
+    """采纳：dry_run 下仅标记；实跑则用持久化的 download_url 真实派发。"""
+    row = await _get_task(db, task_id)
+    if row is None:
+        return RedirectResponse("/review?err=notfound", status_code=303)
+
+    if config.dry_run:
+        await repo.set_task_state(db, task_id, "scored", reject_reason="accepted_dry_run")
+        logger.info(f"[DRY-RUN] 采纳待审项: {row['title'][:60]!r}")
+        # 订阅引擎送进待审的命中也要回写：否则详情页永远停在 review
+        await repo.set_hit_task(db, row["info_hash"], row["id"], HitDecision.DISPATCHED)
+    else:
+        qb_client = getattr(request.app.state, "qb_client", None)
+        # 直链解析走 runner.dispatcher（与流水线同一套适配器查找），馒头的 genDlToken
+        # 占位 URL 不能直接交给 qb；runner 未就绪时传 None → 原样派发
+        dispatcher = getattr(getattr(request.app.state, "runner", None), "dispatcher", None)
+        err = await _dispatch_task(db, config, row, qb_client, dispatcher=dispatcher)
+        if err:
+            return RedirectResponse(f"/review?err={err}", status_code=303)
+
+    await _record_decision(db, row, "accept", None)
+    return RedirectResponse("/review?ok=accepted", status_code=303)
+
+
+@router.post("/review/{task_id}/reject")
+async def review_reject(
+    task_id: str,
+    reason: str = Form(...),
+    note: str = Form(default=""),
+    user: dict = Depends(verify_csrf),
+    db=Depends(get_db),
+):
+    """拒绝：必须选原因（PRD §12.2），原因回流供规则迭代。"""
+    valid = {r[0] for r in REJECT_REASONS}
+    if reason not in valid:
+        return RedirectResponse("/review?err=bad_reason", status_code=303)
+
+    row = await _get_task(db, task_id)
+    if row is None:
+        return RedirectResponse("/review?err=notfound", status_code=303)
+
+    await repo.set_task_state(db, task_id, "rejected",
+                             reject_reason=f"{reason}:{note}".rstrip(":") if note else reason)
+    await repo.set_hit_task(db, row["info_hash"], row["id"], HitDecision.REJECTED)
+    await _record_decision(db, row, "reject", reason)
+    logger.info(f"拒绝待审项: reason={reason} title={row['title'][:60]!r}")
+    return RedirectResponse("/review?ok=rejected", status_code=303)
+
+
+# ── /sites 站点中心：v0.6 起在 routes_sites（列表 / 向导 / 测试 / 门禁）──
+
+
+# ── /settings 设置 ──────────────────────────────────────────
+
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_page(
+    request: Request,
+    ok: str | None = None, detail: str | None = None,
+    user: dict = Depends(require_user),
+    db=Depends(get_db), config=Depends(get_config),
+):
+    """设置页（仅管理员）。
+
+    字段清单由 settings_store 的 SPEC 驱动，模板不写死字段名 ——
+    以后加设置项只需加一条声明，不会出现「后端支持但界面没有」的漂移。
+
+    这里用 require_user 而非 require_admin：deps.require_admin 抛
+    HTTPException 会返回裸 JSON，对浏览器请求是糟糕体验。改为重定向
+    回总览并说明原因；写端点仍严格要求管理员（见 routes_settings）。
+    """
+    from . import routes_settings
+
+    if not user.get("is_admin"):
+        return RedirectResponse("/dashboard?err=need_admin", status_code=303)
+
+    templates = request.app.state.templates
+    ctx = await _common(request, db, config, user)
+    ctx.update({
+        "active": "settings",
+        "config": config, "detail": detail,
+        # ok/err 经文案表翻译；表里没有的键（如 SettingsError 的原文）原样展示
+        "ok": ok, "flash_ok": _flash(request, "ok"),
+        "err": _flash(request, "err"),
+        "groups": routes_settings.build_settings_groups(config),
+        # 凭据只写不读：仅暴露是否已配置，绝不回显明文或密文。
+        # 由 settings_store.credential_status 按站点类型判断所需凭据 ——
+        # 原实现 `bool(s.rss_url or s.api_key)` 对 NexusPHP 站测的是
+        # rss_url 有无（与 passkey 无关），对 mteam 也判断错了必需项。
+        "secrets_status": settings_store.credential_status(config),
+    })
+    return templates.TemplateResponse(request, "settings.html", ctx)
+
+
+# ── 手动触发 ────────────────────────────────────────────────
+
+@router.post("/run-once")
+async def run_once(
+    request: Request,
+    user: dict = Depends(verify_csrf),
+):
+    runner = request.app.state.runner
+    summary = await runner.run_once()
+    logger.info(f"手动触发一轮（by {user['username']}）: {summary}")
+    return RedirectResponse("/dashboard?ok=run_once", status_code=303)
+
+
+# ── 内部辅助 ────────────────────────────────────────────────
+
+async def _site_status(db, config) -> list[dict]:
+    """总览站点健康区块的数据：v0.6 起与 /sites 同走 sites.status.site_overview（六态）。
+
+    保留这个包装是为了不改 dashboard 调用点；返回字段向后兼容
+    （name / enabled / healthy / circuit_* / 计数），并新增 state / state_label / state_css。
+    """
+    from ..sites.status import site_overview
+
+    return await site_overview(db, config)
+
+
+async def _query_tasks(db, *, state: str | None, limit: int,
+                      review_only: bool = False) -> list[dict]:
+    sql = "SELECT * FROM tasks"
+    conds, params = [], []
+    if state:
+        conds.append("state = ?")
+        params.append(state)
+    if review_only:
+        conds.append(
+            "(reject_reason IS NULL OR reject_reason LIKE 'pending_review%' "
+            "OR reject_reason LIKE 'confidence_below%' OR reject_reason='auto_download_disabled')"
+        )
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY updated_at DESC LIMIT ?"
+    params.append(limit)
+    async with db.execute(sql, params) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+
+
+async def _get_task(db, task_id: str) -> dict | None:
+    async with db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)) as cur:
+        row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+async def _record_decision(db, row: dict, decision: str, reason: str | None) -> None:
+    import uuid as _uuid
+
+    from ..timeutil import iso_utc
+    await db.execute(
+        """INSERT INTO review_decisions (id, task_id, info_hash, decision, reason, decided_at)
+           VALUES (?,?,?,?,?,?)""",
+        (str(_uuid.uuid4()), row["id"], row["info_hash"], decision, reason, iso_utc()),
+    )
+    await db.commit()
+
+
+async def _dispatch_task(db, config, row: dict, qb_client, dispatcher=None) -> str | None:
+    """实跑模式下派发单个已采纳任务。成功返回 None，失败返回 _FLASH_ERR 的键。
+
+    download_url 已在流水线轮次持久化到 tasks 表，故此处可直接真实派发，
+    不必等下一轮。qb_client 由 app.state 传入（受 lifespan 生命周期管理），
+    不用函数属性缓存 —— 那会持有游离于 app 生命周期之外的连接。
+
+    派发前经 dispatcher.resolve_download_url 换取直链：馒头持久化的是
+    genDlToken 占位 URL，直接交给 qb 必失败；其他站点 / 无适配器时原样返回。
+
+    幂等：Conflict409Error（相同 info_hash 已在 qb）视为成功。
+    """
+    from ..adapters.base import AdapterError
+    from ..models import TaskState
+
+    url = row.get("download_url")
+    if not url:
+        logger.error(f"任务 {row['id']} 无 download_url，无法派发（旧数据？）")
+        await repo.set_task_state(db, row["id"], TaskState.FAILED,
+                                  error_message="采纳时缺 download_url")
+        return "dispatch_failed"
+    if qb_client is None:
+        logger.error("qb 客户端不可用（dry_run 或 API Key 无效），无法真实派发")
+        await repo.set_task_state(db, row["id"], TaskState.FAILED,
+                                  error_message="qb 客户端不可用")
+        return "dispatch_failed"
+
+    if dispatcher is not None:
+        try:
+            url = await dispatcher.resolve_download_url(url, site=row["site"])
+        except AdapterError as e:
+            logger.error(f"采纳派发换取直链失败: site={row['site']} {e}")
+            await repo.set_task_state(db, row["id"], TaskState.FAILED,
+                                      error_message=f"换取下载直链失败: {e}")
+            return "resolve_failed"
+
+    from qbittorrentapi import Conflict409Error, LoginFailed
+    from qbittorrentapi.exceptions import APIConnectionError
+
+    try:
+        qb_client.torrents_add(
+            urls=url,
+            save_path=row.get("qb_save_path") or config.qbittorrent.save_path,
+            category=row.get("qb_category") or config.qbittorrent.category,
+            tags=[config.qbittorrent.tag, row["site"]],
+            is_paused=False,
+        )
+    except Conflict409Error:
+        logger.info(f"种子已存在（幂等跳过）: {row['title'][:60]!r}")
+    except LoginFailed as e:
+        logger.critical(f"采纳派发 qb 认证失败: {e}")
+        await repo.set_task_state(db, row["id"], TaskState.FAILED,
+                                  error_message=f"qb 认证失败: {e}")
+        return "dispatch_failed"
+    except APIConnectionError as e:
+        logger.error(f"采纳派发 qb 连接失败: {e}")
+        await repo.set_task_state(db, row["id"], TaskState.FAILED,
+                                  error_message=f"qb 连接失败: {e}")
+        return "dispatch_failed"
+    except Exception as e:  # noqa: BLE001 - 单个派发失败不得让请求 500
+        logger.exception(f"采纳派发未预期异常: {e}")
+        await repo.set_task_state(db, row["id"], TaskState.FAILED,
+                                  error_message=f"{type(e).__name__}: {e}")
+        return "dispatch_failed"
+
+    await repo.set_task_state(db, row["id"], TaskState.DISPATCHED, reject_reason=None)
+    # 订阅引擎送进待审的命中：review → dispatched 并挂上 task_id（非订阅任务影响 0 行）
+    await repo.set_hit_task(db, row["info_hash"], row["id"], HitDecision.DISPATCHED)
+    logger.info(f"待审采纳并已派发: {row['site']} {row['title'][:60]!r}")
+    return None

@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% set e = entry %}
+{% set st = e.status.value %}
+{% block title %}{{ e.query }} · 订阅 · audio-hub{% endblock %}
+{% block h1 %}订阅详情{% endblock %}
+
+{% block content %}
+<div class="panel" id="sub-detail">
+  <div class="detail-head">
+    <span class="pill {{ e.sub_type.value }}">{{ sub_type_names.get(e.sub_type.value, e.sub_type.value) }}</span>
+    <h2 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text)">{{ e.query }}</h2>
+    {% if e.sub_type.value == 'album' and e.artist %}<span class="muted">{{ e.artist }}</span>{% endif %}
+    {% if e.author %}<span class="muted">{{ e.author }}</span>{% endif %}
+    <span class="pill {{ 'high' if st == 'completed' else ('medium' if st == 'active' else '') }}">{{ status_labels.get(st, st) }}</span>
+    {% if not e.enabled %}<span class="pill exclude">停用</span>{% endif %}
+    <span class="hint" style="margin:0 0 0 auto"><a href="/watchlist">← 返回列表</a></span>
+  </div>
+
+  <div class="kv" style="margin-top:12px">
+    <div><span class="muted">命中</span> <b>{{ e.hit_count }}</b></div>
+    <div><span class="muted">最近搜索</span> <span class="mono">{{ e.last_search_at.strftime('%Y-%m-%d %H:%M') if e.last_search_at else '—' }}</span></div>
+    <div><span class="muted">下次搜索</span> <span class="mono">{{ e.next_search_at.strftime('%Y-%m-%d %H:%M') if (e.next_search_at and st == 'active' and e.enabled) else '—' }}</span></div>
+    <div><span class="muted">间隔</span> {{ e.search_interval_hours }}h</div>
+    <div><span class="muted">下载器</span> {{ downloader_names.get(e.downloader_id, e.downloader_id) if e.downloader_id else '默认' }}</div>
+    {% if e.completed_at %}<div><span class="muted">完成于</span> <span class="mono">{{ e.completed_at.strftime('%Y-%m-%d %H:%M') }}</span></div>{% endif %}
+    {% if e.aliases %}<div><span class="muted">别名</span> <span class="mono">{{ e.aliases|join(', ') }}</span></div>{% endif %}
+    {% if series_entry %}
+      <div><span class="muted">连载</span> <a href="/series/{{ series_entry.id }}">{{ series_entry.name }}</a>
+        <span class="muted">（{{ series_entry.last_part }}{{ '/' ~ series_entry.total_parts if series_entry.total_parts else '' }} 部）</span></div>
+    {% elif e.kind.value == 'audiobook' %}
+      <div><span class="muted">连载</span> <a href="/series?watch_id={{ e.id }}">尚未建立，去建立</a></div>
+    {% endif %}
+    <div><span class="muted">过滤</span>
+      {% for s in filter_summary %}<span class="pill" style="margin-right:3px">{{ s }}</span>{% else %}—{% endfor %}
+    </div>
+  </div>
+
+  <div class="subacts" style="margin-top:14px">
+    <form method="post" action="/watchlist/{{ e.id }}/search-now">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="btn-primary btn-sm" type="submit" {{ 'disabled' if no_valid_sites }}
+              title="{{ '没有可用站点' if no_valid_sites else '立刻对该订阅搜索一轮（无视下次搜索时间）' }}">立即搜索</button>
+    </form>
+    {% if st == 'active' %}
+    <form method="post" action="/watchlist/{{ e.id }}/pause">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="btn-sm" type="submit">暂停</button>
+    </form>
+    {% else %}
+    <form method="post" action="/watchlist/{{ e.id }}/resume">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="btn-sm" type="submit">{{ '重新追踪' if st == 'completed' else '恢复' }}</button>
+    </form>
+    {% endif %}
+    <form method="post" action="/watchlist/{{ e.id }}/toggle">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="btn-sm" type="submit">{{ '停用' if e.enabled else '启用' }}</button>
+    </form>
+    {% if user.is_admin %}
+    <form method="post" action="/watchlist/{{ e.id }}/delete">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="btn-sm btn-err" type="submit"
+              data-confirm="删除订阅「{{ e.query }}」？命中记录一并清除，已建任务保留。">删除</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="detail-grid">
+  <div>
+    <div class="panel">
+      <h2>命中记录（{{ decision_counts.values()|sum }}）</h2>
+      <div class="filters">
+        <a href="/watchlist/{{ e.id }}" class="{{ 'active' if not hit_filter }}">全部</a>
+        {% for val, name in decision_labels.items() %}
+        <a href="/watchlist/{{ e.id }}?decision={{ val }}" class="{{ 'active' if hit_filter == val }}">{{ name }} {{ decision_counts.get(val, 0) }}</a>
+        {% endfor %}
+      </div>
+      <table class="hits">
+        <thead><tr><th>时间</th><th>标题</th><th>站点</th><th>音质</th><th class="num">体积</th><th class="num">做种</th><th>决策</th></tr></thead>
+        <tbody>
+        {% for h in hits %}
+          <tr>
+            <td class="mono" style="font-size:12px;white-space:nowrap">{{ h.created_at.strftime('%m-%d %H:%M') }}</td>
+            <td>
+              <div class="trunc" title="{{ h.torrent_title }}">{{ h.torrent_title }}</div>
+              <div class="hint" style="margin-top:1px">
+                {{ h.found_via.value }} · {{ '%.0f'|format(h.score) }} 分
+                {% if h.album_key %} · <span class="mono">{{ h.album_key }}</span>{% endif %}
+                {% if h.reject_reason %} · {{ h.reject_reason }}{% endif %}
+                {% if h.task_id %} · <a href="/records">任务 {{ h.task_id[:8] }}</a>{% endif %}
+              </div>
+            </td>
+            <td class="mono">{{ h.site }}</td>
+            <td>{{ h.quality_tag or '—' }}{% if h.discount and h.discount != 'none' %} <span class="pill free">{{ h.discount }}</span>{% endif %}</td>
+            <td class="num">{{ '%.1f'|format(h.size_bytes / 1048576) if h.size_bytes else '—' }} MB</td>
+            <td class="num">{{ h.seeders }}</td>
+            <td><span class="pill {{ 'high' if h.decision.value in ('dispatched', 'upgrade') else ('medium' if h.decision.value == 'review' else ('low' if h.decision.value == 'rejected' else '')) }}">{{ decision_labels.get(h.decision.value, h.decision.value) }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="7" class="empty">{{ '该决策下没有记录' if hit_filter else '还没有命中记录——点「立即搜索」试试' }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>已获得专辑（{{ owned_albums|length }}）</h2>
+      {% if owned_albums %}
+      <table>
+        <thead><tr><th>专辑键</th><th>最近标题</th><th>最佳音质</th><th class="num">版本</th><th>获得于</th></tr></thead>
+        <tbody>
+        {% for a in owned_albums %}
+          <tr>
+            <td class="mono">{{ a.album_key }}</td>
+            <td><div class="trunc" style="max-width:260px" title="{{ a.title }}">{{ a.title }}</div><div class="hint" style="margin-top:1px">{{ a.site }}</div></td>
+            <td>{{ a.quality_tag or '—' }}</td>
+            <td class="num">{{ a.versions }}</td>
+            <td class="mono" style="font-size:12px;white-space:nowrap">{{ a.obtained_at.strftime('%m-%d %H:%M') if a.obtained_at else '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <p class="hint">同一专辑键的候选会被跳过；勾选「洗版」后仅当音质高于此处记录才会再次派发。</p>
+      {% else %}
+      <div class="empty" style="padding:18px 0">还没有派发过任何专辑</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>编辑订阅</h2>
+      {% include "_subscription_form.html" %}
+    </div>
+  </div>
+</div>
+{% endblock %}

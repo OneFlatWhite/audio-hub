@@ -1,0 +1,67 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>HhanClub torrents</title>
+    <link>https://hhanclub.net/</link>
+    <description>Synthetic sample following NexusPHP RSS 2.0 structure</description>
+
+    <item>
+      <title>【CD】【FLAC分轨】周杰伦 - 范特西 (2001) [FLAC]</title>
+      <link>https://hhanclub.net/details.php?id=100001</link>
+      <description>华语流行专辑，整轨转分轨，含 cue 与 log</description>
+      <pubDate>Mon, 29 Sep 2026 10:15:00 +0800</pubDate>
+      <guid isPermaLink="false">a1b2c3d4e5f60718293a4b5c6d7e8f9012345678</guid>
+      <category>音乐</category>
+      <enclosure url="https://hhanclub.net/download.php?id=100001&amp;passkey=REDACTED" length="387973120" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title>【WEB】【FLAC分轨】Adele - 30 (2021) [24bit/44.1kHz]</title>
+      <link>https://hhanclub.net/details.php?id=100002</link>
+      <description>欧美流行 Hi-Res 24bit</description>
+      <pubDate>Mon, 29 Sep 2026 11:20:00 +0800</pubDate>
+      <guid isPermaLink="false">b2c3d4e5f60718293a4b5c6d7e8f9012345678a1</guid>
+      <category>音乐</category>
+      <enclosure url="https://hhanclub.net/download.php?id=100002&amp;passkey=REDACTED" length="1073741824" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title>周杰伦 嘉年华世界巡回演唱会 台北站 2024 BluRay 1080p</title>
+      <link>https://hhanclub.net/details.php?id=100003</link>
+      <description>演唱会蓝光，应被类型判别排除</description>
+      <pubDate>Mon, 29 Sep 2026 12:00:00 +0800</pubDate>
+      <guid isPermaLink="false">c3d4e5f60718293a4b5c6d7e8f9012345678a1b2</guid>
+      <category>音乐</category>
+      <enclosure url="https://hhanclub.net/download.php?id=100003&amp;passkey=REDACTED" length="32212254720" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title>【有声书】三体 全集 演播：头头 MP3</title>
+      <link>https://hhanclub.net/details.php?id=100004</link>
+      <description>科幻有声书，应判为 audiobook</description>
+      <pubDate>Mon, 29 Sep 2026 13:45:00 +0800</pubDate>
+      <guid isPermaLink="false">d4e5f60718293a4b5c6d7e8f9012345678a1b2c3</guid>
+      <category>有声书</category>
+      <enclosure url="https://hhanclub.net/download.php?id=100004&amp;passkey=REDACTED" length="5368709120" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title>【CD】【FLAC分轨】某冷门艺术家 - 未知专辑 1.2 GB @uploader_x</title>
+      <link>https://hhanclub.net/details.php?id=100005</link>
+      <description>标题含体积与上传者噪声，测试 strip_noise</description>
+      <pubDate>Mon, 29 Sep 2026 14:30:00 +0800</pubDate>
+      <guid isPermaLink="false">e5f60718293a4b5c6d7e8f9012345678a1b2c3d4</guid>
+      <category>音乐</category>
+      <enclosure url="https://hhanclub.net/download.php?id=100005&amp;passkey=REDACTED" length="0" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title/>
+      <link>https://hhanclub.net/details.php?id=100006</link>
+      <description>空标题，应被跳过而非报错</description>
+      <guid isPermaLink="false">f60718293a4b5c6d7e8f9012345678a1b2c3d4e5</guid>
+      <enclosure url="https://hhanclub.net/download.php?id=100006&amp;passkey=REDACTED" length="100" type="application/x-bittorrent"/>
+    </item>
+
+  </channel>
+</rss>

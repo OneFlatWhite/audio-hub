@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}待审队列 · audio-hub{% endblock %}
+{% block h1 %}待审队列{% endblock %}
+
+{% block content %}
+<div class="panel">
+  <h2>键盘操作</h2>
+  <p class="hint">
+    <span class="kbd">J</span>/<span class="kbd">↓</span> 下一条 ·
+    <span class="kbd">K</span>/<span class="kbd">↑</span> 上一条 ·
+    <span class="kbd">A</span> 采纳 ·
+    <span class="kbd">R</span> 拒绝（需先选原因）
+  </p>
+  <p class="hint">按置信度倒序排列。拒绝原因是规则迭代的唯一输入，请务必选择准确的一项。</p>
+</div>
+
+{% if items %}
+<div id="review-list">
+  {% for t in items %}
+  <div class="review-item" data-id="{{ t.id }}">
+    <div class="ri-title">{{ t.title }}</div>
+    <div class="ri-meta">
+      <span>站点 <b>{{ t.site }}</b></span>
+      <span>置信度 <span class="pill {{ t.confidence }}">{{ t.confidence }}</span></span>
+      <span>音质 <b>{{ t.quality or '—' }}</b></span>
+      <span>分数 <b>{{ '%.2f'|format(t.score or 0) }}</b></span>
+      <span>体积 <b>{{ '%.0f'|format((t.size_bytes or 0) / 1048576) }} MB</b></span>
+      {% if t.site_category %}<span>站点分类 <b>{{ t.site_category }}</b></span>{% endif %}
+      <span>原因 <span class="mono">{{ t.reject_reason or '—' }}</span></span>
+    </div>
+
+    <div class="ri-actions">
+      <form method="post" action="/review/{{ t.id }}/accept" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <button class="btn-ok btn-sm" type="submit" data-act="accept">采纳</button>
+      </form>
+
+      <form method="post" action="/review/{{ t.id }}/reject" style="display:inline-flex;gap:7px;align-items:center">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <select name="reason" aria-label="拒绝原因">
+          <option value="">选择拒绝原因…</option>
+          {% for val, label in reject_reasons %}
+          <option value="{{ val }}">{{ label }}</option>
+          {% endfor %}
+        </select>
+        <input name="note" placeholder="备注（可选）" style="width:150px;padding:4px 8px;font-size:12px">
+        <button class="btn-err btn-sm" type="submit" data-act="reject">拒绝</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<p class="hint">共 {{ count }} 项待审。</p>
+{% else %}
+<div class="panel"><p class="empty">待审队列为空 🎉</p></div>
+{% endif %}
+{% endblock %}

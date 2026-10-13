@@ -1,0 +1,17 @@
+{
+  "message": "SUCCESS",
+  "data": {
+    "list": [
+      {"id": "406", "nameChs": "無損音樂", "nameCht": "無損音樂", "nameEng": "Music(Lossless)", "parent": "100", "order": "1"},
+      {"id": "408", "nameChs": "音乐(Lossy)", "nameCht": "音樂(Lossy)", "nameEng": "Music(Lossy)", "parent": "100", "order": "2"},
+      {"id": "434", "nameChs": "有声书", "nameCht": "有聲書", "nameEng": "Audio Book", "parent": "100", "order": "3"},
+      {"id": "401", "nameChs": "电影/SD", "nameCht": "電影/SD", "nameEng": "Movie(SD)", "parent": "110", "order": "4"},
+      {"id": "999", "nameChs": "", "nameCht": "", "nameEng": "Edu(Course)", "parent": "110", "order": "5", "mode": "audiobook"},
+      {"id": "406", "nameChs": "重复项应被去重", "nameEng": "dup"}
+    ],
+    "music": [
+      {"id": "406", "nameChs": "無損音樂", "nameEng": "Music(Lossless)"}
+    ]
+  },
+  "code": "0"
+}

@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}设置 · audio-hub{% endblock %}
+{% block h1 %}设置{% endblock %}
+
+{% block content %}
+
+{# ── 待重启横幅 ─────────────────────────────────────────────
+   为什么必须醒目：dry_run / 日志级别 / qb 连接这类值在启动时固化，
+   保存后运行时仍用旧值。若不明确告知，使用者会以为界面显示的状态
+   就是实际状态 —— 比如以为还在空跑，实际已经在真实下载。 #}
+{% if restart_pending %}
+<div class="banner-restart">
+  <strong>有待重启的改动尚未生效。</strong>
+  运行模式、日志级别、qBittorrent 连接与 API Key 属于启动时固化项，
+  已保存到数据库，但运行时仍在使用旧值。<b>重启服务后生效。</b>
+  在此之前，本页显示的这些值不代表实际运行状态。
+</div>
+{% endif %}
+
+{% if ok %}<div class="flash ok" data-autohide>
+  {{ flash_ok or '已保存' }}{% if detail %} —— {{ detail }}{% endif %}
+</div>{% endif %}
+{# err 已在路由层经 _FLASH_ERR 翻译（old_password / weak_password / secrets_key 等），
+   表里没有的键（SettingsError 原文）原样展示 #}
+{% if err %}<div class="flash err" data-autohide>
+  {{ err }}{% if detail %} —— {{ detail }}{% endif %}
+</div>{% endif %}
+
+{# ── 可编辑设置（由 settings_store 的 SPEC 驱动，模板不写死字段名）── #}
+{% for g in groups %}
+{# 嵌套 for 中内层 loop 会遮蔽外层，故先把外层序号存下来。
+   v1 曾写成 g.loop_index（不存在的属性），会让各组字段 id 重复，
+   label 的 for 错配到别的控件 —— 点击标签会操作错误的输入框。 #}
+{% set gi = loop.index0 %}
+<div class="panel">
+  <h2>{{ g.title }}</h2>
+  {% if g.note %}<p class="hint">{{ g.note }}</p>{% endif %}
+  {% if g.action == '/settings/qbittorrent' %}
+  {# v0.6：多 qb 实例的增删改 / 测试连接 / 默认切换在下载器中心。本组仍可编辑默认实例
+     的连接参数（读写兼容旧覆盖层），但推荐改用新页面。 #}
+  <div class="flash ok" style="margin-bottom:12px">
+    qBittorrent 连接配置已迁至<a href="/downloaders"><b>下载器中心</b></a>：支持多实例、测试连接、默认切换与热生效。
+    下方表单仅保留用于兼容旧覆盖层，改动不会同步到下载器表。
+  </div>
+  {% endif %}
+
+  {% if g.fields %}
+  <form method="post" action="{{ g.action }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+
+    {% for f in g.fields %}
+    {% set fid = 'fld-' ~ gi ~ '-' ~ loop.index0 %}
+    <div class="setrow">
+      <div class="setlabel">
+        <label for="{{ fid }}">{{ f.label }}</label>
+        <span class="scope {{ 'scope-hot' if f.hot else 'scope-restart' }}"
+              title="{{ '保存后立即生效' if f.hot else '保存后需重启服务才生效' }}">
+          {{- '热生效' if f.hot else '需重启' -}}
+        </span>
+        {% if f.hint %}<div class="hint">{{ f.hint }}</div>{% endif %}
+      </div>
+
+      <div class="setctl">
+        {# bool 用 select 而非 checkbox：checkbox 取消勾选时浏览器
+           根本不发送该字段，而本模块把「未提交」视为「不修改」，
+           会导致取消勾选被静默忽略。select 永远发送一个值。 #}
+        {% if f.kind == 'bool' %}
+        <select name="{{ f.key }}" id="{{ fid }}">
+          <option value="1" {{ 'selected' if f.checked }}>{{ f.on_label }}</option>
+          <option value="0" {{ 'selected' if not f.checked }}>{{ f.off_label }}</option>
+        </select>
+
+        {% elif f.kind == 'int' or f.kind == 'float' %}
+        {# 可空数值：不加 required，空框提交＝清除站点覆盖。
+           注意这与「未提交＝不修改」不冲突：字段始终被提交，只是值为空。 #}
+        <input type="number" name="{{ f.key }}" id="{{ fid }}" value="{{ f.text }}"
+               step="{{ f.step }}"
+               {% if f.lo is not none %}min="{{ f.lo }}"{% endif %}
+               {% if f.hi is not none %}max="{{ f.hi }}"{% endif %}
+               {% if f.nullable %}placeholder="留空＝使用全局默认"{% else %}required{% endif %}>
+
+        {% elif f.kind == 'list' %}
+        {# 逗号分隔的文本框；合法值在 hint 里列出，后端逐项校验 #}
+        <input type="text" name="{{ f.key }}" id="{{ fid }}" value="{{ f.text }}"
+               class="mono" spellcheck="false">
+
+        {% elif f.kind == 'secret' %}
+        {# 只写不读：输入框永远为空，留空表示不修改 #}
+        <input type="password" name="{{ f.key }}" id="{{ fid }}" value=""
+               autocomplete="off" placeholder="{{ f.placeholder }}">
+
+        {% elif f.choices %}
+        <select name="{{ f.key }}" id="{{ fid }}">
+          {% for c in f.choices %}
+          <option value="{{ c }}" {{ 'selected' if c == f.value }}>{{ c }}</option>
+          {% endfor %}
+        </select>
+
+        {% else %}
+        <input type="text" name="{{ f.key }}" id="{{ fid }}" value="{{ f.text }}"
+               {% if f.minlength %}required{% endif %}>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+
+    <button class="btn-primary" type="submit"
+            {% if g.action == '/settings/general' %}
+            data-confirm="保存运行参数。注意：切到「实跑」会在重启后真实下载并占用 PT 站配额。确认继续？"
+            {% endif %}>保存</button>
+  </form>
+  {% else %}
+  <p class="empty">本组暂无可编辑项</p>
+  {% endif %}
+
+  {% if g.action == '/settings/notify' %}
+  {# 独立表单（不嵌在保存表单内）：按当前**已生效**配置发一条测试事件，
+     不读上方输入框 —— 凭据只写不读，输入框永远为空，先保存再测。 #}
+  <form method="post" action="/settings/notify/test">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button type="submit">发送测试通知</button>
+    <span class="hint">按当前已保存的渠道逐个发送，结果逐渠道显示在顶部提示；不受「推送的事件种类」过滤。</span>
+  </form>
+  {% endif %}
+</div>
+{% endfor %}
+
+{# ── 只读展示：刻意不放进覆盖层的项 ─────────────────────── #}
+<div class="panel">
+  <h2>只读项（需改 config.yaml）</h2>
+  <table>
+    <tbody>
+      <tr><td>数据库路径</td><td class="mono">{{ config.db_path }}</td>
+        <td class="hint">刻意不放进覆盖层：覆盖层自身就存在这个库里，
+          让被管理者管理自己会导致改完路径后读不到设置。</td></tr>
+      <tr><td>当前生效模式</td>
+        <td>{{ 'DRY-RUN 空跑（不实际下载）' if config.dry_run else '实跑（会真实派发到 qb）' }}</td>
+        <td class="hint">{% if restart_pending %}<b>可能落后于上方表单值，以重启后为准</b>
+          {% else %}与表单一致{% endif %}</td></tr>
+      <tr><td>已启用站点</td>
+        <td class="mono">{% for s in config.sites if s.enabled %}{{ s.name }} {% else %}（无）{% endfor %}</td>
+        <td class="hint">界面改动存数据库覆盖层，不回写 config.yaml ——
+          回写会丢失其中的注释（含实测结论），且写入中断会损坏配置。</td></tr>
+    </tbody>
+  </table>
+</div>
+
+{# ── 凭据状态（只写不读）────────────────────────────────
+   按站点类型列出各自需要的凭据，并明确指出「缺什么」。
+   原实现对所有站一律显示 passkey 状态，实际测的是 rss_url 有无，
+   对 mteam（必需 api_key）更是判断错了必需项 —— 会误导使用者
+   以为凭据齐了、启用后却每轮失败触发熔断。 #}
+<div class="panel">
+  <h2>凭据状态（只写不读）</h2>
+  <table>
+    <thead><tr><th>对象</th><th>所需凭据</th><th>状态</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>qBittorrent</td>
+        <td>API Key</td>
+        <td>{{ '✓ 已配置' if secrets_status.qb_api_key else '✗ 未配置' }}</td>
+        <td class="hint">在<a href="/downloaders">下载器中心</a>填写（也可用上方「qBittorrent」旧表单）。<b>实跑派发前必填</b>，
+          否则采纳待审项会因 qb 客户端不可用而失败。</td>
+      </tr>
+      <tr>
+        <td>Audiobookshelf</td>
+        <td>API Token</td>
+        <td>{{ '✓ 已配置' if secrets_status.abs_token else '✗ 未配置' }}</td>
+        <td class="hint">在上方「刮削联动」表单填写。可选：未配置则有声书归档后不触发 ABS 扫描。</td>
+      </tr>
+      <tr>
+        <td>通知推送</td>
+        <td>企微 Webhook / Telegram Bot Token</td>
+        <td>{{ '✓' if secrets_status.wecom_webhook else '✗' }} 企微　
+            {{ '✓' if secrets_status.telegram_bot_token else '✗' }} Telegram</td>
+        <td class="hint">在上方「通知推送」表单填写。可选：都未配置时事件仅写本地事件流。</td>
+      </tr>
+      {% for s in secrets_status.sites %}
+      <tr>
+        <td>{{ s.name }}{% if s.enabled %} <span class="pill high">已启用</span>{% endif %}</td>
+        <td>
+          {% if s.unknown %}（未注册站点，无法判断）
+          {% else %}{% for it in s.creds %}
+            {{ it.label }}{% if not it.required %}（可选）{% endif %}{% if not loop.last %}<br>{% endif %}
+          {% endfor %}{% endif %}
+        </td>
+        <td>
+          {% if s.unknown %}—
+          {% elif s.ready %}<span class="dot ok"></span>就绪
+          {% else %}<span class="dot err"></span>缺凭据{% endif %}
+        </td>
+        <td class="hint">
+          {% if s.unknown %}
+            该站点名未在适配器注册表中，启用也会被跳过。
+          {% elif not s.ready %}
+            {#- 用 s.ready 显式二选一。不用 for-else：Jinja2 的 for-else
+                仅在序列为空时执行 else，凭据列表非空时「齐全」分支永不触发。 -#}
+            {% for it in s.creds %}{% if it.required and not it.configured %}
+              <b>缺 {{ it.label }}</b>：启用后每轮搜索都会失败并触发熔断。
+            {% endif %}{% endfor %}
+            在上方「站点」表单填写，保存后 Fernet 加密入库，界面永不回显。
+          {% else %}
+            凭据齐全，可在上方「站点」表单启用。
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">也可用 <span class="mono">python scripts/init_secrets.py</span>
+    批量生成密文写入 config.yaml。两条路径等价：YAML 是基线，界面改动存数据库覆盖层，
+    后者优先级更高。</p>
+</div>
+
+<div class="panel">
+  <h2>修改密码</h2>
+  <form method="post" action="/account/password">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="row">
+      <div><label>当前密码</label>
+        <input name="current_password" type="password" required autocomplete="current-password"></div>
+      <div><label>新密码（≥8 位）</label>
+        <input name="new_password" type="password" required minlength="8" autocomplete="new-password"></div>
+    </div>
+    <button class="btn-primary" type="submit">修改密码</button>
+    <p class="hint">改密后会吊销所有会话（含其他设备），当前会话自动重签。</p>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>会话</h2>
+  <form method="post" action="/account/revoke-all">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="btn-err" type="submit"
+            data-confirm="登出所有设备（含当前）？之后需重新登录。">登出所有设备</button>
+  </form>
+  <p class="hint">密码用 Argon2id 哈希存储；会话为服务端 DB 存储，可随时吊销。</p>
+</div>
+{% endblock %}

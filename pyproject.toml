@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "audio-hub"
+dynamic = ["version"]
+description = "音乐+有声书统一获取中枢"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+    "jinja2>=3.1",
+    "httpx[http2]>=0.27",
+    "parsel>=1.9",
+    "opencc-python-reimplemented>=0.1.7",
+    "jieba>=0.42",
+    "apscheduler>=3.10",
+    "qbittorrent-api>=2026.8",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "pyyaml>=6.0",
+    "loguru>=0.7",
+    "argon2-cffi>=23.1",
+    "cryptography>=43",
+    "aiosqlite>=0.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "respx>=0.22",
+    "ruff>=0.6",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "live: tests that make real network requests to PT sites",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 的依赖注入就是靠函数默认值里的 Depends()/Query() 工作的，
+# 这是 ruff 文档对 B008 推荐的配置，而非关掉规则：其他可变默认值仍会被报。
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
+[tool.hatch.version]
+path = "src/audio_hub/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audio_hub"]

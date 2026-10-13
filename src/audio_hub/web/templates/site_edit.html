@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% block title %}{{ (site.name if site else '新建站点') }} · 站点中心 · audio-hub{% endblock %}
+{% block h1 %}{% if site %}站点 · {{ site.name }}{% else %}新建站点{% endif %}{% endblock %}
+
+{% block content %}
+{% if detail and (flash_ok or flash_err) %}<p class="hint" style="margin:-10px 0 14px">详情：{{ detail }}</p>{% endif %}
+
+<p class="hint" style="margin-bottom:14px">
+  <a href="/sites">← 返回站点中心</a>
+  {% if site %} · 当前状态 <span class="pill {{ site.state_css }}">{{ site.state_label }}</span>
+    {% if site.circuit_tripped %}<span class="dot err"></span>熔断中{% if site.circuit_until_local %} · 熔断至 {{ site.circuit_until_local }}{% endif %}{% endif %}
+  {% endif %}
+</p>
+
+{# ── 向导步骤条 ── #}
+<div class="panel">
+  <h2>配置向导</h2>
+  <div class="row">
+    <div class="card {{ 'ok' if step > 1 }}"><div class="n">①</div><div class="l">基础信息与凭据{% if step > 1 %} · 已完成{% endif %}</div></div>
+    <div class="card {{ 'ok' if step > 2 }}"><div class="n">②</div><div class="l">测试认证 / 发现分类{% if step > 2 %} · 已完成{% elif step == 2 %} · 当前{% endif %}</div></div>
+    <div class="card {{ 'ok' if (site and site.enabled) }}"><div class="n">③</div><div class="l">测试 RSS / 搜索 → 启用{% if site and site.enabled %} · 已启用{% elif step == 3 %} · 当前{% endif %}</div></div>
+  </div>
+</div>
+
+{# ── 第 ① 步：基础信息与凭据 ── #}
+<div class="panel">
+  <h2>① 基础信息与凭据</h2>
+  <form method="post" action="{{ '/sites/' ~ site.id if site else '/sites' }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <div class="row">
+      <div class="field">
+        <label>站点</label>
+        {% if site %}
+          <input type="text" value="{{ site.name }}" disabled>
+          <input type="hidden" name="name" value="{{ site.id }}">
+        {% else %}
+          <select name="name" required>
+            {% for n in addable %}<option value="{{ n }}">{{ site_labels[n] if n in site_labels else n }}</option>{% endfor %}
+          </select>
+          <p class="hint">目前只支持已注册的站点类型；适配器类型按站点自动推断。</p>
+        {% endif %}
+      </div>
+      <div class="field">
+        <label>站点域名（站内搜索 / 认证的基址）</label>
+        <input type="url" name="domain" placeholder="https://hhanclub.net" value="{{ site.domain if site else '' }}">
+      </div>
+      <div class="field">
+        <label>优先级（同专辑多候选时越大越优先）</label>
+        <input type="number" name="priority" value="{{ site.priority if site else 0 }}">
+      </div>
+    </div>
+
+    <div class="row">
+      {% set show_cookie = (not site) or site.adapter_type != 'mteam' %}
+      {% set show_api = (not site) or site.adapter_type == 'mteam' %}
+      {% if show_cookie %}
+      <div class="field">
+        <label>Cookie（NexusPHP 站内搜索与认证）{% if site %} · {{ '已配置' if site.has_cookie else '未配置' }}{% endif %}</label>
+        <textarea name="cookie" rows="3" placeholder="{{ '留空 = 不修改' if site else '从浏览器开发者工具复制整条 Cookie' }}"></textarea>
+      </div>
+      {% endif %}
+      {% if show_api %}
+      <div class="field">
+        <label>API Key（mteam）{% if site %} · {{ '已配置' if site.has_api_key else '未配置' }}{% endif %}</label>
+        <input type="password" name="api_key" autocomplete="off" placeholder="{{ '留空 = 不修改' if site else 'M-Team 控制台生成的 API Key' }}">
+      </div>
+      {% endif %}
+      <div class="field">
+        <label>RSS 地址（含 passkey）{% if site %} · {{ '已配置' if site.has_rss else '未配置' }}{% endif %}</label>
+        <input type="url" name="rss_url" autocomplete="off" placeholder="{{ '留空 = 不修改' if site else 'https://…/torrentrss.php?passkey=…' }}">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>User-Agent（建议与登录该站的浏览器一致）</label>
+        <input type="text" name="user_agent" id="ua-input" value="{{ record.user_agent if record else '' }}" placeholder="留空 = audio-hub 默认 UA">
+        <button type="button" class="btn-sm" style="margin-top:6px" data-fill-ua="{{ common_ua }}">使用常见 Chrome UA</button>
+      </div>
+      <div class="field">
+        <label>代理（可选）</label>
+        <input type="text" name="proxy" value="{{ record.proxy if record else '' }}" placeholder="http://127.0.0.1:7890">
+      </div>
+      <div class="field">
+        <label>搜索地址（可选，覆盖默认 torrents.php）</label>
+        <input type="url" name="search_url" value="{{ record.search_url if record else '' }}">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>音乐分类 ID（逗号分隔）</label>
+        <input type="text" name="music_cat_ids" value="{{ record.music_cat_ids | join(',') if record else '' }}">
+      </div>
+      <div class="field">
+        <label>有声书分类 ID（逗号分隔）</label>
+        <input type="text" name="audiobook_cat_ids" value="{{ record.audiobook_cat_ids | join(',') if record else '' }}">
+      </div>
+      <div class="field">
+        <label>rows 上限（1–200）</label>
+        <input type="number" name="max_rows" min="1" max="200" value="{{ record.max_rows if record else 50 }}">
+      </div>
+      <div class="field">
+        <label>标题括号风格</label>
+        <select name="title_bracket_style">
+          {% for st in bracket_styles %}<option value="{{ st }}" {{ 'selected' if record and record.title_bracket_style == st }}>{{ st }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>H&amp;R 最低做种时长（小时，留空 = 全局）</label>
+        <input type="number" name="hr_min_seed_hours" value="{{ record.hr_min_seed_hours if record and record.hr_min_seed_hours is not none else '' }}">
+      </div>
+      <div class="field">
+        <label>H&amp;R 最低分享率（留空 = 全局）</label>
+        <input type="text" name="hr_min_ratio" value="{{ record.hr_min_ratio if record and record.hr_min_ratio is not none else '' }}">
+      </div>
+    </div>
+
+    <button class="btn-primary" type="submit">{{ '保存' if site else '创建站点' }}</button>
+    <span class="hint">凭据加密入库，页面只显示「已配置 / 未配置」；更换 Cookie / API Key 后需重新测试认证。</span>
+  </form>
+</div>
+
+{% if site %}
+{# ── 第 ② 步：认证与分类 ── #}
+<div class="panel">
+  <h2>② 测试认证 · 发现分类</h2>
+  <div class="row">
+    <div>
+      <form method="post" action="/sites/{{ site.id }}/test-auth" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <button class="btn-primary" type="submit" {{ 'disabled' if not site['has_' ~ needed_kind] }}>测试认证</button>
+      </form>
+      <form method="post" action="/sites/{{ site.id }}/discover-categories" style="display:inline;margin-left:8px">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <button type="submit" {{ 'disabled' if not site['has_' ~ needed_kind] }}>发现分类</button>
+      </form>
+      {% if not site['has_' ~ needed_kind] %}
+        <p class="hint">先在第 ① 步填好 {{ 'API Key' if needed_kind == 'api_key' else 'Cookie' }}。</p>
+      {% endif %}
+      <p class="hint">
+        认证状态：<span class="mono">{{ site.auth_status }}</span>
+        {% if site.auth_checked_local %} · 检查于 {{ site.auth_checked_local }}{% endif %}
+        {% if site.auth_error %}<br>最近错误：<span class="mono">{{ site.auth_error }}</span>{% endif %}
+      </p>
+    </div>
+    <div>
+      {% if site.user_info and site.user_info.username %}
+        <table>
+          <tr><th>用户</th><td>{{ site.user_info.username }}{% if site.user_info.level %} <span class="pill">{{ site.user_info.level }}</span>{% endif %}</td></tr>
+          <tr><th>上传 / 下载</th><td class="mono">{{ site.user_info.uploaded or '—' }} / {{ site.user_info.downloaded or '—' }}</td></tr>
+          <tr><th>分享率 / 魔力</th><td class="mono">{{ site.user_info.ratio or '—' }} / {{ site.user_info.bonus or '—' }}</td></tr>
+          <tr><th>做种 / 下载中</th><td class="mono">{{ site.user_info.seeding if site.user_info.seeding is not none else '—' }} / {{ site.user_info.leeching if site.user_info.leeching is not none else '—' }}</td></tr>
+        </table>
+      {% else %}
+        <p class="empty" style="padding:14px 0">认证通过后在此显示账号信息</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if cats %}
+  <form method="post" action="/sites/{{ site.id }}/categories" style="margin-top:14px">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <table>
+      <thead><tr><th>远端分类 ID</th><th>名称</th><th>本地映射</th></tr></thead>
+      <tbody>
+      {% for c in cats %}
+        <tr>
+          <td class="mono">{{ c.remote_id }}</td>
+          <td>{{ c.remote_name or '—' }}</td>
+          <td>
+            <select name="kind_{{ c.remote_id }}" style="width:auto">
+              {% for k in category_kinds %}<option value="{{ k }}" {{ 'selected' if c.local_kind == k }}>{{ {'music': '音乐', 'audiobook': '有声书', 'other': '其他（不抓）'}[k] }}</option>{% endfor %}
+            </select>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <button class="btn-primary btn-sm" type="submit" style="margin-top:8px">保存分类映射</button>
+    <span class="hint">保存后同步到上方「音乐 / 有声书分类 ID」，RSS 与站内搜索按此过滤。</span>
+  </form>
+  {% endif %}
+</div>
+
+{# ── 第 ③ 步：RSS / 搜索测试与启用 ── #}
+<div class="panel">
+  <h2>③ 测试 RSS · 测试搜索 · 启用</h2>
+  <div class="row">
+    <div>
+      <form method="post" action="/sites/{{ site.id }}/test-rss" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <button type="submit" {{ 'disabled' if site.adapter_type != 'mteam' and not site.has_rss }}>测试 RSS</button>
+      </form>
+      {% set rt = site.last_rss_test %}
+      {% if rt %}
+        <div class="hint" style="margin-top:8px">
+          上次 RSS 测试：{% if rt.ok %}<span class="pill high">通过</span>{% else %}<span class="pill low">失败</span>{% endif %}
+          · {{ rt.count }} 条 · {{ rt.elapsed_ms }} ms
+          {% if rt.error %}<br>错误：<span class="mono">{{ rt.error }}</span>{% endif %}
+          {% for w in rt.warnings %}<br>⚠ {{ w }}{% endfor %}
+          {% if rt.category_counts %}<br>分类分布：{% for k, v in rt.category_counts | dictsort %}<span class="pill {{ k }}">{{ k }} {{ v }}</span> {% endfor %}{% endif %}
+          {% if rt.sample_titles %}<ul style="margin:6px 0 0 16px">{% for t in rt.sample_titles %}<li class="mono">{{ t }}</li>{% endfor %}</ul>{% endif %}
+        </div>
+      {% endif %}
+    </div>
+    <div>
+      <form method="post" action="/sites/{{ site.id }}/test-search" class="row">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="text" name="keyword" placeholder="搜索关键字" value="{{ search_result.keyword if search_result else '' }}" required>
+        <select name="kind" style="max-width:120px">
+          <option value="music" {{ 'selected' if not search_result or search_result.kind == 'music' }}>音乐</option>
+          <option value="audiobook" {{ 'selected' if search_result and search_result.kind == 'audiobook' }}>有声书</option>
+        </select>
+        <button type="submit" style="max-width:120px">测试搜索</button>
+      </form>
+      {% if search_result %}
+        <div class="hint" style="margin-top:8px">
+          {% if search_result.ok %}
+            <span class="pill high">成功</span> {{ search_result.count }} 条
+            {% if search_result.source %}· 来源 <span class="mono">{{ search_result.source }}</span>{% endif %}
+            {% if search_result.degraded %}<span class="pill medium" title="无 Cookie 时退回 RSS 关键字搜索，站点可能忽略关键字">降级（RSS）</span>{% endif %}
+          {% else %}
+            <span class="pill low">失败</span> <span class="mono">{{ search_result.error }}</span>
+          {% endif %}
+          {% if search_result.samples %}
+            <table style="margin-top:6px">
+              <thead><tr><th>标题</th><th>分类</th><th class="num">做种</th><th>优惠</th></tr></thead>
+              <tbody>{% for t in search_result.samples %}
+                <tr><td class="trunc" title="{{ t.title }}">{{ t.title }}</td>
+                    <td><span class="pill {{ t.category }}">{{ t.category }}</span></td>
+                    <td class="num">{{ t.seeders }}</td><td class="mono">{{ t.discount }}</td></tr>
+              {% endfor %}</tbody>
+            </table>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    {% if site.enabled %}
+      <form method="post" action="/sites/{{ site.id }}/toggle" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="enabled" value="0">
+        <button type="submit">禁用站点</button>
+      </form>
+      <span class="hint">已启用：参与自动搜索。</span>
+    {% elif site.auth_status == 'valid' %}
+      <form method="post" action="/sites/{{ site.id }}/toggle" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <input type="hidden" name="enabled" value="1">
+        <button class="btn-ok" type="submit">启用站点</button>
+      </form>
+      <span class="hint">认证已通过，可以启用。</span>
+    {% else %}
+      <button type="button" disabled>启用站点</button>
+      <span class="hint">认证状态为 <span class="mono">{{ site.auth_status }}</span>：启用前必须先通过「测试认证」（服务端强制）。</span>
+    {% endif %}
+    <form method="post" action="/sites/{{ site.id }}/delete" style="display:inline;margin-left:auto">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="btn-err btn-sm" type="submit" data-confirm="删除站点 {{ site.name }}？凭据与分类映射一并删除，历史健康计数保留。">删除站点</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script>
+  // 「使用常见 Chrome UA」：只填表单，不发请求
+  document.querySelectorAll('[data-fill-ua]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var input = document.getElementById('ua-input');
+      if (input) { input.value = btn.getAttribute('data-fill-ua'); input.focus(); }
+    });
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 虚拟环境（含 Windows 侧遗留的 .venv，约 141 MB / 5081 文件，
+# 内含解释器与 .pyd 二进制，绝不可入库）
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 敏感文件
+config/config.yaml
+config/secrets.key
+config/*.key
+.verify_samples/
+.smoke/
+
+# 测试
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 数据库
+*.db
+*.db-wal
+*.db-shm
+
+# 附加虚拟环境（Windows 侧遗留，含解释器与 site-packages，约 140MB+）
+.venv-pure/
+
+# 工具缓存
+.ruff_cache/
+
+# 本地生成物与遗留（不入版本库）
+smoke_report.txt
+last_test_output.txt
+# curl cookie jar：曾含真实会话令牌（audio_hub_session），等同登录凭据，绝不入库
+cj.txt

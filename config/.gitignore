@@ -1,0 +1,4 @@
+# 敏感文件，绝不入版本库
+config.yaml
+secrets.key
+*.key

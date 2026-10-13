@@ -1,0 +1,110 @@
+# audio-hub 配置模板
+# 复制为 config.yaml 并填入实际值
+# 敏感字段使用 scripts/init_secrets.py 加密后填入
+
+dry_run: true                    # 默认空跑（只搜索/打分/落库，不推送 qb）；设为 false 启用真实下载，改动需重启生效
+db_path: "/config/hub.db"        # 唯一不进设置页覆盖层的字段（覆盖层自身就存在这个库里）
+log_level: "INFO"                # 需重启
+poll_interval_minutes: 30        # 轮询间隔，下限 5 分钟（低于自动提升并告警），热生效
+
+# ── Web 界面与认证 ────────────────────────────────────────────
+web:
+  port: 8090
+  cookie_secure: false            # 走 HTTPS/Tailscale 时设 true；纯内网 HTTP 必须 false，否则浏览器不回传 cookie
+  session_days: 7                 # 会话有效期（天），滑动续期
+  auth_request_limit: 5           # 单 IP 在窗口内允许的登录尝试次数
+  auth_window_minutes: 15         # 限流窗口（分钟）
+
+# ── 搜索：站点熔断（热生效）────────────────────────────────
+search:
+  circuit_fail_threshold: 3       # 某站连续失败达此次数即熔断，熔断期内整轮跳过该站
+  circuit_open_minutes: 30        # 熔断持续时长，到期自动恢复
+
+# ── 路径（容器内视角，全部需重启生效）──────────────────────────
+paths:
+  scratch_inbox: "/musiclab/scratch/inbox"     # 完成的种子 cp 到此处供 MTW 刮削（不动原种）
+  library_music: "/musiclab/library"           # 音乐最终库（Navidrome 所见）
+  library_audiobook: "/audiolab/library"       # 有声书最终库（Audiobookshelf 所见）
+  recycle_dir: "/musiclab/recycle"             # 升级替换时旧版本移入此处
+  quarantine_dir: "/musiclab/quarantine"       # 校验不通过的内容隔离到此处
+  recycle_retention_days: 30                   # 回收区保留天数，到期清理
+
+# ── 完成后文件校验 ───────────────────────────────────────────
+validation:
+  enabled: true
+  allowed_exts: [flac, ape, wav, dsf, dff, mp3, m4a, m4b, aac, ogg, opus, wma]
+  min_audio_files: 1              # 音频文件少于此数视为空包
+  fake_lossless_check: true       # 假无损（升频）检测
+  aucdtect_path: ""               # auCDtect 可执行文件路径；空则跳过频谱检测
+  on_fail: "quarantine"           # quarantine=隔离待人工；pass_through=照常归档但记录警告
+
+# ── 刮削联动 ────────────────────────────────────────────────────
+scrape:
+  mtw_webhook_url: ""             # MusicTag Web 归档完成通知地址（可空）
+  abs_url: ""                     # Audiobookshelf 地址，如 http://abs:13378
+  abs_library_id: ""              # ABS 有声书库 ID
+  abs_token_encrypted: ""         # ← 用 init_secrets.py 生成（ABS API token）
+  timeout_seconds: 15
+
+# ── 做种 / H&R ──────────────────────────────────────────────────
+seeding:
+  enabled: true
+  check_interval_minutes: 30      # 做种状态轮询间隔（需重启）
+  default_min_seed_hours: 72      # 站点未单独指定时的 H&R 最低做种时长
+  default_min_ratio: 1.0          # 同上，最低分享率
+  on_satisfied: "keep"            # keep=继续做种；pause=达标后暂停
+
+# ── 通知推送 ──────────────────────────────────────────────────
+notify:
+  wecom_webhook_encrypted: ""     # ← 企业微信群机器人 webhook（含 key，按凭据加密）
+  telegram_bot_token_encrypted: ""  # ← Telegram Bot token
+  telegram_chat_id: ""
+  generic_webhook_url: ""         # 通用 JSON webhook（可空）
+  kinds: [dispatched, completed, routed, quarantined, hr_satisfied, series_completed, failed]
+
+# ── qBittorrent ────────────────────────────────────────────
+qbittorrent:
+  host: "localhost"
+  port: 8085
+  api_key_encrypted: ""           # ← 用 init_secrets.py 生成
+  category: "audio-hub"
+  tag: "hub"
+  save_path: "/musiclab/seeds"
+
+# ── PT 站点 ────────────────────────────────────────────────
+sites:
+  - name: "hhanclub"
+    enabled: true
+    rss_url: "https://hhanclub.net/torrentrss.php?rows=50&linktype=dl&passkey=PASSKEY_PLACEHOLDER"
+    music_cat_id: "410"           # ⚠️ 需实测确认，cat410=1 可能失效
+    audiobook_cat_id: ""
+    max_rows: 50
+    title_bracket_style: "【】"
+    # hr_min_seed_hours: 72        # 站点级 H&R 覆盖（留空沿用 seeding.default_*）
+    # hr_min_ratio: 1.0
+
+  - name: "hdsky"
+    enabled: true
+    rss_url: "https://hdsky.me/torrentrss.php?rows=50&linktype=dl&passkey=PASSKEY_PLACEHOLDER"
+    music_cat_id: "401"           # 需实测确认
+    audiobook_cat_id: ""
+    max_rows: 50
+    title_bracket_style: "[]"
+
+  - name: "audiences"
+    enabled: true
+    rss_url: "https://audiences.me/torrentrss.php?rows=50&linktype=dl&passkey=PASSKEY_PLACEHOLDER"
+    music_cat_id: ""              # 需实测确认
+    audiobook_cat_id: ""
+    max_rows: 50
+    title_bracket_style: "[]"
+
+  - name: "mteam"
+    enabled: true
+    rss_url: "https://rss.m-team.cc/api/rss/fetch?dl=1&pageSize=50"
+    search_url: "https://api.m-team.cc/api/torrent/search"
+    api_key_encrypted: ""         # ← 用 init_secrets.py 生成
+    music_cat_id: "music"         # mTorrent 新模式枚举
+    audiobook_cat_id: ""
+    max_rows: 50
+    title_bracket_style: "[]"

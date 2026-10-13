@@ -1,0 +1,27 @@
+{
+  "message": "SUCCESS",
+  "data": {
+    "id": "334455",
+    "username": "mt_audiofan",
+    "email": "x@example.com",
+    "role": {
+      "id": "3",
+      "nameChs": "资深用户",
+      "nameCht": "資深用戶",
+      "nameEng": "Power User"
+    },
+    "memberCount": {
+      "uploaded": "1352440430182",
+      "downloaded": "412316860416",
+      "shareRate": "3.28",
+      "bonus": "98765.43",
+      "seeding": 57,
+      "leeching": "0"
+    },
+    "memberStatus": {
+      "vip": false,
+      "warned": false
+    }
+  },
+  "code": "0"
+}

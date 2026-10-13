@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{# CSRF token 下发给前端（HttpOnly cookie 里读不到，故走 meta）#}
+<meta name="csrf-token" content="{{ csrf or '' }}">
+<title>{% block title %}audio-hub{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+<div class="wrap">
+  <aside class="sidebar">
+    <div class="brand">audio-hub<small>v{{ version }} · 获取中枢</small></div>
+    <nav class="nav">
+      <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}">总览</a>
+      <a href="/watchlist" class="{{ 'active' if active == 'watchlist' }}">订阅项</a>
+      <a href="/records" class="{{ 'active' if active == 'records' }}">命中记录</a>
+      <a href="/review" class="{{ 'active' if active == 'review' }}">
+        待审队列{% if review_count %}<span class="badge">{{ review_count }}</span>{% endif %}
+      </a>
+      <a href="/library" class="{{ 'active' if active == 'library' }}">资料库</a>
+      <a href="/quarantine" class="{{ 'active' if active == 'quarantine' }}">
+        隔离区{% if quarantine_badge %}<span class="badge">{{ quarantine_badge }}</span>{% endif %}
+      </a>
+      <a href="/series" class="{{ 'active' if active == 'series' }}">连载</a>
+      <a href="/seeding" class="{{ 'active' if active == 'seeding' }}">做种</a>
+      <a href="/events" class="{{ 'active' if active == 'events' }}">事件</a>
+      <a href="/sites" class="{{ 'active' if active == 'sites' }}">站点</a>
+      <a href="/downloaders" class="{{ 'active' if active == 'downloaders' }}">下载器</a>
+      <a href="/settings" class="{{ 'active' if active == 'settings' }}">设置</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1>{% block h1 %}{% endblock %}</h1>
+      {% if dry_run %}<span class="pill low">DRY-RUN 空跑中</span>{% endif %}
+      <span class="whoami">{{ user.username if user else '' }}</span>
+      <form method="post" action="/logout" style="display:inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf or '' }}">
+        <button class="btn-sm" type="submit">登出</button>
+      </form>
+    </div>
+
+    {% if flash_ok %}<div class="flash ok" data-autohide>{{ flash_ok }}</div>{% endif %}
+    {% if flash_err %}<div class="flash err" data-autohide>{{ flash_err }}</div>{% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+</div>
+<script src="{{ url_for('static', path='/app.js') }}"></script>
+</body>
+</html>

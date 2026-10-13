@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}命中记录 · audio-hub{% endblock %}
+{% block h1 %}命中记录{% endblock %}
+
+{% block content %}
+<div class="filters">
+  <a href="/records" class="{{ 'active' if not current_state }}">全部</a>
+  {% for st in ['discovered','scored','dispatched','downloading','completed','routed','notified','rejected','failed'] %}
+    {% if by_state.get(st) %}
+    <a href="/records?state={{ st }}" class="{{ 'active' if current_state == st }}">
+      {{ st }} ({{ by_state[st] }})
+    </a>
+    {% endif %}
+  {% endfor %}
+</div>
+
+<div class="panel">
+  <table>
+    <thead><tr>
+      <th>标题</th><th>站点</th><th>状态</th><th>置信度</th><th>音质</th>
+      <th class="num">分数</th><th class="num">体积</th><th>原因 / 错误</th><th>更新时间</th>
+    </tr></thead>
+    <tbody>
+    {% for t in tasks %}
+      <tr>
+        <td class="trunc" title="{{ t.title }}">{{ t.title }}</td>
+        <td class="mono">{{ t.site }}</td>
+        <td><span class="pill {{ 'low' if t.state == 'failed' else ('high' if t.state in ['completed','notified','routed'] else '') }}">{{ t.state }}</span></td>
+        <td><span class="pill {{ t.confidence }}">{{ t.confidence }}</span></td>
+        <td class="mono">{{ t.quality or '—' }}</td>
+        <td class="num">{{ '%.2f'|format(t.score or 0) }}</td>
+        <td class="num">{{ '%.0f'|format((t.size_bytes or 0) / 1048576) }} MB</td>
+        <td class="mono trunc" title="{{ t.reject_reason or t.error_message or '' }}">
+          {{ t.reject_reason or t.error_message or '—' }}
+        </td>
+        <td class="mono">{{ (t.updated_at or '')[:19] }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="9" class="empty">无记录</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="hint">显示最近 {{ tasks|length }} 条。按状态筛选可用上方标签。</p>
+{% endblock %}

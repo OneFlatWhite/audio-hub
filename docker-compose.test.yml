@@ -1,0 +1,27 @@
+# 测试专用 compose：在 Linux 容器内运行测试套件。
+#
+# 为什么需要它：
+#   开发机若启用了 Windows Smart App Control（强制模式），会拦截所有
+#   未签名的原生扩展（.pyd）——pydantic_core / cryptography._rust / lxml /
+#   argon2 / parsel 的 PyPI wheel 均未做 Authenticode 签名，导致测试无法在
+#   Windows 本机运行。容器内是 Linux，不受该策略约束。
+#
+# 用法（在 NAS 或任何有 Docker 的 Linux 上）：
+#   docker compose -f docker-compose.test.yml run --rm test
+#
+# 该服务不挂载 /musiclab，也不配置任何站点凭据 —— 测试全部使用
+# 注入式假适配器与临时数据库，不会向任何 PT 站点发起网络请求。
+
+services:
+  test:
+    image: python:3.12-slim
+    working_dir: /app
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - .:/app
+    # 装依赖 → 跑测试 → 跑静态检查，任一失败即非零退出
+    command: >
+      sh -c "pip install --no-cache-dir -e '.[dev]' &&
+             pytest tests -q &&
+             ruff check src scripts tests"

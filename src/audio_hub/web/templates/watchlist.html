@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}订阅 · audio-hub{% endblock %}
+{% block h1 %}订阅{% endblock %}
+
+{% block content %}
+<div class="cards" style="margin-bottom:18px">
+  <div class="card"><div class="n">{{ status_counts.active }}</div><div class="l">进行中</div></div>
+  <div class="card ok"><div class="n">{{ status_counts.completed }}</div><div class="l">已完成</div></div>
+  <div class="card"><div class="n">{{ status_counts.paused }}</div><div class="l">已暂停</div></div>
+  <div class="card {{ 'warn' if no_valid_sites }}"><div class="n">{{ valid_sites|length }}</div><div class="l">可用站点</div></div>
+</div>
+
+<div class="panel">
+  <h2>新建订阅</h2>
+  {% include "_subscription_form.html" %}
+</div>
+
+<div class="panel">
+  <h2>订阅列表（{{ entries|length }}）</h2>
+  <table class="subtable">
+    <thead><tr>
+      <th>类型</th><th>名称</th><th>状态</th><th class="num">命中</th>
+      <th>最近 / 下次搜索</th><th>下载器</th><th>过滤</th><th></th>
+    </tr></thead>
+    <tbody>
+    {% for e in entries %}
+      {% set st = e.status.value %}
+      <tr class="{{ 'off' if not e.enabled }}">
+        <td><span class="pill {{ e.sub_type.value }}">{{ sub_type_names.get(e.sub_type.value, e.sub_type.value) }}</span></td>
+        <td>
+          <a href="/watchlist/{{ e.id }}"><b>{{ e.query }}</b></a>
+          {% if e.sub_type.value == 'album' and e.artist %}<span class="muted"> · {{ e.artist }}</span>{% endif %}
+          {% if e.sub_type.value == 'audiobook' and e.author %}<span class="muted"> · {{ e.author }}</span>{% endif %}
+          {% if e.kind.value == 'audiobook' %}
+            {% if e.series_id is not none %}<a href="/series/{{ e.series_id }}" style="font-size:12px;margin-left:6px">查看连载</a>
+            {% else %}<a href="/series?watch_id={{ e.id }}" style="font-size:12px;margin-left:6px">建立连载</a>{% endif %}
+          {% endif %}
+          {% if e.aliases %}<div class="hint mono trunc" style="margin-top:2px" title="{{ e.aliases|join(', ') }}">{{ e.aliases|join(', ') }}</div>{% endif %}
+        </td>
+        <td>
+          <span class="pill {{ 'high' if st == 'completed' else ('medium' if st == 'active' else '') }}">{{ status_labels.get(st, st) }}</span>
+          {% if not e.enabled %}<span class="pill exclude" title="总闸已停用，不参与任何搜索">停用</span>{% endif %}
+          {% if not e.auto_download %}<span class="pill low" title="命中进待审，不自动下载">待审</span>{% endif %}
+        </td>
+        <td class="num">{{ e.hit_count }}</td>
+        <td class="mono" style="font-size:12px;white-space:nowrap">
+          {{ e.last_search_at.strftime('%m-%d %H:%M') if e.last_search_at else '—' }}<br>
+          <span class="muted">{{ e.next_search_at.strftime('%m-%d %H:%M') if (e.next_search_at and st == 'active' and e.enabled) else '—' }}</span>
+        </td>
+        <td style="font-size:12px">{{ downloader_names.get(e.downloader_id, e.downloader_id) if e.downloader_id else '默认' }}</td>
+        <td>
+          {% for s in summaries[e.id] %}<span class="pill" style="margin:0 3px 3px 0">{{ s }}</span>{% else %}<span class="muted">—</span>{% endfor %}
+        </td>
+        <td class="subacts">
+          <form method="post" action="/watchlist/{{ e.id }}/search-now">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm" type="submit" title="立刻对该订阅搜索一轮">搜索</button>
+          </form>
+          {% if st == 'active' %}
+          <form method="post" action="/watchlist/{{ e.id }}/pause">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm" type="submit">暂停</button>
+          </form>
+          {% else %}
+          <form method="post" action="/watchlist/{{ e.id }}/resume">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm" type="submit">{{ '重新追踪' if st == 'completed' else '恢复' }}</button>
+          </form>
+          {% endif %}
+          <form method="post" action="/watchlist/{{ e.id }}/toggle">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm" type="submit">{{ '停用' if e.enabled else '启用' }}</button>
+          </form>
+          {% if user.is_admin %}
+          <form method="post" action="/watchlist/{{ e.id }}/delete">
+            <input type="hidden" name="csrf_token" value="{{ csrf }}">
+            <button class="btn-sm btn-err" type="submit"
+                    data-confirm="删除订阅「{{ e.query }}」？命中记录一并清除，已建任务保留。">删除</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8" class="empty">还没有订阅。在上方新建一条，添加后会立即搜索一次。</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

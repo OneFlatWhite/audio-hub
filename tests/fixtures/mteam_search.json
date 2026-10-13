@@ -1,0 +1,63 @@
+{
+  "code": 0,
+  "message": "SUCCESS",
+  "data": {
+    "total": 4,
+    "pageNumber": 1,
+    "pageSize": 50,
+    "data": [
+      {
+        "id": "300001",
+        "name": "周杰伦 - 七里香 (2004) [FLAC 分轨]",
+        "infoHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "size": "734003200",
+        "seeders": 12,
+        "leechers": 1,
+        "discount": "FREE",
+        "labels": ["中字", "FLAC"],
+        "category": { "id": "408", "name": "Music", "mode": "music" },
+        "createdDate": "2026-09-30 08:00:00",
+        "downloadUrl": ""
+      },
+      {
+        "id": "300002",
+        "name": "Taylor Swift - 1989 (Taylor's Version) [24bit/96kHz]",
+        "infoHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 2147483648,
+        "seeders": 30,
+        "leechers": 3,
+        "discount": "NORMAL",
+        "labels": ["Hi-Res"],
+        "category": { "id": "408", "name": "Music", "mode": "music" },
+        "createdDate": "2026-09-30 09:15:00",
+        "downloadUrl": ""
+      },
+      {
+        "id": "300003",
+        "name": "三体 广播剧 全集 有声书 MP3",
+        "infoHash": "cccccccccccccccccccccccccccccccccccccccc",
+        "size": "5368709120",
+        "seeders": 8,
+        "leechers": 0,
+        "discount": "PERCENT_50",
+        "labels": [],
+        "category": { "id": "412", "name": "Audiobook", "mode": "audiobook" },
+        "createdDate": "2026-09-30 10:00:00",
+        "downloadUrl": ""
+      },
+      {
+        "id": "300004",
+        "name": "Oppenheimer 2023 2160p WEB-DL DoVi HDR",
+        "infoHash": "dddddddddddddddddddddddddddddddddddddddd",
+        "size": 68719476736,
+        "seeders": 50,
+        "leechers": 10,
+        "discount": "NORMAL",
+        "labels": ["4k", "hdr10", "DoVi"],
+        "category": { "id": "401", "name": "Movies", "mode": "movie" },
+        "createdDate": "2026-09-30 10:45:00",
+        "downloadUrl": ""
+      }
+    ]
+  }
+}

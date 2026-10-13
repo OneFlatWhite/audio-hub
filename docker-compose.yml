@@ -1,0 +1,22 @@
+services:
+  audio-hub:
+    build: .
+    container_name: audio-hub
+    restart: unless-stopped
+    network_mode: host          # 与 qb1 一致，直接 localhost:8085
+    environment:
+      - TZ=Asia/Shanghai
+      - PUID=0                  # 见 PRD §6.3 权限方案 A
+      - PGID=0
+      - AUDIO_HUB_CONFIG=/config/config.yaml
+      - AUDIO_HUB_SECRETS_KEY=/config/secrets.key
+      - QB_HOST=localhost
+      - QB_PORT=8085
+      - QB_AUTH_MODE=apikey
+      - HUB_WEB_BIND=0.0.0.0   # host 网络下需 0.0.0.0；安全靠路由器端口映射表保证
+      - HUB_WEB_PORT=8090
+      - HUB_KEYFILE=/config/secrets.key
+    volumes:
+      - ./config:/config
+      - /volume1/musiclab:/musiclab       # 必须与 qb1 容器内路径一致
+      - /volume1/audiolab:/audiolab       # 有声书路由目标（v0.2+）

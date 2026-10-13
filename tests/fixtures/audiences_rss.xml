@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Audiences torrents</title>
+    <link>https://audiences.me/</link>
+    <description>Synthetic sample, NexusPHP structure</description>
+
+    <item>
+      <title>[FLAC] 王菲 - 浮躁 (1996) [APE 转 FLAC]</title>
+      <link>https://audiences.me/details.php?id=400001</link>
+      <pubDate>Tue, 30 Sep 2026 12:00:00 +0800</pubDate>
+      <guid isPermaLink="false">66667777888899990000111122223333ffffaaaa</guid>
+      <category>音乐</category>
+      <enclosure url="https://audiences.me/download.php?id=400001&amp;passkey=REDACTED" length="629145600" type="application/x-bittorrent"/>
+    </item>
+
+    <item>
+      <title>[有声书] 明朝那些事儿 全集 演播：王更新</title>
+      <link>https://audiences.me/details.php?id=400002</link>
+      <pubDate>Tue, 30 Sep 2026 12:30:00 +0800</pubDate>
+      <guid isPermaLink="false">77778888999900001111222233334444aaaabbbb</guid>
+      <category>有声书</category>
+      <enclosure url="https://audiences.me/download.php?id=400002&amp;passkey=REDACTED" length="10737418240" type="application/x-bittorrent"/>
+    </item>
+
+  </channel>
+</rss>

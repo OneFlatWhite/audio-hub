@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>登录 · audio-hub</title>
+<link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+</head>
+<body>
+<div class="center">
+  <div class="authbox">
+    <h1>audio-hub</h1>
+    <p class="sub">音频获取中枢 · 请登录</p>
+
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next or '/' }}">
+      <div class="field">
+        <label for="u">用户名</label>
+        <input id="u" name="username" required autocomplete="username" autofocus>
+      </div>
+      <div class="field">
+        <label for="p">密码</label>
+        <input id="p" name="password" type="password" required autocomplete="current-password">
+      </div>
+      <button class="btn-primary" type="submit">登录</button>
+    </form>
+
+    <p class="hint">连续失败 {{ limit or 5 }} 次将锁定 {{ window or 15 }} 分钟。</p>
+  </div>
+</div>
+</body>
+</html>
