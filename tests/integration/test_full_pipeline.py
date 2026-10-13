@@ -77,6 +77,16 @@ def app_config(tmp_path: Path) -> AppConfig:
     )
 
 
+@pytest.fixture(autouse=True)
+def _stub_torrent_fetch(monkeypatch):
+    """派发链路不真拉 .torrent（集成测试无网络依赖）：取不到真实哈希 → 回落 URL 投递。"""
+
+    async def _none(_url):
+        return None, None
+
+    monkeypatch.setattr("audio_hub.pipeline.dispatcher.fetch_and_hash", _none)
+
+
 @pytest.fixture
 async def db(app_config):
     conn = await init_db(app_config.db_path)

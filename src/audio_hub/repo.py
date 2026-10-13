@@ -304,7 +304,7 @@ async def set_task_state(
         "archived_path", "error_message", "download_url", "size_bytes",
         "quality", "site_category",
         "series_id", "part_no", "validation_result", "archive_decision",
-        "downloader_id", "watch_id", "album_key", "quality_tag",
+        "downloader_id", "watch_id", "album_key", "quality_tag", "info_hash",
     }
     sets = ["state = ?", "updated_at = ?"]
     params: list = [state_val, _now()]

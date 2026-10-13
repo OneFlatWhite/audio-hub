@@ -29,6 +29,16 @@ GEN_IO = "https://api.m-team.io/api/torrent/genDlToken"
 DIRECT = "https://api.m-team.cc/api/rss/dl?credential=abc123&sign=xyz"
 
 
+@pytest.fixture(autouse=True)
+def _stub_torrent_fetch(monkeypatch):
+    """派发测试不真拉 .torrent：取不到真实哈希 → 回落 URL 投递（保持既有断言）。"""
+
+    async def _none(_url):
+        return None, None
+
+    monkeypatch.setattr("audio_hub.pipeline.dispatcher.fetch_and_hash", _none)
+
+
 def make_adapter(**kw) -> MTeamAdapter:
     cfg = SiteConfig(
         name="mteam",

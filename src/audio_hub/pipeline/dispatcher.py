@@ -14,6 +14,9 @@ v0.6 多下载器：
 安全约束：
 - 派发前必须二次确认类型（防御性：matcher 已判，但这里是下载前最后关口）
 - 实跑前经适配器 resolve_download_url 换取直链（馒头 genDlToken），dry-run 不发请求
+- 实跑再下载 .torrent 算出**真实 info_hash** 并以字节投递（v0.7.7）：
+  适配器合成哈希只为内部去重；完成监控 / 启动对账按 qb 里的真实哈希关联任务，
+  不写回真实哈希，任务会被误判「qb 中不存在」
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from ..adapters.base import AdapterError, BaseAdapter, MediaCategory, Normalized
 from ..downloaders.registry import DownloaderHandle, DownloaderRegistry
 from ..models import Task, TaskState, WatchEntry
 from .matcher import MatchResult
+from .torrent_file import fetch_and_hash
 
 if TYPE_CHECKING:
     from ..config import DownloaderConfig
@@ -251,7 +255,7 @@ class Dispatcher:
                 self._record_dry_run(t, target, extra=f"score={m.score} | conf={m.confidence}")
                 ok, _err = True, ""
             else:
-                ok, _err = await self._dispatch_real(t, target)
+                ok, _err, _hash = await self._dispatch_real(t, target)
             if ok:
                 result.dispatched.append(m)
                 result.downloader_ids[t.info_hash] = target.downloader_id
@@ -308,7 +312,11 @@ class Dispatcher:
                 self._record_dry_run(torrent, target)
                 ok, err = True, ""
             else:
-                ok, err = await self._dispatch_real(torrent, target)
+                ok, err, real_hash = await self._dispatch_real(torrent, target)
+                # _dispatch_real 已把真实哈希写回 torrent；同步到任务记录，
+                # 完成监控 / 启动对账按它与 qb 种子关联
+                if ok and real_hash and real_hash != task.info_hash:
+                    task.info_hash = real_hash
 
             if not ok:
                 await self._fail_task(task, err, result)
@@ -322,6 +330,7 @@ class Dispatcher:
                     downloader_id=target.downloader_id,
                     qb_save_path=target.save_path,
                     qb_category=target.category,
+                    info_hash=task.info_hash,
                 )
                 task.downloader_id = target.downloader_id
                 task.state = TaskState.DISPATCHED
@@ -357,49 +366,62 @@ class Dispatcher:
 
     async def _dispatch_real(
         self, t: NormalizedTorrent, target: DispatchTarget,
-    ) -> tuple[bool, str]:
-        """真实派发到目标 qb：先换取直链，再投递。返回 (成功?, 错误原因)。"""
+    ) -> tuple[bool, str, str | None]:
+        """真实派发到目标 qb：换直链 → 拉 .torrent 算真实哈希 → 投递。
+
+        返回 (成功?, 错误原因, 真实 info_hash)。真实哈希取不到（magnet 无字节 /
+        拉取失败）时为 None，调用方保留原哈希；取到时已写回 t.info_hash。
+        """
         from qbittorrentapi import Conflict409Error, LoginFailed
         from qbittorrentapi.exceptions import APIConnectionError
 
         client = target.handle.client
         if client is None:
             logger.error(f"实跑模式但下载器 {target.downloader_id} 客户端不可用")
-            return False, ERR_DOWNLOADER_UNAVAILABLE
+            return False, ERR_DOWNLOADER_UNAVAILABLE, None
 
         # ── 直链换取（馒头 genDlToken 等）：失败则标 failed，不碰 qb ──
         try:
             url = await self.resolve_download_url(t)
         except AdapterError as e:
             logger.error(f"换取下载直链失败 | {t.site} | {t.title[:60]!r} | {e}")
-            return False, f"resolve_download_url_failed: {e}"
+            return False, f"resolve_download_url_failed: {e}", None
         except Exception as e:  # noqa: BLE001 - 单条解析异常不影响其余派发
             logger.exception(f"换取下载直链未预期异常 | {t.site} | {e}")
-            return False, f"resolve_download_url_failed: {type(e).__name__}: {e}"
+            return False, f"resolve_download_url_failed: {type(e).__name__}: {e}", None
         if not url:
             logger.error(f"换取下载直链返回空值 | {t.site} | {t.title[:60]!r}")
-            return False, "resolve_download_url_failed: 解析结果为空"
+            return False, "resolve_download_url_failed: 解析结果为空", None
+
+        # ── 真实 info_hash：拉 .torrent 算 sha1；qb 入库后只认这个哈希 ──
+        real_hash, blob = await fetch_and_hash(url)
+        if real_hash and real_hash != t.info_hash:
+            logger.info(f"真实 info_hash {real_hash[:12]}… 替换合成哈希 {t.info_hash[:12]}…")
+            t.info_hash = real_hash
 
         try:
-            client.torrents_add(
-                urls=url,
-                save_path=target.save_path,
-                category=target.category,
-                tags=target.tags,
-                is_paused=False,
-            )
+            add_kwargs = {
+                "save_path": target.save_path,
+                "category": target.category,
+                "tags": target.tags,
+                "is_paused": False,
+            }
+            if blob is not None:
+                client.torrents_add(torrent_files=blob, **add_kwargs)
+            else:
+                client.torrents_add(urls=url, **add_kwargs)
             logger.info(f"已派发到 {target.downloader_id} | {t.site} | {t.title[:60]!r}")
-            return True, ""
+            return True, "", real_hash
         except Conflict409Error:
             # 种子已存在（相同 info_hash）→ 视为成功，保证幂等
             logger.info(f"种子已存在（幂等跳过）| {t.site} | {t.title[:60]!r}")
-            return True, ""
+            return True, "", real_hash
         except LoginFailed as e:
             logger.critical(f"下载器 {target.downloader_id} 认证失败，检查凭据: {e}")
-            return False, f"qb 认证失败（凭据无效？）: {e}"
+            return False, f"qb 认证失败（凭据无效？）: {e}", None
         except APIConnectionError as e:
             logger.error(f"下载器 {target.downloader_id} 连接失败: {e}")
-            return False, f"qb 连接失败: {e}"
+            return False, f"qb 连接失败: {e}", None
         except Exception as e:  # noqa: BLE001
             logger.exception(f"派发未预期异常: {e}")
-            return False, f"{type(e).__name__}: {e}"
+            return False, f"{type(e).__name__}: {e}", None
