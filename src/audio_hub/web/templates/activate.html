@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>激活 · audio-hub</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', path='/logo.svg') }}">
+<link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v={{ version }}">
+</head>
+<body>
+<div class="center">
+  <div class="authbox">
+    <img class="auth-logo" src="{{ url_for('static', path='/logo.svg') }}" alt="audio-hub">
+    <h1>激活 audio-hub</h1>
+
+    {% if flash_ok %}<div class="flash ok">{{ flash_ok }}{% if detail %} · {{ detail }}{% endif %}</div>{% endif %}
+    {% if flash_err %}<div class="flash err">{{ flash_err }}</div>{% endif %}
+
+    {% if state.valid %}
+    <p class="flash ok">已激活 · GitHub 用户：{{ state.payload.get('user', '—') }}
+      {% if state.payload.get('exp') %} · 有效期至 {{ state.payload.get('exp') }}{% endif %}</p>
+    <p class="sub">感谢支持，请<a href="/login">前往登录</a>。</p>
+    <details class="adv">
+      <summary>更换 / 清除授权码</summary>
+      <form method="post" action="/activate" style="margin-top:10px">
+        <div class="field">
+          <label for="lk">新的授权码（留空提交 = 清除）</label>
+          <textarea name="license_key" id="lk" rows="3" placeholder="AH1.xxxx.xxxx"></textarea>
+        </div>
+        <button class="btn-primary" type="submit">保存</button>
+      </form>
+    </details>
+    {% else %}
+
+    <p class="sub">本项目源码全量开放。运行需要一份<strong>免费授权码</strong>，获取只要三步：</p>
+    <div class="steps">
+      <p><b>①</b> 给 <a href="{{ repo_url }}" target="_blank" rel="noopener">{{ repo_url.split('/')[-2] }}/{{ repo_url.split('/')[-1] }}</a> 点一个 Star；</p>
+      <p><b>②</b> 打开发放页，用 GitHub 账号登录（自动校验 Star，秒发）；</p>
+      <p><b>③</b> 把拿到的授权码（AH1. 开头）粘贴到下面，点激活。</p>
+    </div>
+
+    <form method="post" action="/activate">
+      <div class="field">
+        <label for="lk">授权码</label>
+        <textarea name="license_key" id="lk" rows="3" placeholder="AH1.xxxx.xxxx" required></textarea>
+      </div>
+      <button class="btn-primary" type="submit">激活</button>
+    </form>
+
+    {% if state.required %}
+    <p class="hint" style="margin-top:14px">当前部署启用了强制授权（AUDIO_HUB_LICENSE_REQUIRED=1），
+      激活前无法使用其它页面。</p>
+    {% else %}
+    <p class="hint" style="margin-top:14px">当前部署未启用强制授权（可正常使用）；
+      设置 AUDIO_HUB_LICENSE_REQUIRED=1 可开启强制。</p>
+    {% endif %}
+    <p class="hint"><a href="/login">跳过，先去登录 →</a></p>
+    {% endif %}
+  </div>
+</div>
+</body>
+</html>

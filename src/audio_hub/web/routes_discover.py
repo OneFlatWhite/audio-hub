@@ -62,7 +62,7 @@ _FLASH_OK = {
     "added_dispatched": "订阅已添加，命中内容已立即派发下载器（见命中记录）",
     "added_no_sites": "订阅已添加，但当前没有可用站点，首次搜索未执行 —— 请到「站点中心」启用并通过认证",
     "added_deferred": "订阅已添加，本轮站点请求预算已用完，稍后自动搜索",
-    "refreshed": "已刷新；5 分钟内刚拉过的站点沿用了旧数据（卡片上方标注）",
+    "refresh_bg": "刷新已转入后台执行，稍候自动生效（不用守着页面）",
 }
 _FLASH_ERR = {
     "empty": "订阅目标为空，无法创建",
@@ -267,22 +267,22 @@ async def discover_refresh(
     user: dict = Depends(verify_csrf),
     config=Depends(get_config),
 ):
-    """手动刷新：跳过墙级 TTL 逐站重拉，但遵守每站最短间隔（discover.refresh_min_interval_minutes）。"""
+    """手动刷新：转入后台执行，立即返回不阻塞页面。
+
+    后台重拉遵守每站最短间隔（discover.refresh_min_interval_minutes），
+    完成后下次打开页面即是新数据。设置页可另配定时后台自动刷新
+    （discover.auto_refresh_minutes），开启后本按钮通常用不上。
+    """
     form = await request.form()
     kind = (form.get("kind") or "music").strip()
     if kind not in ("music", "audiobook"):
         kind = "music"
-    wall = await collect_wall(
-        _adapters_of(request), kind, cache=_wall_cache(request),
-        ttl=config.discover.cache_ttl_minutes * 60,
-        force_refresh=True,
-        refresh_min_interval=config.discover.refresh_min_interval_minutes * 60,
+    _kick_background_refresh(
+        request, _adapters_of(request), kind, _wall_cache(request),
+        config.discover.cache_ttl_minutes * 60,
     )
-    logger.info(
-        f"发现墙手动刷新（by {user['username']}）: kind={kind} "
-        f"cards={len(wall.cards)} errors={list(wall.site_errors)} stale={wall.stale_sites}"
-    )
-    return _redirect(kind, ok="refreshed")
+    logger.info(f"发现墙刷新已转入后台（by {user['username']}）: kind={kind}")
+    return _redirect(kind, ok="refresh_bg")
 
 
 @router.post("/discover/subscribe")

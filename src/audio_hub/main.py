@@ -21,6 +21,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
+from fastapi.responses import RedirectResponse
 from loguru import logger
 
 from . import __version__, registry_store, repo, settings_store
@@ -41,6 +42,7 @@ from .web import (
     routes_downloaders,
     routes_events,
     routes_library,
+    routes_license,
     routes_logs,
     routes_pages,
     routes_quarantine,
@@ -172,6 +174,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="audio-hub", version=__version__, lifespan=lifespan)
 
+# ── 授权门禁（可选）：AUDIO_HUB_LICENSE_REQUIRED=1 时，无有效授权码的部署
+#    只放行激活 / 登录 / 初始化 / 静态资源 / 健康检查，其余页面一律跳 /activate。
+_GATE_ALLOW = {"/activate", "/login", "/setup", "/logout", "/health"}
+
+
+@app.middleware("http")
+async def license_gate(request: Request, call_next):
+    from . import license as license_mod
+
+    if license_mod.license_required():
+        path = request.url.path
+        allowed = path in _GATE_ALLOW or path.startswith("/static")
+        if not allowed:
+            state = await license_mod.check_state(request.app.state.db)
+            if not state["valid"]:
+                return RedirectResponse("/activate", status_code=303)
+    return await call_next(request)
+
 
 def rebuild_push_sinks(app_or_notifier, notify_cfg):
     """按当前 notify 配置重建推送 sink（设置页保存通知组后调用）。
@@ -194,6 +214,7 @@ app.include_router(routes_quarantine.router)
 app.include_router(routes_series.router)
 app.include_router(routes_seeding.router)
 app.include_router(routes_events.router)
+app.include_router(routes_license.router)
 app.include_router(routes_logs.router)
 app.include_router(routes_sites.router)
 app.include_router(routes_subscriptions.router)

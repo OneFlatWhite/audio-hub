@@ -243,6 +243,33 @@ class PipelineRunner:
             logger.exception(f"完成轮询异常: {e}")
             return {"error": str(e)}
 
+    async def run_discover_auto_refresh_once(self) -> dict:
+        """discover_auto_refresh job：后台静默重拉发现墙缓存（music + audiobook）。
+
+        复用 routes 层的墙缓存（app.state.discover_cache），页面下次打开即是
+        新数据；每站最短间隔照常生效（刚拉过的站沿用），单 kind 失败不影响另一个。
+        """
+        from .discover.aggregator import WallCache, collect_wall
+
+        app = self.app
+        cache: WallCache = getattr(app.state, "discover_cache", None) or WallCache()
+        app.state.discover_cache = cache
+        cfg = self.config.discover
+        summary: dict = {}
+        for kind in ("music", "audiobook"):
+            try:
+                wall = await collect_wall(
+                    dict(self.adapters), kind, cache=cache,
+                    ttl=cfg.cache_ttl_minutes * 60, force_refresh=True,
+                    refresh_min_interval=cfg.refresh_min_interval_minutes * 60,
+                )
+                summary[kind] = {"cards": len(wall.cards), "errors": len(wall.site_errors)}
+            except Exception as e:  # noqa: BLE001 - 单 kind 失败不影响另一个
+                logger.warning(f"发现墙后台刷新失败（kind={kind}）: {e}")
+                summary[kind] = {"error": str(e)}
+        logger.info(f"发现墙后台刷新完成: {summary}")
+        return summary
+
     async def run_seeding_once(self) -> dict:
         """seeding_check job（与 /seeding 页手动触发共用）。
 
@@ -407,4 +434,15 @@ def build_scheduler(runner: PipelineRunner, config) -> AsyncIOScheduler:
             "seeding_check", "做种 H&R 轮询",
         )
         logger.info(f"做种轮询已配置：每 {seed_interval} 分钟检查一次 H&R")
+
+    # ── discover_auto_refresh：后台静默重拉发现墙缓存，0 = 关闭 ──
+    # NAS 场景下页面打开应当永远即时；新鲜度由这个后台间隔保证。
+    discover = getattr(config, "discover", None)
+    auto_min = int(getattr(discover, "auto_refresh_minutes", 0) or 0)
+    if auto_min > 0 and hasattr(runner, "run_discover_auto_refresh_once"):
+        _add(
+            scheduler, runner.run_discover_auto_refresh_once,
+            IntervalTrigger(minutes=auto_min), "discover_auto_refresh", "发现墙后台刷新",
+        )
+        logger.info(f"发现墙后台刷新已配置：每 {auto_min} 分钟")
     return scheduler

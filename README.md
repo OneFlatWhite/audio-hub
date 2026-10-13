@@ -1,7 +1,7 @@
 # audio-hub · 音乐 + 有声书统一获取中枢
 
-> 当前版本 **v0.7.6**（2026-10-13）· 1079 项测试全绿 · ruff 0 error
-> 面向家庭 NAS 的单用户工具：从 PT 站订阅音乐与有声书，经 qBittorrent 下载，
+> 当前版本 **v0.13.0**（2026-10-14）· 1151 项测试全绿 · ruff 0 error
+> 面向家庭 NAS 的单用户工具：从 PT 站订阅音乐与有声书，经 qBittorrent / Transmission 下载，
 > 校验、归档到媒体库，触发刮削，并全程追踪做种义务（H&R）。
 
 ---
@@ -376,6 +376,19 @@ python -m audio_hub.cli verify-adapters
 - host 网络下安全边界在路由器端口映射表：确认 8090 / 8085 / 8002 / 4533 / 13378 均未映射到公网，外网访问走 Tailscale。
 - qb 容器不得映射 CloudFS / CD2 等 FUSE 挂载（不支持 BT 随机写，且网盘做种属 PT 站禁止行为）。
 - 归档用 `cp -a` 不用 `mv`：原种只读做种，保护 PT 哈希。
+
+---
+
+## 十二、部署与授权（v0.13）
+
+- **NAS（群晖）部署**：整 compose 抄走即用，见 [docs/deploy-nas.md](docs/deploy-nas.md)；
+- **Docker 镜像发布**：推 `v*` 标签自动构建多架构镜像到
+  `ghcr.io/oneflatwhite/audio-hub`（工作流见 [.github/workflows/docker.yml](.github/workflows/docker.yml)）；
+- **授权码（star 换码）**：源码全量开放、运行需免费授权码——给仓库点 Star 后
+  经发放页自动签出，`/activate` 页粘贴激活；机制与自建发放服务见
+  [docs/LICENSE-ACTIVATION.md](docs/LICENSE-ACTIVATION.md)，许可条款见 [LICENSE](LICENSE)
+  （可运行、可学习、可提 Issue；不得修改后再分发或移除授权机制）；
+- **Wiki**：部署 FAQ、站点适配清单与版本说明整理在仓库 Wiki，欢迎通过 Issue 补充。
 
 ---
 

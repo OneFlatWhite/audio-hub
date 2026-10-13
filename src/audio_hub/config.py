@@ -174,6 +174,9 @@ class DiscoverConfig(BaseModel):
     cache_ttl_minutes: int = 15
     #: 手动刷新的每站最短间隔（分钟）：同一站期内被刷新过则沿用旧数据并标注
     refresh_min_interval_minutes: int = 5
+    #: 后台自动刷新间隔（分钟）：调度器在后台静默重拉发现墙缓存，0 = 关闭。
+    #: 开启后页面永远立即打开（数据来自缓存），新鲜度由这个间隔保证。
+    auto_refresh_minutes: int = 0
 
 
 #: 通知事件种类的全集，也是设置页 notify.kinds 的合法值集合。

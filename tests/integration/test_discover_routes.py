@@ -361,11 +361,12 @@ class TestSubscribedGrey:
 
 class TestRefresh:
     def test_refresh_redirects(self, client, fake_wall):
+        """v0.13：手动刷新转后台——立即 303 返回，flash 指示后台执行。"""
         _setup_admin(client)
         client.get("/discover")          # 先拉一次入缓存
         resp = _post(client, "/discover/refresh", kind="music")
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/discover?kind=music&ok=refreshed"
+        assert resp.headers["location"] == "/discover?kind=music&ok=refresh_bg"
 
     def test_csrf_required(self, client, fake_wall):
         _setup_admin(client)
