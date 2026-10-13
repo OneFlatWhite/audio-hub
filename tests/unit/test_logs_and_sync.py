@@ -8,12 +8,15 @@ lifespan 会在 tmp/logs/ 建文件 sink，测试往里写标记行再断言渲�
 from __future__ import annotations
 
 import re
+import uuid
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from audio_hub import repo
 from audio_hub.main import app
+from audio_hub.models import Task, TaskState
 from audio_hub.web import routes_logs
 
 # ── 纯函数单测 ──────────────────────────────────────────────
@@ -186,3 +189,35 @@ def test_path_setting_is_hot_and_creates_dir(web_env, client):
     assert app.state.config.paths.library_music == str(new_dir)
     assert new_dir.is_dir(), "保存后应立即建目录"
     assert asyncio.run(settings_store.is_restart_pending(app.state.db)) is False
+
+
+# ── 命中记录分页 ────────────────────────────────────────────
+
+def _seed_task(title: str, state=TaskState.DISPATCHED) -> str:
+    import asyncio
+    tid = str(uuid.uuid4())
+    asyncio.run(repo.create_task(app.state.db, Task(
+        id=tid, info_hash=uuid.uuid4().hex, site="hhanclub", title=title,
+        state=state, confidence="high",
+    )))
+    return tid
+
+
+def test_records_pagination(web_env, client):
+    """page/page_size 分页：每页行数正确、页脚有总数与翻页链接。"""
+    _setup_admin(client)
+    for i in range(3):
+        _seed_task(f"分页专辑 {i}")
+    p1 = client.get("/records?page=1&page_size=2").text
+    p2 = client.get("/records?page=2&page_size=2").text
+    p3 = client.get("/records?page=3&page_size=2").text
+    # 标题在 td 文本与 title 属性各出现一次，">" 前缀只计单元格文本
+    assert p1.count(">分页专辑") == 2
+    assert p2.count(">分页专辑") == 1
+    assert p3.count(">分页专辑") == 0
+    assert "共 3 条" in p1 and "第 1 / 2 页" in p1
+    assert "上一页" not in p1 and "下一页" in p1
+    assert "下一页" not in p2 and "上一页" in p2
+    # 状态筛选与分页共存：链接保留 state 参数
+    p_filtered = client.get("/records?state=dispatched&page=1&page_size=2").text
+    assert "state=dispatched&amp;page=2" in p_filtered

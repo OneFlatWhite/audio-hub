@@ -231,19 +231,28 @@ async def _subscription_overview(db, config) -> dict:
 async def records_page(
     request: Request,
     state: str | None = Query(default=None),
-    limit: int = Query(default=200, le=1000),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=100, le=1000),
+    limit: int | None = Query(default=None, le=1000),  # 旧参数别名：等价 page_size 且回到第 1 页
     user: dict = Depends(require_user),
     db=Depends(get_db),
     config=Depends(get_config),
 ):
     templates = request.app.state.templates
-    rows = await _query_tasks(db, state=state, limit=limit)
+    if limit is not None:
+        page, page_size = 1, limit
+    total = await _count_tasks(db, state=state)
+    offset = (page - 1) * page_size
+    rows = await _query_tasks(db, state=state, limit=page_size, offset=offset)
     by_state = await repo.count_tasks_by_state(db)
     ctx = await _common(request, db, config, user)
     ctx.update({
         "active": "records",
         "tasks": rows, "by_state": by_state, "current_state": state,
         "flash_ok": _flash(request, "ok"), "flash_err": _flash(request, "err"),
+        "page": page, "page_size": page_size, "total": total,
+        "total_pages": max((total + page_size - 1) // page_size, 1),
+        "has_next": offset + len(rows) < total,
     })
     return templates.TemplateResponse(request, "records.html", ctx)
 
@@ -431,7 +440,7 @@ async def _site_status(db, config) -> list[dict]:
 
 
 async def _query_tasks(db, *, state: str | None, limit: int,
-                      review_only: bool = False) -> list[dict]:
+                       offset: int = 0, review_only: bool = False) -> list[dict]:
     sql = "SELECT * FROM tasks"
     conds, params = [], []
     if state:
@@ -444,10 +453,22 @@ async def _query_tasks(db, *, state: str | None, limit: int,
         )
     if conds:
         sql += " WHERE " + " AND ".join(conds)
-    sql += " ORDER BY updated_at DESC LIMIT ?"
-    params.append(limit)
+    sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
     async with db.execute(sql, params) as cur:
         return [dict(r) for r in await cur.fetchall()]
+
+
+async def _count_tasks(db, *, state: str | None) -> int:
+    """命中记录分页用的总数（与 _query_tasks 同过滤条件）。"""
+    sql = "SELECT COUNT(*) FROM tasks"
+    params: list = []
+    if state:
+        sql += " WHERE state = ?"
+        params.append(state)
+    async with db.execute(sql, params) as cur:
+        row = await cur.fetchone()
+    return int(row[0]) if row else 0
 
 
 async def _get_task(db, task_id: str) -> dict | None:
