@@ -113,7 +113,8 @@ sites:
 # 匹配 href/src 里指向 /static/ 的 URL
 # Starlette 的 url_for 渲染为绝对 URL（http://<host>/static/xxx），
 # 故匹配任意以 /static/ 结尾路径段的引用，不假设相对或绝对形式。
-STATIC_RE = re.compile(r'(?:href|src)="([^"]*/static/[^"?#]+)"')
+# v0.7.5 起引用带 ?v=<版本号> 缓存后缀，捕获组仍只取路径部分。
+STATIC_RE = re.compile(r'(?:href|src)="([^"]*/static/[^"?#]+)(?:[?#][^"]*)?"')
 
 
 def collect_static_refs(client, urls: list[str]) -> dict[str, list[str]]:
@@ -138,7 +139,7 @@ PAGES = [
 ]
 
 # 本轮发布号。与 __version__ 双向校验：一边忘改另一边就会报出来。
-EXPECTED_VERSION = "0.7.4"
+EXPECTED_VERSION = "0.7.5"
 
 
 def main() -> int:

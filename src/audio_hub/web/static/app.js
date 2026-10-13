@@ -8,8 +8,14 @@
   const CSRF = CSRF_META ? CSRF_META.content : "";
 
   /* ── 所有 POST 表单自动带上 CSRF ─────────────────────────── */
+  function wantsCsrf(form) {
+    /* GET 表单的字段会序列化进 URL——注入 token 会把它泄进浏览器历史和服务端日志 */
+    const m = (form.getAttribute("method") || "get").toLowerCase();
+    return m !== "get";
+  }
+
   function ensureCsrfField(form) {
-    if (!CSRF) return;
+    if (!CSRF || !wantsCsrf(form)) return;
     if (form.querySelector('input[name="csrf_token"]')) return;
     const el = document.createElement("input");
     el.type = "hidden";

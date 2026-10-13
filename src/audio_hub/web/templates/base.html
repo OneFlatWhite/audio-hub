@@ -6,7 +6,7 @@
 {# CSRF token 下发给前端（HttpOnly cookie 里读不到，故走 meta）#}
 <meta name="csrf-token" content="{{ csrf or '' }}">
 <title>{% block title %}audio-hub{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v={{ version }}">
 </head>
 <body>
 <div class="wrap">
@@ -50,6 +50,6 @@
     {% block content %}{% endblock %}
   </main>
 </div>
-<script src="{{ url_for('static', path='/app.js') }}"></script>
+<script src="{{ url_for('static', path='/app.js') }}?v={{ version }}"></script>
 </body>
 </html>

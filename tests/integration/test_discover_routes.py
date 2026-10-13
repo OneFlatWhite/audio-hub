@@ -193,6 +193,14 @@ class TestRender:
         assert resp.status_code in (302, 303)
         assert "/login" in resp.headers["location"]
 
+    def test_static_assets_versioned(self, client, fake_wall):
+        """静态资源带 ?v= 版本号：升级后浏览器必然拉新文件，不吃旧缓存。"""
+        from audio_hub import __version__
+        _setup_admin(client)
+        html = client.get("/discover").text
+        assert f"/static/style.css?v={__version__}" in html
+        assert f"/static/app.js?v={__version__}" in html
+
 
 # ── 一键订阅 ────────────────────────────────────────────────
 
