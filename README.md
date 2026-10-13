@@ -1,6 +1,6 @@
 # audio-hub · 音乐 + 有声书统一获取中枢
 
-> 当前版本 **v0.6.0**（2026-10-13）· 1004 项测试全绿 · ruff 0 error
+> 当前版本 **v0.7.0**（2026-10-13）· 1044 项测试全绿 · ruff 0 error
 > 面向家庭 NAS 的单用户工具：从 PT 站订阅音乐与有声书，经 qBittorrent 下载，
 > 校验、归档到媒体库，触发刮削，并全程追踪做种义务（H&R）。
 
@@ -63,6 +63,7 @@ audio-hub 解决的是「订阅 → 搜索 → 筛选 → 下载 → 归档 → 
 |---|---|
 | `adapters/` | 站点适配：`nexusphp.py`（憨憨/天空/观众 RSS + 搜索）、`mteam.py`（馒头 API，含 `genDlToken` 二次请求） |
 | `subscription/` | 订阅引擎 `engine`：RSS 捕获 + 到点主动搜索、专辑级择优 / 洗版、命中流水（v0.6 起取代旧 search_round） |
+| `discover/` | 发现墙（v0.7）：`aggregator`（各站 RSS 聚合 + 跨站去重 + 进程内 TTL 缓存）、`covers`（iTunes 封面 + 磁盘 / 负缓存） |
 | `sites/` | 站点认证巡检 `auth_check`（Cookie / API Key 定期重验）、状态判定 |
 | `downloaders/` | 多 qb 实例注册表 `registry`（懒建客户端、默认回落）、只读连通性探测 `probe`（TCP → HTTP → 登录） |
 | `pipeline/` | `matcher`（类型判别 + 音质打分）、`title_parser`、`dispatcher`（派发 qb、`resolve_download_url`） |
@@ -94,6 +95,7 @@ audio-hub 解决的是「订阅 → 搜索 → 筛选 → 下载 → 归档 → 
 | 站点中心 `/sites` | ✅ | 三步向导（凭据 → 认证 → 分类发现）、六态、认证巡检；`auth_status != valid` 服务端拒绝启用 |
 | 下载器中心 `/downloaders` | ✅ | 多 qb 实例、只读测试连接（版本 / 剩余空间回显）、默认切换、删除三重保护，改动热重建不重启 |
 | 订阅引擎（RSS 捕获 + 到点搜索） | ✅ | 歌手 / 专辑 / 有声书三类订阅，专辑级择优与洗版，一次性订阅拿到即完结，派发失败回滚重试 |
+| 发现墙 `/discover` | ✅ | 各站 RSS 最新上架聚合成卡片墙（跨站同专辑合并），一键订阅歌手 / 专辑 / 作者 / 书，iTunes 封面代理 + 磁盘缓存，TTL 缓存 + 每站刷新下限 |
 | 待审队列采纳 / 拒绝 | ✅ | 采纳后真实派发（`download_url` 已持久化） |
 | 完成监听 + `cp -a` 到 scratch | ✅ | 原种保留只读做种，有测试断言源文件仍存在 |
 | 入库校验 + 隔离区 | ✅ | auCDtect 可选（未配置则跳过频谱检测） |
@@ -104,7 +106,7 @@ audio-hub 解决的是「订阅 → 搜索 → 筛选 → 下载 → 归档 → 
 | 做种生命周期 / H&R | ✅ | 时长或分享率任一满足即达标；**绝不删文件** |
 | 通知推送（企业微信 / Telegram / webhook） | ✅ | 设置页热重建、测试发送 |
 | 事件日志页 | ✅ | `/events`，可清空 |
-| Web UI 14 页 + Argon2id 认证 + CSRF + 限流 | ✅ | 单管理员，首次启动走 `/setup` |
+| Web UI 15 页 + Argon2id 认证 + CSRF + 限流 | ✅ | 单管理员，首次启动走 `/setup` |
 | 设置页可编辑（hot / restart 分级、覆盖层、凭据加密） | ✅ | 见「配置说明」 |
 | CLI（init-db / add / list / remove / status / run-once / verify-adapters） | ✅ | `python -m audio_hub.cli` |
 | Dockerfile / docker-compose | ✅ 构建修复 · ⚠️ **NAS 未部署验证** | host 网络，`/volume1/musiclab`、`/volume1/audiolab` |
@@ -171,6 +173,7 @@ docker compose up -d --build
 | | `log_level` | 日志级别 | restart |
 | | `poll_interval_minutes` | 搜索轮询间隔，下限 5 分钟（低于自动提升并告警） | hot |
 | `search` | `circuit_fail_threshold` / `circuit_open_minutes` / `rss_interval_minutes` / `subscription_scan_minutes` / `auth_check_hours` | 站点熔断：连续失败 N 次（默认 3）后该站跳过 M 分钟（默认 30）；三个调度间隔：RSS 捕获（默认 10 分钟）/ 订阅主动搜索（默认 15 分钟）/ 站点认证巡检（默认 24 小时） | hot |
+| `discover` | `cover_provider` / `cache_ttl_minutes` / `refresh_min_interval_minutes` | 发现墙：封面来源（`itunes` / `none`）、墙缓存 TTL（默认 15 分钟）、手动刷新的每站最短间隔（默认 5 分钟）。封面缓存目录固定为 db_path 同级 `covers/` | restart（未进设置页覆盖层） |
 | `web` | `port` / `cookie_secure` / `session_days` / `auth_request_limit` / `auth_window_minutes` | 端口（启动入口 `python -m audio_hub` 读取）、Secure cookie（纯内网 HTTP 必须 false）、会话天数、登录限流 | `cookie_secure` hot，其余启动读取 |
 | `paths` | `scratch_inbox` / `library_music` / `library_audiobook` / `recycle_dir` / `quarantine_dir` / `recycle_retention_days` | 归档链路全部目录（**容器内视角**） | 全部 restart |
 | `validation` | `enabled` / `allowed_exts` / `min_audio_files` / `fake_lossless_check` / `aucdtect_path` / `on_fail` | 入库校验；`on_fail` = `quarantine`（隔离）或 `pass_through`（照常归档只记警告） | 全部 hot |
@@ -201,12 +204,13 @@ docker compose up -d --build
 
 ---
 
-## 六、页面导览（14 页）
+## 六、页面导览（15 页）
 
 | 路由 | 一句话 |
 |---|---|
 | `/setup` · `/login` | 首次启动创建唯一管理员（已有用户后拒绝访问）；Argon2id 口令登录，单 IP 限流（默认 15 分钟 5 次） |
 | `/dashboard` | 总览：订阅概览 / 待审 / 已派发 / 已完成 / 失败 / 磁盘剩余，隔离待处理、H&R 未达标、活跃连载、下载器状态卡，站点健康表与最近事件 |
+| `/discover` | 发现墙：各站 RSS 最新上架的卡片墙（音乐 / 有声书 tab + 站点筛选），iTunes 封面 + 占位卡降级，一键订阅（追踪歌手/作者 · 仅此专辑/本书，已订阅置灰） |
 | `/watchlist` | 订阅清单：添加 / 启停 / 删除订阅项（歌手 / 专辑 / 有声书三类 + 别名 + 过滤条件） |
 | `/watchlist/{id}` | 订阅详情：命中流水（按决策筛选）、已拥有专辑、关联连载、过滤条件编辑 |
 | `/records` | 任务记录：按状态筛选全部任务（discovered → dispatched → completed → archived / failed） |
@@ -220,7 +224,7 @@ docker compose up -d --build
 | `/seeding` | 做种 / H&R：每个任务的做种时长、分享率、达标状态；可暂停 / 恢复 / 手动标记达标 / 立即检查 |
 | `/events` | 事件日志：DbNotifier 落库的全部事件（派发 / 完成 / 归档 / 隔离 / H&R 达标 / 连载完结 / 订阅命中 / 站点与下载器健康 / 失败），可清空 |
 
-另有无认证的 `/health`（返回 `{status, version, dry_run, adapters}`）与需 CSRF 的 `/api/status`、`/api/run-once`、`/run-once`。
+另有无认证的 `/health`（返回 `{status, version, dry_run, adapters}`）与 `/covers/{key}`（封面代理，只服务已缓存的 sha1 键，防 SSRF），需 CSRF 的 `/api/status`、`/api/run-once`、`/run-once`。
 侧边栏版本号与 `/health` 同读 `audio_hub.__version__`，不会再漂移。
 
 **权限**：所有页面与写操作需登录 + CSRF；不可逆或全局性的动作——修改设置、站点 / 下载器配置变更（含测试连接）、隔离区**丢弃**、回收区**清除**、**删除连载**、**清理事件**——仅管理员可操作（普通用户返回 403）；放行 / 恢复 / 暂停 / 恢复做种 / 编辑连载等可逆动作任何已登录用户都可。

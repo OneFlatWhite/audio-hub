@@ -135,6 +135,27 @@ class TestSearchParsing:
         taylor = next(r for r in results if "Taylor" in r.title)
         assert "taylor swift" in taylor.title_normalized
 
+    def test_cover_url_multi_field_fallback(self):
+        """v0.7：image/cover/poster 多字段兜底（字符串或数组），取不到为空串，绝不报错。"""
+        adapter = make_adapter()
+        base = {"name": "周杰伦 - 叶惠美 [FLAC]", "size": 100, "id": 1}
+        for raw, expected in [
+            ({**base, "image": "https://img.example/a.jpg"}, "https://img.example/a.jpg"),
+            ({**base, "image": ["https://img.example/b.jpg"]}, "https://img.example/b.jpg"),
+            ({**base, "cover": "https://img.example/c.jpg"}, "https://img.example/c.jpg"),
+            ({**base, "poster": "https://img.example/d.jpg"}, "https://img.example/d.jpg"),
+            ({**base, "image": ["", "https://img.example/e.jpg"]}, "https://img.example/e.jpg"),
+            ({**base, "image": 123, "cover": None}, ""),
+            (base, ""),
+        ]:
+            t = adapter._parse_torrent(raw)
+            assert t is not None and t.cover_url == expected, raw
+
+    def test_cover_url_empty_by_default(self):
+        adapter = make_adapter()
+        results = adapter._parse_search_response(load_search_fixture())
+        assert all(r.cover_url == "" for r in results)
+
     def test_empty_response_returns_empty(self):
         adapter = make_adapter()
         assert adapter._parse_search_response({}) == []

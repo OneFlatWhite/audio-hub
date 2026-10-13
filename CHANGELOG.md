@@ -2,6 +2,25 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.0] - 2026-10-13
+
+新增「发现墙」：把各站 RSS 最新上架聚合成卡片墙，看到内容点一下就订阅，
+解决 /watchlist 空输入框「不知道订阅谁」的问题。**测试 1004 → 1044**，ruff 0 error。
+
+### 新增
+
+- **发现页** `/discover`（`web/routes_discover.py` + `discover/aggregator.py`）
+  - 数据源是各启用站适配器的 `fetch_rss()`（RSS 内嵌 passkey 已认证），展示「你的站点上真实存在的最新上架」；音乐 / 有声书两个 tab，站点筛选 chips，按发布时间倒序
+  - `title_parser.parse` + `album_key_for` 分组去重：同专辑多站 / 多版本合一卡，组内代表按 音质档 > 优惠 > 做种数 选，卡上标注全部来源站
+  - **进程内 TTL 缓存**（`discover.cache_ttl_minutes`，默认 15 分钟，键 = kind + 启用站指纹）；手动刷新有每站 5 分钟下限（`discover.refresh_min_interval_minutes`），期内该站沿用旧数据并在页面标注
+  - 单站失败隔离进 `site_errors` 只在页面展示，**不写 site_stats**（手动浏览不触发轮询熔断统计）；刷新失败但有旧数据时沿用旧数据，墙不塌
+- **一键订阅**：卡片两个按钮——追踪歌手/作者（`SubType.ARTIST`，持续追踪）与仅此专辑/本书（`SubType.ALBUM` / 有声书型，一次性）；复用订阅引擎，建 entry 后立即搜索一次；同 artist / 同 album_key 且启用中的订阅不重复建（提示「已存在」）；已订阅的按钮在卡上置灰「已订阅 ✓」
+- **iTunes 封面代理**（`discover/covers.py`）：PT 站列表不供封面，用 iTunes Search API（免费无 key）补图，取第一条 `artworkUrl100` 换 600x600；磁盘缓存 `<db 同级>/covers/<sha1>.img` 永久有效 + `.json` 元信息，未命中写负缓存（24h）避免反复外呼；任何异常静默降级为占位卡（歌手首字 + 音质徽章，img onerror 自动露出）
+- **`GET /covers/{key}`** 图片代理：只服务已缓存的键（sha1 hex 校验 + 文件存在），不接受任意 URL（防 SSRF）；免登录（img 标签带不了 CSRF，内容非敏感）
+- `DiscoverConfig`（config.yaml `discover:` 段）：`cover_provider`（itunes/none）/ `cache_ttl_minutes` / `refresh_min_interval_minutes`；封面缓存目录固定取 db_path 同级 covers/，不新增路径键
+- `NormalizedTorrent.cover_url` 字段；mteam `_parse_torrent` 多字段兜底解析 image/cover/poster（取不到为空串，绝不报错）
+- 导航栏「总览」之后新增「发现」入口；`templates.py` 新增 `reltime` 过滤器（「3 天前」）
+
 ## [0.6.0] - 2026-10-13
 
 站点与下载器的配置权威源从 YAML + 覆盖层改为 DB 两张表，新增站点中心 / 下载器中心两个管理页，
