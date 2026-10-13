@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from loguru import logger
@@ -42,6 +43,7 @@ from .web import (
     routes_downloaders,
     routes_events,
     routes_library,
+    routes_logs,
     routes_pages,
     routes_quarantine,
     routes_seeding,
@@ -130,6 +132,20 @@ async def lifespan(app: FastAPI):
         enqueue=True,
     )
 
+    # 文件日志：界面「日志」页与日常排障的依据（此前启动后 INFO 只进 stdout，
+    # 容器一收就没了）。路径随数据卷走（db_path 同级 logs/），轮转 10MB 保留 5 份。
+    log_dir = Path(config.db_path).parent / "logs"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        logger.add(
+            log_dir / "hub.log",
+            rotation="10 MB", retention=5,
+            level=config.log_level, encoding="utf-8", enqueue=True,
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {message}",
+        )
+    except OSError as e:
+        logger.warning(f"日志目录不可写（{log_dir}）: {e}；仅保留标准输出日志")
+
     # 下载器注册表：多 qb 实例，客户端懒建；dry_run 时一律为 None。
     # qb_client 保持为默认下载器客户端的别名，现有派发 / 监听 / 做种链路不变。
     downloaders = DownloaderRegistry(
@@ -204,6 +220,7 @@ app.include_router(routes_quarantine.router)
 app.include_router(routes_series.router)
 app.include_router(routes_seeding.router)
 app.include_router(routes_events.router)
+app.include_router(routes_logs.router)
 app.include_router(routes_sites.router)
 app.include_router(routes_subscriptions.router)
 app.include_router(routes_downloaders.router)

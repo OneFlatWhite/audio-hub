@@ -57,6 +57,7 @@ _FLASH_OK = {
     "accepted": "已采纳",
     "rejected": "已拒绝",
     "run_once": "已手动触发一轮，结果见总览与命中记录",
+    "synced": "已同步下载器状态，完成的任务已推进归档",
     "password": "密码已修改",
     "revoke": "已登出所有设备",
     "saved_general": "运行参数已保存",
@@ -242,8 +243,27 @@ async def records_page(
     ctx.update({
         "active": "records",
         "tasks": rows, "by_state": by_state, "current_state": state,
+        "flash_ok": _flash(request, "ok"), "flash_err": _flash(request, "err"),
     })
     return templates.TemplateResponse(request, "records.html", ctx)
+
+
+@router.post("/records/sync-now")
+async def records_sync_now(
+    request: Request,
+    user: dict = Depends(verify_csrf),
+):
+    """手动触发一次完成监听轮询（不等 poll_interval_minutes 的下一轮）。
+
+    把「下载器里已完成」立即推进到命中记录 / 归档链路；页面 30s 自动刷新，
+    配合本按钮，状态不需要用户手动刷新页面。
+    """
+    runner = getattr(request.app.state, "runner", None)
+    if runner is None:
+        return RedirectResponse("/records", status_code=303)
+    stats = await runner.run_completion_poll_once()
+    logger.info(f"手动同步下载器状态（by {user['username']}）: {stats}")
+    return RedirectResponse("/records?ok=synced", status_code=303)
 
 
 # ── /review 待审队列（最高频页面，PRD §12.2）──────────────────

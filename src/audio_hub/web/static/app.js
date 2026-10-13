@@ -111,6 +111,57 @@
     setTimeout(function () { el.remove(); }, 4000);
   });
 
+  /* ── 页面自动刷新：页面可见时周期整页重载 ──────────────────
+     服务端渲染没有常驻连接，下载器状态的时效性靠它兜底。
+     正在输入（表单聚焦）/ 菜单展开 / 订阅表单展开时绝不打扰；
+     从后台切回时若页面已停留超过 15s 立即刷新一次。 */
+  (function () {
+    const secs = parseInt(document.body.dataset.autorefresh || "0", 10);
+    if (!secs) return;
+    const loadedAt = Date.now();
+    const busy = function () {
+      const ae = document.activeElement;
+      if (ae && ["INPUT", "SELECT", "TEXTAREA"].indexOf(ae.tagName) >= 0) return true;
+      return !!document.querySelector("details.menu[open], details.newsub[open]");
+    };
+    setInterval(function () {
+      if (document.visibilityState === "visible" && !busy()) location.reload();
+    }, secs * 1000);
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible" && Date.now() - loadedAt > 15000 && !busy()) {
+        location.reload();
+      }
+    });
+  })();
+
+  /* ── 日志页实时跟随：每 3s 拉 /api/logs/tail 重绘 ─────────── */
+  (function () {
+    const box = document.getElementById("logbox");
+    if (!box) return;
+    const followEl = document.getElementById("follow");
+    const statusEl = document.getElementById("log-status");
+
+    async function pull() {
+      try {
+        const params = new URLSearchParams({ n: "400" });
+        const lvl = new URLSearchParams(location.search).get("level");
+        if (lvl) params.set("level", lvl);
+        const resp = await fetch("/api/logs/tail?" + params);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data.lines || !data.lines.length) return;
+        const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+        box.textContent = data.lines.join("\n") + "\n";
+        if (statusEl) statusEl.textContent = data.count + " 行 · 更新于 " + new Date().toLocaleTimeString();
+        if (atBottom) box.scrollTop = box.scrollHeight;
+      } catch (_) { /* 网络抖动下轮再取 */ }
+    }
+
+    setInterval(function () {
+      if (document.visibilityState === "visible" && followEl && followEl.checked) pull();
+    }, 3000);
+  })();
+
   /* ── 行内溢出菜单（details.menu）：点外部关闭、选中动作后收起 ── */
   document.addEventListener("click", function (e) {
     document.querySelectorAll("details.menu[open]").forEach(function (d) {

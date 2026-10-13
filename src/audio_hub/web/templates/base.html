@@ -8,7 +8,7 @@
 <title>{% block title %}audio-hub{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}?v={{ version }}">
 </head>
-<body>
+<body {% block body_attr %}{% endblock %}>
 <div class="wrap">
   <aside class="sidebar">
     <div class="brand">audio-hub<small>v{{ version }} · 获取中枢</small></div>
@@ -34,6 +34,7 @@
       <div class="nav-title">系统</div>
       <a href="/sites" class="{{ 'active' if active == 'sites' }}">站点</a>
       <a href="/downloaders" class="{{ 'active' if active == 'downloaders' }}">下载器</a>
+      <a href="/logs" class="{{ 'active' if active == 'logs' }}">日志</a>
       <a href="/settings" class="{{ 'active' if active == 'settings' }}">设置</a>
     </nav>
   </aside>

@@ -1,8 +1,12 @@
 {% extends "base.html" %}
+{% block body_attr %}data-autorefresh="30"{% endblock %}
 {% block title %}命中记录 · audio-hub{% endblock %}
 {% block h1 %}命中记录{% endblock %}
 
 {% block content %}
+{% if flash_ok %}<div class="flash ok" data-autohide>{{ flash_ok }}</div>{% endif %}
+{% if flash_err %}<div class="flash err" data-autohide>{{ flash_err }}</div>{% endif %}
+
 <div class="filters">
   <a href="/records" class="{{ 'active' if not current_state }}">全部</a>
   {% for st in ['discovered','scored','dispatched','downloading','completed','routed','notified','rejected','failed'] %}
@@ -12,6 +16,10 @@
     </a>
     {% endif %}
   {% endfor %}
+  <form method="post" action="/records/sync-now" style="margin-left:auto">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="btn-sm" type="submit" title="立即轮询各下载器，把已完成的任务推进归档链路（不等下一轮定时）">立即同步下载器</button>
+  </form>
 </div>
 
 <div class="panel">

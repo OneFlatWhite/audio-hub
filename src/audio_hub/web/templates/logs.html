@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}日志 · audio-hub{% endblock %}
+{% block h1 %}日志{% endblock %}
+
+{% block content %}
+<div class="filters">
+  <a href="/logs" class="{{ 'active' if not current_level }}">全部</a>
+  <a href="/logs?level=info" class="{{ 'active' if current_level == 'info' }}">INFO</a>
+  <a href="/logs?level=warning" class="{{ 'active' if current_level == 'warning' }}">WARNING</a>
+  <a href="/logs?level=error" class="{{ 'active' if current_level == 'error' }}">ERROR</a>
+  <label class="check" style="margin-left:auto"><input type="checkbox" id="follow" checked> 实时跟随（每 3 秒）</label>
+  <span class="hint" id="log-status" style="margin:0">{{ line_count }} 行{% if not log_exists %} · 日志文件尚未生成{% endif %}</span>
+</div>
+
+<div class="panel" style="padding:0">
+  <pre id="logbox" class="logbox" style="margin:0;padding:14px 16px;overflow:auto;max-height:70vh;font-size:12px;line-height:1.7">{% for ln in lines %}{{ ln }}
+{% endfor %}{% if not lines %}暂无日志。服务启动后各轮流水线的运行记录会写到这里（含 INFO 级）。
+日志文件位于数据卷 logs/hub.log，10 MB 自动轮转、保留 5 份。{% endif %}</pre>
+</div>
+<p class="hint">只显示文件尾部；更早的历史在数据卷 logs/ 下（hub.log.* 为轮转归档）。级别筛选对增量同样生效。</p>
+{% endblock %}
