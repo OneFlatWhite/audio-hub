@@ -132,14 +132,14 @@ def _add_downloader(did="nas", *, password="", api_key="", enabled=True, is_defa
 
 
 def _mock_probe(monkeypatch, result: dict) -> list:
-    """把 routes 层引用的 probe_qb 换成假实现（不触网）；返回收到过的 cfg 列表。"""
+    """把 routes 层引用的 probe_downloader 换成假实现（不触网）；返回收到过的 cfg 列表。"""
     calls: list = []
 
     async def fake(cfg):
         calls.append(cfg)
         return dict(result)
 
-    monkeypatch.setattr(routes_downloaders, "probe_qb", fake)
+    monkeypatch.setattr(routes_downloaders, "probe_downloader", fake)
     return calls
 
 

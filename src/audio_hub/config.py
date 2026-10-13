@@ -68,12 +68,15 @@ class SiteConfig(BaseModel):
 
 
 class DownloaderConfig(BaseModel):
-    """一个 qBittorrent 实例的连接配置（v0.6 前名为 QbittorrentConfig）。
+    """一个下载器实例的连接配置（v0.6 前名为 QbittorrentConfig）。
 
     认证方式：username 非空时用用户名 / 密码登录，否则沿用 API Key（qb 5.2+）。
+    v0.8 起支持多种下载器类型（type=qbittorrent/transmission）：
+    Transmission 无 API Key 概念，凭据可选（内网白名单场景可不填）。
     """
     id: str = "default"
     name: str = "默认 qBittorrent"
+    type: str = "qbittorrent"           # qbittorrent / transmission
     host: str = "localhost"
     port: int = 8085
     username: str = ""

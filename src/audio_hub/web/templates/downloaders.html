@@ -6,7 +6,7 @@
 {% if detail and (flash_ok or flash_err) %}<p class="hint" style="margin:-10px 0 14px">详情：{{ detail }}</p>{% endif %}
 
 <div class="panel">
-  <h2>下载器（qBittorrent）</h2>
+  <h2>下载器（qBittorrent / Transmission）</h2>
   <table>
     <thead><tr>
       <th>名称</th><th>地址</th><th>状态 · 最近测试</th><th>qB 版本</th><th>剩余空间</th>
@@ -19,7 +19,8 @@
         <td><a class="mono" href="/downloaders/{{ d.id }}/edit">{{ d.name }}</a>
           <div class="hint mono">{{ d.id }}{% if d.priority %} · 优先级 {{ d.priority }}{% endif %}</div></td>
         <td class="mono">{{ d.host }}:{{ d.port }}
-          <div class="hint">{{ '用户名 / 密码' if d.has_password else ('API Key' if d.has_api_key else '无凭据') }}</div></td>
+          <div class="hint">{{ 'Transmission' if d.type == 'transmission' else 'qBittorrent' }}
+            · {{ '用户名 / 密码' if d.has_password else ('API Key' if d.has_api_key else '无凭据') }}</div></td>
         <td>
           <span class="pill {{ d.state_css }}">{{ d.state_label }}</span>
           {% if d.last_test_local %}<div class="hint mono">{{ d.last_test_local }}</div>{% endif %}

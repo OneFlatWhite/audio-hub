@@ -1527,7 +1527,7 @@ def downloader_record_from_row(r) -> DownloaderRecord:
 def downloader_config_from_row(r) -> DownloaderConfig:
     """downloaders 行 → DownloaderConfig（**含解密凭据**），仅供构建 qb 客户端。"""
     return DownloaderConfig(
-        id=r["id"], name=r["name"],
+        id=r["id"], name=r["name"], type=r["type"] or "qbittorrent",
         host=r["host"] or "localhost", port=int(r["port"] or 8085),
         username=r["username"] or "",
         password=_dec(r["password_enc"], label=f"downloader {r['id']}.password"),
@@ -1604,6 +1604,7 @@ async def upsert_downloader(
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(id) DO UPDATE SET
              name = excluded.name,
+             type = excluded.type,
              host = excluded.host,
              port = excluded.port,
              username = excluded.username,
@@ -1617,7 +1618,7 @@ async def upsert_downloader(
              priority = excluded.priority,
              updated_at = excluded.updated_at""",
         (
-            cfg.id, cfg.name, "qbittorrent", cfg.host, int(cfg.port), cfg.username or "",
+            cfg.id, cfg.name, cfg.type or "qbittorrent", cfg.host, int(cfg.port), cfg.username or "",
             pwd_enc, api_enc, cfg.save_path or "", cfg.category or "", cfg.tag or "",
             int(cfg.enabled), int(is_default), int(cfg.priority or 0), now, now,
         ),

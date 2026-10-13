@@ -39,12 +39,20 @@
 
     <div class="row">
       <div class="field">
+        <label>类型</label>
+        <select name="type">
+          <option value="qbittorrent" {% if not downloader or downloader.type != 'transmission' %}selected{% endif %}>qBittorrent</option>
+          <option value="transmission" {% if downloader and downloader.type == 'transmission' %}selected{% endif %}>Transmission</option>
+        </select>
+        <p class="hint">Transmission 无分类概念，分类会并入标签；API Key 仅 qBittorrent 有效。</p>
+      </div>
+      <div class="field">
         <label>主机（IP 或主机名，不含 http://）</label>
         <input type="text" name="host" required value="{{ downloader.host if downloader else '' }}" placeholder="192.168.1.10">
       </div>
       <div class="field">
         <label>WebUI 端口</label>
-        <input type="number" name="port" required min="1" max="65535" value="{{ downloader.port if downloader else 8085 }}">
+        <input type="number" name="port" required min="1" max="65535" value="{{ downloader.port if downloader else 8085 }}" placeholder="qB 8085 / TR 9091">
       </div>
     </div>
 
@@ -65,9 +73,9 @@
 
     <div class="row">
       <div class="field">
-        <label>保存路径（<b>qb 所在主机</b>的路径）</label>
+        <label>保存路径（<b>下载器所在主机</b>的路径）</label>
         <input type="text" name="save_path" required value="{{ downloader.save_path if downloader else '/musiclab/seeds' }}">
-        <p class="hint">派发时的默认值；订阅项 / 任务可覆盖。「测试连接」会显示 qb 自己的默认保存路径作参照。</p>
+        <p class="hint">派发时的默认值；订阅项 / 任务可覆盖。「测试连接」会显示下载器自己的默认保存路径作参照。</p>
       </div>
       <div class="field">
         <label>分类</label>
@@ -97,8 +105,9 @@
     <tbody>
       <tr><td>结果</td><td>{% if downloader.last_test.ok %}<span class="dot ok"></span>通过{% else %}<span class="dot err"></span>失败{% endif %}
         {% if downloader.last_test.error %} · <span class="trunc" title="{{ downloader.last_test.error }}">{{ downloader.last_test.error }}</span>{% endif %}</td></tr>
-      <tr><td>qB 版本</td><td class="mono">{{ downloader.last_test.version or '—' }} / API {{ downloader.last_test.api_version or '—' }}</td></tr>
-      <tr><td>qb 默认保存路径</td><td class="mono">{{ downloader.last_test.default_save_path or '—' }}</td></tr>
+      <tr><td>版本</td><td class="mono">{{ downloader.last_test.version or '—' }}
+        {% if downloader.type != 'transmission' %}/ API {{ downloader.last_test.api_version or '—' }}{% endif %}</td></tr>
+      <tr><td>下载器默认保存路径</td><td class="mono">{{ downloader.last_test.default_save_path or '—' }}</td></tr>
       <tr><td>剩余空间</td><td class="mono">{{ downloader.last_test.free_space_bytes | filesize }}</td></tr>
       <tr><td>活跃种子</td><td class="mono">{{ downloader.last_test.active_torrents if downloader.last_test.active_torrents is not none else '—' }}</td></tr>
     </tbody>

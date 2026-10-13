@@ -170,3 +170,83 @@ async def probe_qb(cfg, *, timeout: float = PROBE_TIMEOUT_SECONDS) -> dict[str, 
         result = _empty_result()
         result["error"] = f"探测超时（>{timeout:.0f}s）"
         return result
+
+
+def probe_transmission_sync(cfg) -> dict[str, Any]:
+    """Transmission 版探测：TCP → 构造客户端（构造即握手，兼做认证）→ 会话信息。
+
+    transmission-rpc 的异常已按层次分类（Auth / Connect / Timeout / 通用），
+    比裸 HTTP 探测更能定位问题；会话版本、下载目录、剩余空间、活跃种子数
+    与 qb 版探测同字段返回，页面无需区分展示。
+    """
+    result = _empty_result()
+    if not cfg.host or not cfg.port:
+        result["error"] = "host / port 未配置"
+        return result
+
+    ok, err = probe_tcp(cfg.host, int(cfg.port))
+    if not ok:
+        result["error"] = f"TCP 不可达: {err}"
+        return result
+
+    try:
+        import transmission_rpc
+    except ImportError as e:  # pragma: no cover - 依赖缺失属环境问题
+        result["error"] = f"transmission-rpc 未安装: {e}"
+        return result
+
+    client = None
+    session = None
+    try:
+        client = transmission_rpc.Client(
+            host=cfg.host, port=int(cfg.port),
+            username=cfg.username or None, password=cfg.password or None,
+            timeout=10,
+        )
+        session = client.get_session()
+        result["version"] = str(session.version)
+        result["ok"] = True
+    except transmission_rpc.TransmissionAuthError as e:
+        result["error"] = f"认证失败（用户名 / 密码无效？）: {e}"
+        return result
+    except transmission_rpc.TransmissionConnectError as e:
+        result["error"] = (
+            f"连接失败（端口不对？WebUI 默认 9091；或 RPC 白名单拦了本机 IP）: {e}"
+        )
+        return result
+    except Exception as e:  # noqa: BLE001 - 探测不得抛出
+        result["error"] = f"{type(e).__name__}: {e}"
+        return result
+
+    # 以下为参考信息，单项失败只记日志
+    try:
+        result["default_save_path"] = str(session.download_dir)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"下载器 {cfg.id} 取下载目录失败: {e}")
+    try:
+        free = client.free_space(result["default_save_path"] or "/downloads")
+        if free is not None:
+            result["free_space_bytes"] = int(free)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"下载器 {cfg.id} 取剩余空间失败: {e}")
+    try:
+        result["active_torrents"] = sum(
+            1 for t in client.get_torrents()
+            if str(getattr(getattr(t, "status", ""), "value", getattr(t, "status", "")))
+            != "stopped"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"下载器 {cfg.id} 取种子数失败: {e}")
+    return result
+
+
+async def probe_downloader(cfg, *, timeout: float = PROBE_TIMEOUT_SECONDS) -> dict[str, Any]:
+    """按下载器类型分发的异步探测入口（Web「测试连接」统一走这里）。"""
+    dl_type = (getattr(cfg, "type", "") or "qbittorrent").strip().lower()
+    fn = probe_transmission_sync if dl_type == "transmission" else probe_qb_sync
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn, cfg), timeout=timeout)
+    except TimeoutError:
+        result = _empty_result()
+        result["error"] = f"探测超时（>{timeout:.0f}s）"
+        return result

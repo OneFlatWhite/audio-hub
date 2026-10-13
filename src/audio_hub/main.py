@@ -62,32 +62,27 @@ from .web.templates import build_templates, mount_web_assets
 
 
 def _make_qb_client(qb_config):
-    """构造 qbittorrent-api Client；未配凭据或连接失败返回 None。
+    """构造下载器客户端（qbittorrent / Transmission 按 cfg.type 分流）。
 
-    认证方式：username 非空用用户名 / 密码；否则用 API Key（qb v5.2.0+，避开
-    SID→QBIT_SID 改名陷阱，PRD §8.4）。也是 DownloaderRegistry 的 client_factory。
+    qb 认证：username 非空用用户名 / 密码；否则用 API Key（qb v5.2.0+，避开
+    SID→QBIT_SID 改名陷阱，PRD §8.4）。Transmission 用用户名 / 密码（内网
+    白名单场景可不填）。也是 DownloaderRegistry 的 client_factory。
+    未配凭据或连接失败返回 None。
     """
     label = getattr(qb_config, "id", "qb")
-    use_password = bool(qb_config.username)
-    if not use_password and not qb_config.api_key:
+    is_qb = (getattr(qb_config, "type", "") or "qbittorrent").strip().lower() != "transmission"
+    if is_qb and not qb_config.username and not qb_config.api_key:
         logger.warning(f"下载器 {label} 未配置凭据；实跑模式将无法派发，dry_run 不受影响")
         return None
     try:
-        import qbittorrentapi
-        if use_password:
-            client = qbittorrentapi.Client(
-                host=qb_config.host, port=qb_config.port,
-                username=qb_config.username, password=qb_config.password,
-            )
-        else:
-            client = qbittorrentapi.Client(
-                host=qb_config.host, port=qb_config.port, api_key=qb_config.api_key,
-            )
-        client.auth_log_in()          # 轻量请求验证连通性与凭据有效性
+        from .downloaders.client import build_client
+        client = build_client(qb_config, login=True)
+        if client is None:
+            return None
         logger.info(f"下载器 {label} 已连接: {qb_config.host}:{qb_config.port} "
                     f"(v{client.app.version}, API {client.app.web_api_version})")
         return client
-    except Exception as e:  # noqa: BLE001 - qb 不可用不应阻止 Web 启动
+    except Exception as e:  # noqa: BLE001 - 单台下载器不可用不应阻止 Web 启动
         logger.error(f"下载器 {label} 连接失败: {e}；实跑派发将不可用，dry_run 仍可运行")
         return None
 

@@ -49,21 +49,14 @@ class SeedingSummary:
 
 
 def _build_client(qb_config):
-    """按 main._make_qb_client 的方式构造客户端；未配置任何凭据返回 None。
+    """按 cfg.type 构造客户端（qb / Transmission）；qb 未配置凭据返回 None。
 
-    不在此处 auth_log_in：客户端惰性连接，不可达的错误统一在调用点捕获。
+    统一走 downloaders.client.build_client：Transmission 有独立词表翻译层。
+    不在此处做显式登录验证：客户端惰性连接（Transmission 构造即握手），
+    不可达的错误统一在调用点捕获。
     """
-    import qbittorrentapi
-    if qb_config.username:
-        return qbittorrentapi.Client(
-            host=qb_config.host, port=qb_config.port,
-            username=qb_config.username, password=qb_config.password or "",
-        )
-    if not qb_config.api_key:
-        return None
-    return qbittorrentapi.Client(
-        host=qb_config.host, port=qb_config.port, api_key=qb_config.api_key,
-    )
+    from ..downloaders.client import build_client
+    return build_client(qb_config, login=False)
 
 
 def is_hr_satisfied(
