@@ -2,6 +2,21 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.2] - 2026-10-13
+
+四站实跑校准（憨憨 / HDSky / audiences / 馒头）：修馒头认证头投毒、发现墙跨 tab 共享拉取
+避开 audiences 的 RSS 2 分钟限速、适配馒头真实响应字段。**测试 1052 → 1065**，ruff 0 error。
+
+### 修复
+
+- **馒头认证/搜索全灭**：`_headers` 并发 `x-api-key` 与裸 `Authorization`，后者被馒头拒为「無效的請求」——实测只发 `x-api-key` 才正常；RSS 端点同理改为 x-api-key 头。`_post` 改走站点代理/UA 配置
+- **馒头最新上架改走 search API**：空关键词 = 最新列表（实测可用）；RSS 端点需单独 RSS key（与 API key 不通用），降级为兜底并识别业务码报错。有声书搜索改 `mode=normal + categories=[442]`（无独立 audiobook 模式），`kind="all"` 不带 mode 拉全站
+- **馒头响应解析按实测重写**：category 是字符串 ID（静态映射 110/434→音乐、442→有声书、406→演唱会/MV）；seeders/leechers/discount 从 status 子对象读取；封面字段是 imageList
+- **发现墙跨 tab 共享站点数据**：一次「并集」拉取（kind="all"）供音乐/有声书两个 tab 本地过滤，TTL 内复用——audiences RSS 限 2 分钟一拉，分 tab 各拉必撞墙
+- **audiences RSS 限速识别**：「请调整RSS请求间隔」类文案从「响应非 RSS 格式」改判为 AdapterRateLimited，页面显示友好文案并沿用旧数据
+- **NexusPHP `_passkey` 识别 rsskey**（audiences 的 RSS 密钥参数名），站内搜索下载直链不再丢 key
+- `suggest_category_kind` / 馒头判别补繁体关键词（有聲書/聽書），馒头 442「有聲書 AuiBook」能正确建议为有声书
+
 ## [0.7.1] - 2026-10-13
 
 修复发现墙空墙：憨憨 RSS 不带分类参数时最新 30 条全被视频刷满，音乐根本进不了墙；

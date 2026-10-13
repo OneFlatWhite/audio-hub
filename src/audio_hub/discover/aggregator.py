@@ -195,40 +195,48 @@ async def collect_wall(
             return wall.model_copy(update={"from_cache": True})
 
     # ── 逐站决定：真拉 or 沿用旧数据 ──
+    # 站点数据跨 kind 共享（缓存键 "*"）：一次并集拉取（music+audiobook 分类都带上），
+    # 两个 tab 各自本地过滤——audiences 等站 RSS 有 2 分钟限速，分 tab 各拉一次会互相打架。
     results: dict[str, list[NormalizedTorrent]] = {}
     errors: dict[str, str] = {}
     stale: list[str] = []
     to_fetch: list[tuple[str, BaseAdapter]] = []
     for name, adapter in sorted(adapters.items()):
-        entry = cache.get_site(kind, name)
-        if (force_refresh and entry is not None and refresh_min_interval > 0
-                and (now - entry.fetched_at).total_seconds() < refresh_min_interval):
+        entry = cache.get_site("*", name)
+        age = (now - entry.fetched_at).total_seconds() if entry else None
+        # 非强制刷新时，另一 tab 刚拉过的站点数据直接复用（不再发请求）
+        fresh_reuse = not force_refresh and entry is not None and age is not None and age < ttl
+        # 手动刷新的每站最短间隔
+        interval_reuse = (force_refresh and entry is not None and refresh_min_interval > 0
+                          and age is not None and age < refresh_min_interval)
+        if fresh_reuse or interval_reuse:
             if entry.torrents:
                 results[name] = entry.torrents
             if entry.error:
                 errors[name] = entry.error
-            stale.append(name)
+            if interval_reuse:
+                stale.append(name)
         else:
             to_fetch.append((name, adapter))
 
     if to_fetch:
         fetched = await asyncio.gather(
-            *(a.fetch_rss(kind=kind) for _, a in to_fetch), return_exceptions=True,
+            *(a.fetch_rss(kind="all") for _, a in to_fetch), return_exceptions=True,
         )
         for (name, _adapter), res in zip(to_fetch, fetched, strict=True):
             if isinstance(res, BaseException):
                 logger.warning(f"发现墙：站点 {name} RSS 拉取失败: {type(res).__name__}: {res}")
                 errors[name] = f"{type(res).__name__}: {res}"[:200]
                 # 刷新失败但手里有旧数据：沿用旧数据，让墙不因单站故障塌掉一角
-                old = cache.get_site(kind, name)
+                old = cache.get_site("*", name)
                 if old and old.torrents:
                     results[name] = old.torrents
-                    cache.set_site(kind, name, old.fetched_at, old.torrents, errors[name])
+                    cache.set_site("*", name, old.fetched_at, old.torrents, errors[name])
                 else:
-                    cache.set_site(kind, name, now, [], errors[name])
+                    cache.set_site("*", name, now, [], errors[name])
             else:
                 results[name] = res
-                cache.set_site(kind, name, now, res, "")
+                cache.set_site("*", name, now, res, "")
 
     items = [
         (site, t) for site, torrents in results.items() for t in torrents

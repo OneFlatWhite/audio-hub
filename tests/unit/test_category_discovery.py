@@ -37,6 +37,7 @@ class TestSuggestKind:
         ("音乐 Music", "music"),
         ("Music(Lossless)", "music"),
         ("有声书 Audio Book", "audiobook"),   # 含 Audio 也不能判成音乐
+        ("有聲書 AuiBook", "audiobook"),      # 繁体 + 馒头的拼写
         ("Audiobook", "audiobook"),
         ("电影", "other"),
         ("", "other"),

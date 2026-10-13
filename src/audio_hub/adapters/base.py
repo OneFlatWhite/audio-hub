@@ -222,8 +222,9 @@ class BaseAdapter(ABC):
         Args:
             query: 可选关键词；若站点 RSS search 不可靠，实现应忽略此参数
                    返回全量并交由 pipeline 本地过滤。
-            kind: "music" / "audiobook" / None；支持分类过滤的实现按其预过滤
-                  （v0.7.1 发现墙依赖它——不过滤时最新 30 条可能被无关分类刷满）。
+            kind: "music" / "audiobook" / "all" / None；支持分类过滤的实现按其预过滤
+                  （v0.7.1 发现墙依赖它——不过滤时最新 30 条可能被无关分类刷满；
+                  "all" = music+audiobook 并集，发现墙一次拉取两个 tab 共用）。
         """
 
     @abstractmethod
@@ -343,7 +344,7 @@ def suggest_category_kind(name: str) -> str:
     有声书关键词先判："Audio Book" 含 "Audio"，若先判音乐会把有声书归错。
     """
     low = (name or "").lower()
-    if any(k in low for k in ("有声", "audio book", "audiobook", "听书", "audio-book")):
+    if any(k in low for k in ("有声", "有聲", "audio book", "audiobook", "听书", "聽書", "audio-book")):
         return "audiobook"
     if any(k in low for k in ("音乐", "music", "flac", "专辑")):
         return "music"

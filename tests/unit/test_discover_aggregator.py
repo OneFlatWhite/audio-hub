@@ -47,10 +47,11 @@ def _t(title: str, *, site: str, category=MediaCategory.MUSIC, site_category="",
 
 
 async def test_kind_passed_to_adapter():
-    """发现墙必须把 kind 传给 fetch_rss，RSS 才能按分类预过滤（否则最新 30 条可能全是视频）。"""
+    """发现墙按「并集」拉取（kind="all"）：一次请求供两个 tab 本地过滤——
+    分 tab 各拉一次会撞 audiences 这类站的 RSS 2 分钟限速。"""
     a = FakeAdapter("s", [_t("周杰伦 - 叶惠美 [FLAC]", site="s")])
     await collect_wall({"s": a}, "audiobook", cache=WallCache(), ttl=900)
-    assert a.fetch_kinds == ["audiobook"]
+    assert a.fetch_kinds == ["all"]
 
 
 async def test_group_same_album_across_sites():
@@ -166,15 +167,30 @@ async def test_ttl_hit_and_expiry():
 
 
 async def test_cache_key_includes_kind_and_sites():
-    """缓存键 = kind + 启用站指纹：不同 kind / 不同站点集合互不影响。"""
+    """墙缓存键 = kind + 启用站指纹；站点数据跨 kind 共享（一次并集拉取，两个 tab 复用）。"""
     a = FakeAdapter("s", [_t("周杰伦 - 叶惠美 [FLAC]", site="s")])
     cache = WallCache()
     await collect_wall({"s": a}, "music", cache=cache, ttl=900)
     await collect_wall({"s": a}, "audiobook", cache=cache, ttl=900)
-    assert a.fetch_calls == 2                        # kind 不同 → 各拉一次
+    assert a.fetch_calls == 1                        # 站点数据跨 kind 共享，只拉一次
     b = FakeAdapter("s2", [])
     await collect_wall({"s": a, "s2": b}, "music", cache=cache, ttl=900)
-    assert a.fetch_calls == 3                        # 站点指纹变了 → 缓存不命中
+    assert a.fetch_calls == 1                        # 已有站数据新鲜（<ttl）→ 复用
+    assert b.fetch_calls == 1                        # 新站真拉
+
+
+async def test_site_data_shared_across_kinds():
+    """一次并集拉取同时供两个 tab：音乐墙出音乐卡，有声书墙出有声书卡。"""
+    a = FakeAdapter("s", [
+        _t("周杰伦 - 叶惠美 [FLAC]", site="s", category=MediaCategory.MUSIC),
+        _t("鬼吹灯 第一卷 周建龙演播", site="s", category=MediaCategory.AUDIOBOOK),
+    ])
+    cache = WallCache()
+    wall_m = await collect_wall({"s": a}, "music", cache=cache, ttl=900)
+    wall_a = await collect_wall({"s": a}, "audiobook", cache=cache, ttl=900)
+    assert a.fetch_calls == 1
+    assert [c.title for c in wall_m.cards] == ["叶惠美"]
+    assert wall_a.cards and "鬼吹灯" in wall_a.cards[0].title
 
 
 async def test_refresh_per_site_min_interval():

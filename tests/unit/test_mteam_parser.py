@@ -186,14 +186,15 @@ class TestHttpAndAuth:
     @pytest.mark.asyncio
     @respx.mock
     async def test_auth_header_sent(self):
+        """只发 x-api-key：并发 Authorization 会被馒头拒为「無效的請求」（2026-10 实测）。"""
         adapter = make_adapter()
         route = respx.post("https://api.m-team.cc/api/torrent/search").mock(
             return_value=httpx.Response(200, json={"code": 0, "data": []})
         )
         await adapter.search("test")
         req = route.calls.last.request
-        assert req.headers["Authorization"] == "TEST_MTEAM_KEY"
         assert req.headers["x-api-key"] == "TEST_MTEAM_KEY"
+        assert "Authorization" not in req.headers
 
     @pytest.mark.asyncio
     @respx.mock
@@ -313,3 +314,111 @@ class TestParseTitleFallback:
     def test_unknown(self):
         adapter = make_adapter()
         assert adapter.parse_title("some random title")["category"] == MediaCategory.UNKNOWN
+
+
+# ── 真实响应形态（2026-10 实测）──────────────────────────────
+
+class TestRealResponseShape:
+    """实测：category 是字符串 ID；seeders/discount 嵌在 status 子对象；封面字段是 imageList。"""
+
+    @staticmethod
+    def _item() -> dict:
+        return {
+            "id": "1269467",
+            "name": "Dou Luo Da Lu Zhi Zhui Xu 2021 Complete WEB-DL M4A",
+            "category": "442",
+            "size": "46572298654",
+            "imageList": ["https://img.example/cover.jpg"],
+            "infoHash": "ab" * 20,
+            "createdDate": "2026-10-12 20:43:27",
+            "status": {"discount": "FREE", "seeders": "16", "leechers": "1"},
+        }
+
+    def test_category_string_id_mapped(self):
+        t = make_adapter()._parse_torrent(self._item())
+        assert t.category == MediaCategory.AUDIOBOOK
+        assert t.site_category == "有声书"
+
+    def test_status_nested_fields(self):
+        t = make_adapter()._parse_torrent(self._item())
+        assert t.seeders == 16 and t.leechers == 1
+        assert t.discount is DiscountType.FREE
+
+    def test_cover_from_image_list(self):
+        t = make_adapter()._parse_torrent(self._item())
+        assert t.cover_url == "https://img.example/cover.jpg"
+
+    def test_music_and_mv_ids_mapped(self):
+        item = self._item()
+        item["category"] = "434"
+        assert make_adapter()._parse_torrent(item).category == MediaCategory.MUSIC
+        item["category"] = "406"
+        assert make_adapter()._parse_torrent(item).category == MediaCategory.VIDEO
+
+
+class TestSearchKindMapping:
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_audiobook_kind_uses_normal_mode_plus_category(self):
+        """馒头无 audiobook 模式：有声书 = mode=normal + categories=[442]（或配置值）。"""
+        adapter = make_adapter()
+        route = respx.post("https://api.m-team.cc/api/torrent/search").mock(
+            return_value=httpx.Response(200, json={"code": 0, "data": []})
+        )
+        await adapter.search("", kind="audiobook")
+        body = json.loads(route.calls.last.request.content)
+        assert body["mode"] == "normal" and body["categories"] == ["442"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_all_kind_omits_mode(self):
+        adapter = make_adapter()
+        route = respx.post("https://api.m-team.cc/api/torrent/search").mock(
+            return_value=httpx.Response(200, json={"code": 0, "data": []})
+        )
+        await adapter.search("", kind="all")
+        body = json.loads(route.calls.last.request.content)
+        assert "mode" not in body
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_default_kind_is_music(self):
+        adapter = make_adapter()
+        route = respx.post("https://api.m-team.cc/api/torrent/search").mock(
+            return_value=httpx.Response(200, json={"code": 0, "data": []})
+        )
+        await adapter.search("周杰伦")
+        body = json.loads(route.calls.last.request.content)
+        assert body["mode"] == "music"
+
+
+class TestFetchRssPrimaryPath:
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_fetch_rss_uses_search_empty_keyword(self):
+        """最新上架主路径 = search 空关键词（RSS 端点需单独 RSS key，仅兜底）。"""
+        adapter = make_adapter()
+        route = respx.post("https://api.m-team.cc/api/torrent/search").mock(
+            return_value=httpx.Response(200, json={"code": 0, "data": {"data": []}})
+        )
+        assert await adapter.fetch_rss(kind="all") == []
+        assert json.loads(route.calls.last.request.content)["keyword"] == ""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_fetch_rss_falls_back_to_rss_endpoint(self):
+        """search 故障且配置了 rss_url 时退回 RSS 端点；RSS 业务码非 0 应报错。"""
+        from audio_hub.adapters.base import AdapterError
+        adapter = make_adapter()
+        respx.post("https://api.m-team.cc/api/torrent/search").mock(
+            side_effect=httpx.ConnectError("down")
+        )
+        respx.post("https://api.m-team.io/api/torrent/search").mock(
+            side_effect=httpx.ConnectError("down")
+        )
+        respx.get("https://rss.m-team.cc/api/rss/fetch").mock(
+            return_value=httpx.Response(200, json={"code": 1, "message": "禁止訪問"},
+                                        headers={"content-type": "application/json"})
+        )
+        with pytest.raises(AdapterError, match="RSS 端点拒绝"):
+            await adapter.fetch_rss()

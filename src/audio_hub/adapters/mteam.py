@@ -1,11 +1,11 @@
 """M-Team（馒头）适配器：独立实现，不复用 NexusPHP 基类。
 
-馒头已从 NexusPHP 迁移到自研 mTorrent 架构，关键差异：
-- RSS 端点：rss.m-team.cc/api/rss/fetch（非 torrentrss.php）
-- 搜索：POST api.m-team.cc/api/torrent/search（JSON REST，非 HTML）
-- 认证：API Key via Authorization header（Cookie 认证已于 2024 年废弃）
-- 分类：新模式枚举（movie/music/tvshow），非数字 ID
-- 优惠：discount 枚举字段（如 PERCENT_50），非标题文本
+馒头已从 NexusPHP 迁移到自研 mTorrent 架构，关键差异（2026-10 实测校准）：
+- 搜索：POST api.m-team.cc/api/torrent/search（JSON REST；空关键词=最新上架列表）
+- 认证：API Key 只走 x-api-key header——并发 Authorization 会被拒为「無效的請求」
+- RSS 端点：rss.m-team.cc/api/rss/fetch 需单独 RSS key（与 API key 不通用），仅作兜底
+- 分类：响应是字符串 ID（110/434=音乐、442=有声书、406=演唱会/MV），非 dict.mode
+- 做种数/优惠：嵌在 status 子对象（字段均为字符串）；封面字段是 imageList
 - 域名：api.m-team.cc 与 api.m-team.io 均可用，需 failover
 
 ⚠️ 认证凭据为「存取令牌」，获取路径：登录 → 控制台 → 实验室 → 存取令牌生成
@@ -67,6 +67,19 @@ _MODE_MAP = {
     "adult": MediaCategory.VIDEO,
 }
 
+#: 主站真实分类 ID → (展示名, 中枢类别)。2026-10 实测 categoryList：
+#: 响应里 category 是字符串 ID（不是早期文档假设的 dict），按此映射；
+#: 未收录的 ID 回退标题关键词判别。
+_CATEGORY_ID_MAP: dict[str, tuple[str, MediaCategory]] = {
+    "110": ("Music", MediaCategory.MUSIC),
+    "434": ("Music(无损)", MediaCategory.MUSIC),
+    "442": ("有声书", MediaCategory.AUDIOBOOK),
+    "406": ("演唱会/MV", MediaCategory.VIDEO),
+}
+
+#: 有声书搜索分类兜底 ID（馒头无独立 audiobook 模式，用 mode=normal + 分类 ID）
+_DEFAULT_AUDIOBOOK_CAT = "442"
+
 
 class MTeamAdapter(BaseAdapter):
     """馒头 REST API 适配器。"""
@@ -93,10 +106,10 @@ class MTeamAdapter(BaseAdapter):
         return (primary, *others)
 
     def _headers(self, *, json_body: bool = True) -> dict[str, str]:
-        # 馒头新版 API 文档指定 x-api-key，旧文档为 Authorization；两者并发以兼容
+        # 只发 x-api-key：2026-10 实测，并发 Authorization（无论是否 Bearer）
+        # 都会被馒头拒为「無效的請求/非法用戶端」，这不是兼容是投毒。
         headers = {
             "x-api-key": self._api_key,
-            "Authorization": self._api_key,
             "Accept": "application/json",
             "User-Agent": self._user_agent(),
         }
@@ -135,40 +148,64 @@ class MTeamAdapter(BaseAdapter):
         """POST /api/torrent/search。
 
         馒头有完整 JSON API，搜索是可靠的主力路径（不同于 NexusPHP 的 RSS search）。
-        kind="audiobook" 时用有声书模式（枚举名待实测），否则限定音乐模式避免命中影视。
+        kind 映射（2026-10 实测）：
+        - "music" → mode=music（含 110/434/406，演唱会/MV 由本地分类判别剔除）
+        - "audiobook" → 无独立模式，用 mode=normal + categories=[有声书分类 ID]
+        - "all" → 不带 mode（全站最新混合，发现墙聚合用，本地按分类 ID 判别）
+        - None → mode=music（旧默认）
+        空关键词 = 最新上架列表（发现墙数据源）。
         """
-        payload = {
+        payload: dict = {
             "keyword": keyword,
             "pageNumber": 1,
             "pageSize": min(self.config.max_rows or 50, 100),
-            "mode": "audiobook" if kind == "audiobook" else "music",
         }
+        if kind == "audiobook":
+            from ..config import split_ids
+
+            payload["mode"] = "normal"
+            payload["categories"] = (
+                split_ids(getattr(self.config, "audiobook_cat_id", "") or "")
+                or [_DEFAULT_AUDIOBOOK_CAT]
+            )
+        elif kind == "all":
+            pass  # 不带 mode：全站最新
+        else:
+            payload["mode"] = "music"
         data = await self._post("/api/torrent/search", payload)
         return self._parse_search_response(data)
 
     async def fetch_rss(self, query: str | None = None, kind: str | None = None) -> list[NormalizedTorrent]:
-        """馒头 RSS 端点。
+        """馒头「最新上架」主路径是 search API（空关键词 = 最新列表）。
 
-        馒头的 RSS 结构与标准 NexusPHP 不同（且是否为标准 RSS 未实测确认），
-        v0.1 优先走 search API；RSS 作为补充路径，解析失败不阻断。
-        kind 目前只传给无 RSS 时的 search 降级；RSS 端点的分类过滤未实测，暂不接。
+        RSS 端点（rss.m-team.cc/api/rss/fetch）需要单独的 RSS key，与 API key
+        不通用（2026-10 实测只带 x-api-key 也返回「禁止訪問」），仅作兜底。
         """
-        if not self.config.rss_url:
-            # 无 RSS 配置时降级到 search（馒头的 search 本就比 RSS 可靠）
-            if query:
-                return await self.search(query, kind=kind)
-            raise AdapterError("mteam 未配置 rss_url，且无 query 可降级到 search")
+        try:
+            return await self.search(query or "", kind=kind)
+        except (AdapterAuthError, AdapterRateLimited):
+            raise
+        except AdapterError:
+            if not self.config.rss_url:
+                raise
+            logger.warning("mteam search 不可用，退回 RSS 端点")
 
         try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            async with self._http_client(with_cookie=False) as client:
                 resp = await client.get(
                     self.config.rss_url,
-                    headers={"Authorization": self._api_key, "User-Agent": self._user_agent()},
+                    headers={"x-api-key": self._api_key},
                 )
             resp.raise_for_status()
             ctype = resp.headers.get("content-type", "")
             if "json" in ctype:
-                return self._parse_search_response(resp.json())
+                body = resp.json()
+                if isinstance(body, dict) and str(body.get("code")) not in _OK_CODES:
+                    raise AdapterError(
+                        f"mteam RSS 端点拒绝: {body.get('message')}"
+                        "（RSS 需在站点 RSS 页生成带 key 的链接）"
+                    )
+                return self._parse_search_response(body)
             # XML RSS：复用 parsel 解析（结构与 NexusPHP 不同，故单独处理）
             return self._parse_rss_xml(resp.text)
         except httpx.HTTPStatusError as e:
@@ -242,7 +279,7 @@ class MTeamAdapter(BaseAdapter):
         for base in candidates:
             url = base + path
             try:
-                async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                async with self._http_client(with_cookie=False) as client:
                     if form is not None:
                         resp = await client.post(
                             url, data=form, headers=self._headers(json_body=False),
@@ -324,14 +361,20 @@ class MTeamAdapter(BaseAdapter):
         info_hash = raw.get("infoHash") or raw.get("info_hash") or raw.get("hash") or ""
         torrent_id = str(raw.get("id") or raw.get("torrentId") or "")
 
-        # 分类：优先 category.mode，其次从 labels 推断
+        # 分类：真实响应是字符串 ID（如 "442"），早期文档假设的 dict.mode 结构保留兼容
         category = self._resolve_category(raw, title)
         # 站点原始分类名，供人工排查与判别溯源（与 NexusPHP 的 site_category 对齐）
-        raw_cat = raw.get("category") or {}
-        site_category = str(raw_cat.get("name") or "") if isinstance(raw_cat, dict) else ""
+        raw_cat = raw.get("category")
+        if isinstance(raw_cat, dict):
+            site_category = str(raw_cat.get("name") or "")
+        elif raw_cat is not None:
+            site_category = _CATEGORY_ID_MAP.get(str(raw_cat), (str(raw_cat), None))[0]
+        else:
+            site_category = ""
 
-        # 优惠：discount 枚举
-        discount_raw = raw.get("discount") or ""
+        # 优惠/做种数：真实响应嵌在 status 子对象里（且字段均为字符串）
+        status = raw.get("status") if isinstance(raw.get("status"), dict) else {}
+        discount_raw = status.get("discount") or raw.get("discount") or ""
         discount = _DISCOUNT_MAP.get(str(discount_raw).upper(), DiscountType.UNKNOWN)
 
         # 标签：labels 数组（中字/4k/hdr10/DoVi 等）
@@ -357,8 +400,8 @@ class MTeamAdapter(BaseAdapter):
                 size_bytes=size,
                 pub_date=pub_date,
                 discount=discount,
-                seeders=_coerce_int(raw.get("seeders")),
-                leechers=_coerce_int(raw.get("leechers")),
+                seeders=_coerce_int(status.get("seeders") or raw.get("seeders")),
+                leechers=_coerce_int(status.get("leechers") or raw.get("leechers")),
                 format_tags=format_tags,
                 torrent_id=torrent_id,
                 cover_url=_coerce_cover_url(raw),
@@ -382,8 +425,10 @@ class MTeamAdapter(BaseAdapter):
 
     @staticmethod
     def _resolve_category(raw: dict, title: str) -> MediaCategory:
-        """分类解析：category.mode → 父类名 → 标题关键词兜底。"""
-        cat = raw.get("category") or {}
+        """分类解析：分类 ID 静态映射（实测形态）→ dict.mode（旧文档形态）→ 标题关键词兜底。"""
+        cat = raw.get("category")
+        if isinstance(cat, str) and cat in _CATEGORY_ID_MAP:
+            return _CATEGORY_ID_MAP[cat][1]
         if isinstance(cat, dict):
             mode = str(cat.get("mode") or "").lower()
             if mode in _MODE_MAP:
@@ -391,12 +436,12 @@ class MTeamAdapter(BaseAdapter):
             parent = str(cat.get("name") or "").lower()
             if "music" in parent or "音乐" in parent:
                 return MediaCategory.MUSIC
-            if "audiobook" in parent or "有声" in parent:
+            if "audiobook" in parent or "有声" in parent or "有聲" in parent:
                 return MediaCategory.AUDIOBOOK
 
         # 兜底：标题关键词
         t = title.lower()
-        if re.search(r"(有声书|audiobook|演播|主播)", t):
+        if re.search(r"(有声书|有聲書|audiobook|演播|主播)", t):
             return MediaCategory.AUDIOBOOK
         if re.search(r"(flac|ape|\bcd\b|专辑|album|无损)", t):
             return MediaCategory.MUSIC
@@ -459,7 +504,7 @@ class MTeamAdapter(BaseAdapter):
     def parse_title(self, raw: str) -> dict:
         """馒头标题信息主要在 labels 数组而非标题文本，此处仅做兜底判别。"""
         t = raw.lower()
-        if re.search(r"(有声书|audiobook|演播|主播)", t):
+        if re.search(r"(有声书|有聲書|audiobook|演播|主播)", t):
             category = MediaCategory.AUDIOBOOK
         elif re.search(r"(bluray|1080p|2160p|remux|4k|演唱会|concert)", t):
             category = MediaCategory.VIDEO
@@ -481,12 +526,12 @@ def _coerce_int(value) -> int | None:
 def _coerce_cover_url(raw: dict) -> str:
     """从馒头响应里挑封面 URL（v0.7 发现墙）。
 
-    真实响应可能携带 image / cover / poster 等字段（字符串或字符串数组，
-    字段名未实测确认，故多重兜底）；取不到返回空串，绝不报错。
+    实测字段为 imageList（字符串数组，2026-10）；image / cover / poster 等
+    字段名做多重兜底。取不到返回空串，绝不报错。
     """
     if not isinstance(raw, dict):
         return ""
-    for key in ("image", "cover", "poster"):
+    for key in ("image", "cover", "poster", "imageList"):
         value = raw.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()

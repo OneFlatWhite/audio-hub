@@ -471,3 +471,29 @@ class TestCrossSiteReuse:
             adapter = make_adapter(site)
             names.add(adapter.site_name)
         assert names == {"hhanclub", "hdsky", "audiences"}
+
+
+# ── v0.7.2 实站校准（audiences 限速 / rsskey）─────────────────
+
+class TestSiteQuirks:
+    def test_rsskey_recognized_as_passkey(self):
+        """audiences 的 RSS 用 rsskey 而非 passkey，_passkey 应识别（站内搜索直链需要）。"""
+        adapter = make_adapter("audiences")
+        adapter.config.rss_url = "https://audiences.me/torrentrss.php?rsskey=RK123&rows=10"
+        assert adapter._passkey() == "RK123"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_rss_rate_limit_message_detected(self):
+        """audiences「RSS 请求间隔至少 2 分钟」应识别为限速而非格式错误。"""
+        from audio_hub.adapters.base import AdapterRateLimited
+        adapter = make_adapter("audiences")
+        respx.get(url__startswith="https://audiences.me/torrentrss.php").mock(
+            return_value=httpx.Response(
+                200,
+                text="请调整RSS请求间隔时间至少为2分钟！ "
+                     "Please adjust the RSS request time to at least 2 minutes!",
+            )
+        )
+        with pytest.raises(AdapterRateLimited):
+            await adapter.fetch_rss()

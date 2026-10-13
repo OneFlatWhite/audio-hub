@@ -75,6 +75,11 @@ _EXCLUDE_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+#: 站点 RSS 限速文案（audiences：「请调整RSS请求间隔时间至少为2分钟」）
+_RATE_LIMIT_HINT = re.compile(
+    r"RSS.{0,40}(?:间隔|至少)|adjust the RSS request time", re.IGNORECASE
+)
+
 # 优惠标记（若站点在标题中输出）
 _DISCOUNT_PATTERNS: list[tuple[re.Pattern, DiscountType]] = [
     (re.compile(r"(2up|双倍上传|2x\s*free)", re.IGNORECASE), DiscountType.FREE_2UP),
@@ -184,7 +189,8 @@ class NexusPhpAdapter(BaseAdapter):
         return music + [c for c in audiobook if c not in music]
 
     def _passkey(self) -> str:
-        m = re.search(r"[?&]passkey=([^&]+)", self.config.rss_url or "", re.IGNORECASE)
+        # audiences 等站的 RSS 用 rsskey 而非 passkey
+        m = re.search(r"[?&](?:passkey|rsskey)=([^&]+)", self.config.rss_url or "", re.IGNORECASE)
         return m.group(1) if m else ""
 
     # ── RSS URL 构建 ────────────────────────────────────────
@@ -289,6 +295,12 @@ class NexusPhpAdapter(BaseAdapter):
             raise AdapterError(f"{self.site_name} HTTP {resp.status_code}: {safe_url}")
 
         text = resp.text
+        # 站点级 RSS 限速文案（audiences：间隔至少 2 分钟）——识别为限速而非格式错误
+        if _RATE_LIMIT_HINT.search(text):
+            raise AdapterRateLimited(
+                f"{self.site_name} 站点限速：RSS 请求间隔受限（该站要求 ≥2 分钟），"
+                f"稍后刷新即可，已有数据会沿用"
+            )
         # NexusPHP 认证失败时可能返回 HTML 登录页而非 XML
         if "passkey" in text.lower() and "<rss" not in text.lower():
             raise AdapterAuthError(f"{self.site_name} 返回登录页，passkey 无效")
