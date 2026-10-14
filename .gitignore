@@ -49,3 +49,4 @@ smoke_report.txt
 last_test_output.txt
 # curl cookie jar：曾含真实会话令牌（audio_hub_session），等同登录凭据，绝不入库
 cj.txt
+license-keys/
