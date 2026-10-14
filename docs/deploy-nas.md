@@ -32,7 +32,7 @@ ghcr.io/oneflatwhite/audio-hub:0.13.0        # 锁版本
 ```yaml
 services:
   audio-hub:
-    image: ghcr.io/oneflatwhite/audio-hub:latest
+    image: ghcr.io/oneflatwhite/audio-hub:${AHUB_VERSION:-latest}
     container_name: audio-hub
     restart: unless-stopped
     ports:
@@ -58,6 +58,31 @@ services:
   # transmission: image: lscr.io/linuxserver/transmission:latest  端口 9091
   # 两者都要把 /volume1/download 挂为下载目录，PT 监听端口照常映射。
 ```
+
+同目录放一个 `.env` 把版本钉住（自动升级脚本改的就是这一行）：
+
+```dotenv
+AHUB_VERSION=0.15.0
+```
+
+## 二·五、自动升级（推荐：NAS 计划任务）
+
+程序**永远不会**自己动你的容器。要自动升级，用配套脚本
+`scripts/auto-update.sh`（把脚本也放到 `/volume1/docker/audio-hub/`）：
+
+它做的事：比对 GitHub 最新 release → 有新版先自动备份 `/config` →
+改 `.env` 钉到新版本 → `compose up -d` → **健康门**（90 秒内 `/health`
+必须恢复 ok）→ 失败**自动回滚**旧版本并恢复服务；可选 webhook 通知结果。
+
+群晖「控制面板 → 任务计划 → 新增 → 计划任务 → 用户定义脚本」，每天跑：
+
+```bash
+AHUB_DIR=/volume1/docker/audio-hub bash /volume1/docker/audio-hub/auto-update.sh \
+  >> /volume1/docker/audio-hub/auto-update.log 2>&1
+```
+
+不想自动就删掉这条计划任务，退回手动升级（UPGRADE.md）。**不要用
+watchtower 直接盯着本镜像**——它没有备份、没有健康门、没有回滚。
 
 首次启动前生成密钥文件（任一有 docker 的机器执行一次）：
 
