@@ -54,11 +54,10 @@
     {{ keyform() }}
 
     {% if state.required %}
-    <p class="hint" style="margin-top:14px">当前部署启用了强制授权（AUDIO_HUB_LICENSE_REQUIRED=1），
-      激活前无法使用其它页面。取消 Star 后授权会在下次在线复核时自动吊销。</p>
+    <p class="hint" style="margin-top:14px">本部署已开启强制授权：激活前仅本页与登录页可访问。
+      取消 Star 后授权会在下次在线复核时自动吊销，届时回到本页重新领取即可。</p>
     {% else %}
-    <p class="hint" style="margin-top:14px">当前部署未启用强制授权（可正常使用）；
-      设置 AUDIO_HUB_LICENSE_REQUIRED=1 可开启强制。</p>
+    <p class="hint" style="margin-top:14px">本部署关闭了强制授权（AUDIO_HUB_LICENSE_REQUIRED=0），可正常使用。</p>
     {% endif %}
     <p class="hint"><a href="/login">跳过，先去登录 →</a></p>
     {% endif %}

@@ -84,13 +84,14 @@ def test_verify_without_public_key_returns_none(keypair, monkeypatch):
 
 
 def test_required_flag_parsing(monkeypatch):
-    for v in ("1", "true", "YES"):
+    """显式 =0/false/no/off 关闭；其他值（含未设置）= 默认强制开启。"""
+    for v in ("0", "false", "no", "off"):
         monkeypatch.setenv("AUDIO_HUB_LICENSE_REQUIRED", v)
-        assert lic.license_required() is True
-    monkeypatch.setenv("AUDIO_HUB_LICENSE_REQUIRED", "0")
-    assert lic.license_required() is False
+        assert lic.license_required() is False
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_REQUIRED", "1")
+    assert lic.license_required() is True
     monkeypatch.delenv("AUDIO_HUB_LICENSE_REQUIRED")
-    assert lic.license_required() is False
+    assert lic.license_required() is True   # v0.17 起默认强制
 
 
 # ── 集成：激活页与强制门禁 ──────────────────────────────────

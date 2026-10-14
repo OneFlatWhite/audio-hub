@@ -48,10 +48,11 @@ def public_key_b64() -> str:
 
 
 def license_required() -> bool:
-    """是否启用强制门禁（环境变量 AUDIO_HUB_LICENSE_REQUIRED）。"""
-    return os.environ.get("AUDIO_HUB_LICENSE_REQUIRED", "").strip().lower() in (
-        "1", "true", "yes", "on",
-    )
+    """是否启用强制门禁。**v0.17 起默认开启**：未激活授权码前只放行
+    激活 / 登录 / 初始化页。开发或特殊场景可显式关闭：
+    AUDIO_HUB_LICENSE_REQUIRED=0（false/no/off 同义）。"""
+    raw = os.environ.get("AUDIO_HUB_LICENSE_REQUIRED", "").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def verify_url() -> str:

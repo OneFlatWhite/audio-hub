@@ -3,7 +3,7 @@
 ## 授权怎么拿（免费，三步）
 
 1. 给 [OneFlatWhite/audio-hub](https://github.com/OneFlatWhite/audio-hub) 点一个 **Star**；
-2. 打开发放页（部署者配置的地址），GitHub 登录——自动校验 Star，秒发授权码；
+2. 打开发放页 `https://floral-cloud-f4bd.coldbrewliu.workers.dev`，GitHub 登录——自动校验 Star，秒发授权码；
 3. 打开 audio-hub 的 `/activate`，粘贴 `AH1.` 开头的授权码，激活。
 
 ## 授权会过期 / 被吊销吗

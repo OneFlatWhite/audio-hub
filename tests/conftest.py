@@ -34,3 +34,10 @@ async def test_db(tmp_path: Path):
     conn = await init_db(db_path)
     yield conn
     await conn.close()
+
+
+@pytest.fixture(autouse=True)
+def _license_gate_off(monkeypatch):
+    """默认关闭授权门禁：绝大多数页面/接口测试无需激活授权码。
+    授权机制专项测试在用例内自行 monkeypatch 覆盖本默认值。"""
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_REQUIRED", "0")

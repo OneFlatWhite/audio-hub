@@ -387,7 +387,10 @@ python -m audio_hub.cli verify-adapters
   `AUDIO_HUB_NO_UPDATE_CHECK=1` 可关）；
 - **Docker 镜像发布**：推 `v*` 标签自动构建多架构镜像到
   `ghcr.io/oneflatwhite/audio-hub`（工作流见 [.github/workflows/docker.yml](.github/workflows/docker.yml)）；
-- **授权码（star 换码）**：源码全量开放、运行需免费授权码——给仓库点 Star 后
+- **授权码（star 换码）**：源码全量开放、运行需免费授权码——
+  **发放页：<https://floral-cloud-f4bd.coldbrewliu.workers.dev>**
+  （给仓库点 Star 后，打开发放页用 GitHub 登录，秒发授权码；
+  取消 Star 授权自动吊销）。给仓库点 Star 后
   经发放页自动签出，`/activate` 页粘贴激活；机制与自建发放服务见
   [docs/LICENSE-ACTIVATION.md](docs/LICENSE-ACTIVATION.md)，许可条款见 [LICENSE](LICENSE)
   （可运行、可学习、可提 Issue；不得修改后再分发或移除授权机制）；
