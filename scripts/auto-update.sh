@@ -7,10 +7,10 @@
 #   失败自动回滚旧版本与 .env → 可选 webhook 通知结果。
 # 程序本体绝不自我升级、不需要 docker.sock；升级永远发生在宿主机这一层。
 #
-# 用法（全部可用环境变量覆盖）：
+# 用法（全部可用环境变量覆盖，也可直接写在 .env 里兜底——cron/非交互 SSH 环境变量常为空）：
 #   AHUB_DIR=/volume1/docker/audio-hub       # 放 docker-compose.yml 与 .env 的目录
 #   AHUB_SERVICE=audio-hub                   # compose 服务名
-#   AHUB_HEALTH_URL=http://127.0.0.1:8090/health
+#   AHUB_HEALTH_URL=http://127.0.0.1:8090/health   # 注意端口以 compose 映射的宿主机端口为准
 #   AHUB_CONFIG_DIR=                         # 默认 $AHUB_DIR/config
 #   AHUB_KEEP_BACKUPS=5                      # config 备份保留份数
 #   AHUB_NOTIFY_WEBHOOK=                     # 可选：POST {"content": "..."} 通知
@@ -18,10 +18,11 @@
 #   30 4 * * * AHUB_DIR=/volume1/docker/audio-hub bash /volume1/docker/audio-hub/auto-update.sh >> /volume1/docker/audio-hub/auto-update.log 2>&1
 set -uo pipefail
 
+# 群晖等非交互 SSH / cron 环境的 PATH 常缺 /usr/local/bin（docker 所在处），
+# 缺了它所有 docker 调用都会静默 "command not found"，表现为假升级/假回滚。
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
 AHUB_DIR="${AHUB_DIR:-/volume1/docker/audio-hub}"
-AHUB_SERVICE="${AHUB_SERVICE:-audio-hub}"
-AHUB_HEALTH_URL="${AHUB_HEALTH_URL:-http://127.0.0.1:8090/health}"
-AHUB_CONFIG_DIR="${AHUB_CONFIG_DIR:-$AHUB_DIR/config}"
 AHUB_KEEP_BACKUPS="${AHUB_KEEP_BACKUPS:-5}"
 AHUB_NOTIFY_WEBHOOK="${AHUB_NOTIFY_WEBHOOK:-}"
 GH_LATEST_API="${GH_LATEST_API:-https://api.github.com/repos/OneFlatWhite/audio-hub/releases/latest}"
@@ -34,6 +35,15 @@ die() { log "❌ $*"; notify "audio-hub 自动升级失败：$*"; exit 1; }
 cd "$AHUB_DIR" || die "目录不存在: $AHUB_DIR"
 [ -f docker-compose.yml ] || [ -f compose.yaml ] || die "找不到 docker-compose.yml"
 [ -f .env ] || die "缺少 .env（内含 AHUB_VERSION=版本号，参考部署文档）"
+
+# .env 里的同名键作兜底（cron/非交互 SSH 常没有环境变量）；显式传入的环境变量优先
+_env_val() { grep -E "^$1=" .env | head -1 | cut -d= -f2- | tr -d '"' | tr -d ' '; }
+AHUB_SERVICE="${AHUB_SERVICE:-$(_env_val AHUB_SERVICE)}"
+AHUB_HEALTH_URL="${AHUB_HEALTH_URL:-$(_env_val AHUB_HEALTH_URL)}"
+AHUB_CONFIG_DIR="${AHUB_CONFIG_DIR:-$(_env_val AHUB_CONFIG_DIR)}"
+AHUB_SERVICE="${AHUB_SERVICE:-audio-hub}"
+AHUB_HEALTH_URL="${AHUB_HEALTH_URL:-http://127.0.0.1:8090/health}"
+AHUB_CONFIG_DIR="${AHUB_CONFIG_DIR:-$AHUB_DIR/config}"
 
 cur=$(grep -E '^AHUB_VERSION=' .env | head -1 | cut -d= -f2 | tr -d '"' | tr -d ' ')
 [ -n "$cur" ] || die ".env 里没有 AHUB_VERSION"
