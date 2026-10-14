@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write      # 创建 GitHub Release 需要；镜像发布走 packages:write
   packages: write
 
 jobs:
