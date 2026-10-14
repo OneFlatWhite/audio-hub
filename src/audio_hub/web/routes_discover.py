@@ -2,8 +2,8 @@
 
 页面数据流：runner.adapters（已启用 + 认证通过）→ discover.aggregator.collect_wall
 （进程内 TTL 缓存，手动刷新有每站最短间隔）→ discover.covers.fill_covers 补封面。
-一键订阅只是订阅引擎的快捷入口：构造 WatchEntry 后复用 routes_subscriptions
-的 _search_one 立即搜一次。
+一键订阅只是订阅引擎的快捷入口：构造 WatchEntry 后首次搜索转后台
+（routes_subscriptions.kick_first_search），页面立即返回。
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from ..pipeline.title_parser import album_key, normalize_key
 from ..timeutil import utcnow
 from .deps import get_config, get_db, require_user, verify_csrf
 from .routes_pages import _common
-from .routes_subscriptions import _search_one
+from .routes_subscriptions import kick_first_search
 
 router = APIRouter(tags=["discover"])
 
@@ -59,6 +59,7 @@ DISCOUNT_TITLES = {
 
 _FLASH_OK = {
     "added": "订阅已添加",
+    "added_bg": "订阅已添加，首次搜索已转入后台执行，结果稍后见「命中记录」（不用守着页面）",
     "added_searched": "订阅已添加，并已完成首次搜索（结果见命中记录）",
     "added_dispatched": "订阅已添加，命中内容已立即派发下载器（见命中记录）",
     "added_no_sites": "订阅已添加，但当前没有可用站点，首次搜索未执行 —— 请到「站点中心」启用并通过认证",
@@ -301,9 +302,8 @@ async def discover_subscribe(
     request: Request,
     user: dict = Depends(verify_csrf),
     db=Depends(get_db),
-    config=Depends(get_config),
 ):
-    """一键订阅：卡片 → WatchEntry → 立即搜索一次（复用订阅中心的 search-now 调用方式）。"""
+    """一键订阅：卡片 → WatchEntry → 首次搜索转后台（页面立即返回）。"""
     form = await request.form()
     kind = (form.get("kind") or "").strip()
     if kind not in ("music", "audiobook"):
@@ -332,14 +332,8 @@ async def discover_subscribe(
 
     await repo.add_watch_entry(db, entry)
     logger.info(f"发现墙一键订阅（by {user['username']}）: {entry.sub_type.value} {entry.query!r}")
-    key = await _search_one(request, db, config, entry.id)
-    ok = {
-        "searched": "added_searched", "searched_dispatched": "added_dispatched",
-        "search_no_sites": "added_no_sites", "search_deferred": "added_deferred",
-    }.get(key, "added")
-    if key == "search_failed":
-        return _redirect(kind, err=key)
-    return _redirect(kind, ok=ok)
+    kick_first_search(request, entry.id)
+    return _redirect(kind, ok="added_bg")
 
 
 def _build_entry(kind: str, sub_type: str, artist: str, album: str) -> WatchEntry | None:

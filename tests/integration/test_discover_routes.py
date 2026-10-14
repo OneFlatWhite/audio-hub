@@ -116,6 +116,32 @@ def _all_entries() -> list[WatchEntry]:
     return _run(repo.list_watch_entries(app.state.db, enabled_only=False))
 
 
+_first_search_calls: list[tuple] = []
+
+
+def _record_first_search(request, watch_id):
+    """测试用替身：只记录后台首次搜索请求，由 fixture 返回的 flush 在测试线程同步跑完。
+
+    不能直接在应用事件循环里 asyncio.run（RuntimeError），所以拆成记录 + 手动 flush。
+    """
+    _first_search_calls.append((request, watch_id))
+
+
+@pytest.fixture
+def sync_first_search(monkeypatch):
+    # discover 路由 import 时绑定了名字，两个模块的引用都要换
+    _first_search_calls.clear()
+    monkeypatch.setattr(routes_discover, "kick_first_search", _record_first_search)
+    monkeypatch.setattr(routes_subscriptions, "kick_first_search", _record_first_search)
+
+    def flush():
+        while _first_search_calls:
+            request, watch_id = _first_search_calls.pop(0)
+            _run(routes_subscriptions._search_one(
+                request, app.state.db, app.state.config, watch_id))
+    return flush
+
+
 class _FakeCfg:
     auth_status = "valid"
     priority = 0
@@ -288,18 +314,20 @@ class TestRender:
 # ── 一键订阅 ────────────────────────────────────────────────
 
 class TestSubscribe:
-    def test_artist_subscribe_creates_and_searches(self, client, fake_wall):
+    def test_artist_subscribe_creates_and_searches(self, client, fake_wall, sync_first_search):
         _setup_admin(client)
         resp = _post(client, "/discover/subscribe", kind="music", sub_type="artist",
                      artist="周杰伦")
         assert resp.status_code == 303
-        assert resp.headers["location"].startswith("/discover?kind=music&ok=added_searched")
+        # 首次搜索已转后台（生产语义），flush 在测试线程同步跑完
+        assert resp.headers["location"].startswith("/discover?kind=music&ok=added_bg")
+        sync_first_search()
         entries = _all_entries()
         assert len(entries) == 1
         e = entries[0]
         assert e.sub_type == SubType.ARTIST and e.artist == "周杰伦" and e.query == "周杰伦"
         assert e.kind == WatchKind.MUSIC
-        # 立即搜索确实跑了
+        # 首次搜索确实跑了
         searches = [q for a in fake_wall.values() for q, _ in a.search_calls]
         assert "周杰伦" in searches
 
@@ -351,11 +379,13 @@ class TestSubscribe:
         assert resp.headers["location"] == "/discover?kind=music&err=empty"
         assert not _all_entries()
 
-    def test_subscribe_dispatches_immediately(self, client, fake_wall, monkeypatch):
+    def test_subscribe_dispatches_immediately(self, client, fake_wall, monkeypatch,
+                                              sync_first_search):
         """一键订阅的首次搜索命中后立刻调用派发入口（不等调度器下一轮）。
 
         dry_run 下任务是 SCORED，真实派发空转；这里验证的是「路由 → 派发入口」
         的接线存在——v0.7.6 前任务要等一个扫描周期才被调度器看见。
+        sync_first_search 把后台首次搜索拉回测试线程同步跑，dispatch 断言才确定。
         """
         calls: list[list] = []
 
@@ -368,6 +398,7 @@ class TestSubscribe:
         resp = _post(client, "/discover/subscribe", kind="music", sub_type="artist",
                      artist="周杰伦")
         assert resp.status_code == 303
+        sync_first_search()  # 后台首次搜索同步跑完
         assert calls and calls[0], "立即派发入口未被调用"
         assert all(t.watch_id for t in calls[0])
 

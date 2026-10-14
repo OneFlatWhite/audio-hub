@@ -71,7 +71,7 @@
 
   /* ── 待审队列：键盘操作（PRD §12.2 批量审核效率要求）──────
      键盘监听在 document 上只绑一份；游标与条目集合随局部刷新重建。 */
-  const review = { items: [], idx: -1 };
+  const review = { items: [], idx: -1, toggleCurrent: null };
 
   function paintReview() {
     review.items.forEach(function (el, i) { el.classList.toggle("cursor", i === review.idx); });
@@ -106,6 +106,7 @@
     else if (e.key === "k" || e.key === "K" || e.key === "ArrowUp") { e.preventDefault(); moveReview(-1); }
     else if (e.key === "a" || e.key === "A") { e.preventDefault(); actReview("accept"); }
     else if (e.key === "r" || e.key === "R") { e.preventDefault(); actReview("reject"); }
+    else if ((e.key === "x" || e.key === "X") && review.toggleCurrent) { e.preventDefault(); review.toggleCurrent(); }
   });
 
   /* ── 日志行级别判定：与 templates.py 的 loglevel 过滤器同一套规则 ──
@@ -167,7 +168,52 @@
     const list = root.querySelector("#review-list");
     review.items = list ? Array.from(list.querySelectorAll(".review-item:not(.done)")) : [];
     review.idx = review.items.length ? 0 : -1;
+    review.toggleCurrent = null;
     paintReview();
+
+    /* 待审批量选择：勾选态随计数刷新；提交前确认，拒绝强制选原因 */
+    const batchForm = root.querySelector("#batch-form");
+    if (batchForm && list) {
+      const selAll = root.querySelector("#sel-all");
+      const countEl = root.querySelector("#sel-count");
+      const boxes = function () { return Array.from(list.querySelectorAll(".ri-sel")); };
+      const checked = function () { return boxes().filter(function (b) { return b.checked; }); };
+      const refreshSel = function () {
+        const n = checked().length;
+        if (countEl) countEl.textContent = n ? "已选 " + n + " 项" : "未选择";
+        root.querySelectorAll("[data-batch]").forEach(function (b) { b.disabled = !n; });
+        if (selAll) selAll.checked = n > 0 && n === boxes().length;
+      };
+      list.addEventListener("change", function (e) {
+        if (e.target.classList && e.target.classList.contains("ri-sel")) refreshSel();
+      });
+      if (selAll) selAll.addEventListener("change", function () {
+        boxes().forEach(function (b) { b.checked = selAll.checked; });
+        refreshSel();
+      });
+      batchForm.addEventListener("submit", function (e) {
+        const n = checked().length;
+        if (!n) { e.preventDefault(); return; }
+        const act = e.submitter && e.submitter.value === "reject" ? "reject" : "accept";
+        if (act === "reject") {
+          const reasonSel = root.querySelector("select[name=reason][form=batch-form]");
+          if (reasonSel && !reasonSel.value) {
+            e.preventDefault(); flash("请先选择批量拒绝原因", true); return;
+          }
+        }
+        const msg = act === "accept"
+          ? "将对勾选的 " + n + " 项执行采纳（实跑下会真实派发下载），确认？"
+          : "将以同一原因拒绝勾选的 " + n + " 项，确认？";
+        if (!window.confirm(msg)) e.preventDefault();
+      });
+      review.toggleCurrent = function () {
+        const el = review.items[review.idx];
+        if (!el) return;
+        const box = el.querySelector(".ri-sel");
+        if (box) { box.checked = !box.checked; refreshSel(); }
+      };
+      refreshSel();
+    }
 
     /* 新内容带下载进度条时立即拉一次，不等下一个 5s 周期 */
     if (root.querySelector(".dlbar-wrap")) pullProgress();

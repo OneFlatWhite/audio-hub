@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 
 from fastapi import APIRouter, Depends, Request
@@ -32,6 +33,7 @@ router = APIRouter(tags=["subscriptions"])
 
 _FLASH_OK = {
     "added": "订阅已添加",
+    "added_bg": "订阅已添加，首次搜索已转入后台执行，结果稍后见「命中记录」（不用守着页面）",
     "added_searched": "订阅已添加，并已完成首次搜索（结果见命中记录）",
     "added_no_sites": "订阅已添加，但当前没有可用站点，首次搜索未执行 —— 请到「站点中心」启用并通过认证",
     "added_deferred": "订阅已添加，本轮站点请求预算已用完，稍后自动搜索",
@@ -307,6 +309,24 @@ async def _search_one(request: Request, db, config, watch_id: str) -> str:
     return "searched"
 
 
+def kick_first_search(request: Request, watch_id: str) -> None:
+    """首次搜索转后台执行：跨站搜索是网络操作，同步等会让 POST 转圈数秒。
+
+    结果照常落命中记录 / 待审队列（dry_run 下为 SCORED 任务），
+    周期性的 subscription_scan 也会兜底再扫，丢不了。
+    """
+    async def _job() -> None:
+        try:
+            key = await _search_one(
+                request, request.app.state.db, request.app.state.config, watch_id,
+            )
+            logger.info(f"订阅 {watch_id[:8]} 首次后台搜索完成: {key}")
+        except Exception as e:  # noqa: BLE001 - 后台搜索失败只记日志，周期任务会再扫
+            logger.exception(f"订阅 {watch_id[:8]} 首次后台搜索异常: {e}")
+
+    asyncio.create_task(_job())
+
+
 # ── 页面 ────────────────────────────────────────────────────
 
 @router.get("/watchlist", response_class=HTMLResponse)
@@ -372,7 +392,7 @@ async def subscription_detail(
 @router.post("/watchlist")
 async def watchlist_add(
     request: Request, user: dict = Depends(verify_csrf),
-    db=Depends(get_db), config=Depends(get_config),
+    db=Depends(get_db),
 ):
     form = await request.form()
     entry, err = await _build_entry(db, form, None)
@@ -385,12 +405,9 @@ async def watchlist_add(
         sid = await repo.add_series(db, SeriesEntry(watch_id=entry.id, name=entry.query))
         await repo.set_watch_series(db, entry.id, sid)
 
-    key = await _search_one(request, db, config, entry.id)
-    ok = {
-        "searched": "added_searched", "search_no_sites": "added_no_sites",
-        "search_deferred": "added_deferred",
-    }.get(key, "added")
-    return _redirect("/watchlist", ok=ok)
+    # 首次搜索转后台（跨站网络操作，同步等会让页面转圈数秒）
+    kick_first_search(request, entry.id)
+    return _redirect("/watchlist", ok="added_bg")
 
 
 @router.post("/watchlist/{entry_id}")

@@ -443,10 +443,29 @@ details.menu[open] > summary { border-color: var(--accent); color: var(--accent)
 }
 .review-item.cursor { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
 .review-item.done { opacity: .45; }
+.review-item { position: relative; padding-left: 40px; }
+.ri-check { position: absolute; left: 13px; top: 14px; cursor: pointer; }
+.ri-check input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 .ri-title { font-weight: 600; margin-bottom: 6px; word-break: break-all; }
 .ri-meta { color: var(--muted); font-size: 12px; display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 9px; }
 .ri-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ri-actions select { width: auto; min-width: 168px; padding: 4px 8px; font-size: 12px; }
+
+/* 批量操作条：吸顶跟随滚动，长队列不用回顶部操作 */
+.batchbar {
+  position: sticky; top: 10px; z-index: 6;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 14px; margin-bottom: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.bb-selall { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.bb-selall input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+.bb-count { color: var(--muted); font-size: 12.5px; min-width: 58px; }
+.bb-spacer { flex: 1; }
+.bb-note { width: 140px; padding: 4px 8px; font-size: 12px; }
+.batchbar select { width: auto; padding: 4px 8px; font-size: 12px; }
+.batchbar button:disabled { opacity: .45; cursor: not-allowed; }
 
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
 .filters a {

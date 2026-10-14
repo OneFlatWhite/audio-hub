@@ -526,6 +526,89 @@ class TestReviewQueue:
         assert resp.status_code == 403
 
 
+# ── 待审队列：批量裁决 ──────────────────────────────────────
+
+class TestReviewBatch:
+    def _batch_post(self, client, action, ids, reason="", note=""):
+        # httpx 的 dict+list 值会编码成 ids=a&ids=b 重复字段；list-of-tuples 已废弃
+        data = {"action": action, "ids": list(ids), "reason": reason, "note": note,
+                "csrf_token": _csrf(client)}
+        return client.post("/review/batch", data=data, follow_redirects=False)
+
+    def test_batch_accept_in_dryrun(self, client):
+        _setup_admin(client)
+        tid1, tid2 = _seed_review_task(title="批量甲"), _seed_review_task(title="批量乙")
+        resp = self._batch_post(client, "accept", [tid1, tid2])
+        assert resp.status_code == 303
+        assert "ok=batch_accepted" in resp.headers["location"]
+        assert "2%20%E9%A1%B9%E6%88%90%E5%8A%9F" in resp.headers["location"]  # "2 项成功"
+        import asyncio
+        for tid in (tid1, tid2):
+            task = asyncio.run(_get_task(tid))
+            assert task["reject_reason"] == "accepted_dry_run"
+
+    def test_batch_reject_records_decisions(self, client):
+        _setup_admin(client)
+        tid1, tid2 = _seed_review_task(title="批量丙"), _seed_review_task(title="批量丁")
+        resp = self._batch_post(client, "reject", [tid1, tid2],
+                                reason="wrong_version", note="是合辑")
+        assert resp.status_code == 303
+        assert "ok=batch_rejected" in resp.headers["location"]
+        import asyncio
+        for tid in (tid1, tid2):
+            task = asyncio.run(_get_task(tid))
+            assert task["state"] == "rejected"
+            assert "wrong_version" in task["reject_reason"]
+
+        async def count_decisions():
+            async with app.state.db.execute(
+                "SELECT COUNT(*) AS n FROM review_decisions WHERE decision='reject'"
+            ) as cur:
+                return (await cur.fetchone())["n"]
+        assert asyncio.run(count_decisions()) >= 2
+
+    def test_batch_reject_requires_valid_reason(self, client):
+        _setup_admin(client)
+        tid = _seed_review_task()
+        resp = self._batch_post(client, "reject", [tid], reason="not_a_real_reason")
+        assert resp.status_code == 303
+        assert "err=bad_reason" in resp.headers["location"]
+
+    def test_batch_empty_ids(self, client):
+        _setup_admin(client)
+        resp = self._batch_post(client, "accept", [])
+        assert resp.status_code == 303
+        assert "err=batch_empty" in resp.headers["location"]
+
+    def test_batch_bad_action(self, client):
+        _setup_admin(client)
+        tid = _seed_review_task()
+        resp = self._batch_post(client, "delete", [tid])
+        assert resp.status_code == 303
+        assert "err=batch_bad_action" in resp.headers["location"]
+
+    def test_batch_requires_csrf(self, client):
+        _setup_admin(client)
+        tid = _seed_review_task()
+        resp = client.post("/review/batch",
+                           data={"action": "accept", "ids": [tid]},
+                           follow_redirects=False)
+        assert resp.status_code == 403
+
+    def test_batch_partial_failure_counted(self, client):
+        """混入一个不存在的 id：整批不中断，detail 里如实报 1 项失败。"""
+        _setup_admin(client)
+        tid = _seed_review_task()
+        resp = self._batch_post(client, "accept", [tid, str(uuid.uuid4())])
+        assert resp.status_code == 303
+        assert "ok=batch_accepted" in resp.headers["location"]
+        # "1 项成功，1 项失败"
+        assert "1%20%E9%A1%B9%E5%A4%B1%E8%B4%A5" in resp.headers["location"]
+        import asyncio
+        task = asyncio.run(_get_task(tid))
+        assert task["reject_reason"] == "accepted_dry_run"
+
+
 # ── 待审采纳（实跑）：馒头占位 URL 经 genDlToken 换取直链后才交给 qb ───────
 
 _MTEAM_PLACEHOLDER = "https://api.m-team.cc/api/torrent/genDlToken?id=123"

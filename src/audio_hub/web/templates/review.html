@@ -9,22 +9,45 @@
   只有 medium / low 置信、或订阅关闭了自动下载的候选才会进这里等你裁决。
   队列长期为空说明当前订阅全是自动派发，属正常现象。
 </p>
+
+{# 批量操作条：勾选框经 form 属性关联到这个空表单，与条内的单条表单互不嵌套 #}
+<form id="batch-form" method="post" action="/review/batch"></form>
+<div class="batchbar">
+  <label class="bb-selall"><input type="checkbox" id="sel-all"> 全选</label>
+  <span class="bb-count" id="sel-count">未选择</span>
+  <span class="bb-spacer"></span>
+  <input type="hidden" name="csrf_token" value="{{ csrf }}" form="batch-form">
+  <button class="btn-ok btn-sm" type="submit" form="batch-form"
+          name="action" value="accept" data-batch="accept" disabled>采纳所选</button>
+  <select name="reason" form="batch-form" aria-label="批量拒绝原因" title="批量拒绝共用的原因">
+    <option value="">批量拒绝原因…</option>
+    {% for val, label in reject_reasons %}
+    <option value="{{ val }}">{{ label }}</option>
+    {% endfor %}
+  </select>
+  <input name="note" form="batch-form" placeholder="备注（可选）" class="bb-note">
+  <button class="btn-err btn-sm" type="submit" form="batch-form"
+          name="action" value="reject" data-batch="reject" disabled>拒绝所选</button>
+</div>
+
 <div class="panel">
   <h2>键盘操作</h2>
   <p class="hint">
     <span class="kbd">J</span>/<span class="kbd">↓</span> 下一条 ·
     <span class="kbd">K</span>/<span class="kbd">↑</span> 上一条 ·
+    <span class="kbd">X</span> 勾选 ·
     <span class="kbd">A</span> 采纳 ·
     <span class="kbd">R</span> 拒绝（需先选原因）
   </p>
   <p class="hint">按置信度倒序排列。拒绝原因是规则迭代的唯一输入，请务必选择准确的一项。</p>
 </div>
-{% endif %}
 
-{% if items %}
 <div id="review-list">
   {% for t in items %}
   <div class="review-item" data-id="{{ t.id }}">
+    <label class="ri-check" title="勾选以批量处理">
+      <input type="checkbox" class="ri-sel" name="ids" value="{{ t.id }}" form="batch-form">
+    </label>
     <div class="ri-title">{{ t.title }}</div>
     <div class="ri-meta">
       <span>站点 <b>{{ t.site }}</b></span>
@@ -74,6 +97,7 @@
     <p class="hint">
       <span class="kbd">J</span>/<span class="kbd">↓</span> 下一条 ·
       <span class="kbd">K</span>/<span class="kbd">↑</span> 上一条 ·
+      <span class="kbd">X</span> 勾选 ·
       <span class="kbd">A</span> 采纳 ·
       <span class="kbd">R</span> 拒绝（需先选原因）
     </p>

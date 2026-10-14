@@ -60,6 +60,8 @@ _FLASH_OK = {
     "deleted": "订阅项已删除",
     "accepted": "已采纳",
     "rejected": "已拒绝",
+    "batch_accepted": "批量采纳完成",
+    "batch_rejected": "批量拒绝完成",
     "run_once": "已手动触发一轮，结果见总览与命中记录",
     "synced": "已同步下载器状态，完成的任务已推进归档",
     "password": "密码已修改",
@@ -79,6 +81,8 @@ _FLASH_ERR = {
     "empty": "查询词不能为空",
     "notfound": "记录不存在",
     "bad_reason": "请选择有效的拒绝原因",
+    "batch_empty": "请先勾选要处理的条目",
+    "batch_bad_action": "无效的批量动作",
     "dispatch_failed": "派发失败，详见命中记录的错误信息",
     # 采纳时经站点适配器换取下载直链（馒头 genDlToken）失败，任务已标记 failed
     "resolve_failed": "换取下载直链失败（站点适配器报错），详见命中记录的错误信息",
@@ -339,12 +343,43 @@ async def review_page(
     rank = {"high": 0, "medium": 1, "low": 2}
     items.sort(key=lambda r: (rank.get(r["confidence"], 3), -(r["score"] or 0)))
     ctx = await _common(request, db, config, user)
+    flash_ok = _flash(request, "ok")
+    detail = request.query_params.get("detail")
+    if flash_ok and detail:
+        flash_ok = f"{flash_ok} —— {detail}"
     ctx.update({
         "active": "review",
         "items": items, "reject_reasons": REJECT_REASONS, "count": len(items),
-        "flash_ok": _flash(request, "ok"), "flash_err": _flash(request, "err"),
+        "flash_ok": flash_ok, "flash_err": _flash(request, "err"),
     })
     return templates.TemplateResponse(request, "review.html", ctx)
+
+
+async def _accept_row(db, config, dispatcher, row) -> str | None:
+    """采纳单条：dry_run 仅标记；实跑真实派发。成功返回 None，失败返回 err 键。"""
+    if config.dry_run:
+        await repo.set_task_state(db, row["id"], "scored", reject_reason="accepted_dry_run")
+        logger.info(f"[DRY-RUN] 采纳待审项: {row['title'][:60]!r}")
+        # 订阅引擎送进待审的命中也要回写：否则详情页永远停在 review
+        await repo.set_hit_task(db, row["info_hash"], row["id"], HitDecision.DISPATCHED)
+        return None
+    # 派发走 runner.dispatcher（注册表解析下载器 + 与流水线同一套适配器直链换取），
+    # 不再读 app.state.qb_client —— 那只是默认实例别名，且落盘参数要按任务归属实例取。
+    # runner 未就绪时传 None → _dispatch_task 以「派发器未就绪」失败而非 500。
+    err = await _dispatch_task(db, config, row, dispatcher)
+    if err:
+        return err
+    await _record_decision(db, row, "accept", None)
+    return None
+
+
+async def _reject_row(db, row, reason: str, note: str) -> None:
+    """拒绝单条：原因回流供规则迭代（PRD §12.2）。"""
+    await repo.set_task_state(db, row["id"], "rejected",
+                              reject_reason=f"{reason}:{note}".rstrip(":") if note else reason)
+    await repo.set_hit_task(db, row["info_hash"], row["id"], HitDecision.REJECTED)
+    await _record_decision(db, row, "reject", reason)
+    logger.info(f"拒绝待审项: reason={reason} title={row['title'][:60]!r}")
 
 
 @router.post("/review/{task_id}/accept")
@@ -360,21 +395,10 @@ async def review_accept(
     if row is None:
         return RedirectResponse("/review?err=notfound", status_code=303)
 
-    if config.dry_run:
-        await repo.set_task_state(db, task_id, "scored", reject_reason="accepted_dry_run")
-        logger.info(f"[DRY-RUN] 采纳待审项: {row['title'][:60]!r}")
-        # 订阅引擎送进待审的命中也要回写：否则详情页永远停在 review
-        await repo.set_hit_task(db, row["info_hash"], row["id"], HitDecision.DISPATCHED)
-    else:
-        # 派发走 runner.dispatcher（注册表解析下载器 + 与流水线同一套适配器直链换取），
-        # 不再读 app.state.qb_client —— 那只是默认实例别名，且落盘参数要按任务归属实例取。
-        # runner 未就绪时传 None → _dispatch_task 以「派发器未就绪」失败而非 500。
-        dispatcher = getattr(getattr(request.app.state, "runner", None), "dispatcher", None)
-        err = await _dispatch_task(db, config, row, dispatcher)
-        if err:
-            return RedirectResponse(f"/review?err={err}", status_code=303)
-
-    await _record_decision(db, row, "accept", None)
+    dispatcher = getattr(getattr(request.app.state, "runner", None), "dispatcher", None)
+    err = await _accept_row(db, config, dispatcher, row)
+    if err:
+        return RedirectResponse(f"/review?err={err}", status_code=303)
     return RedirectResponse("/review?ok=accepted", status_code=303)
 
 
@@ -395,12 +419,51 @@ async def review_reject(
     if row is None:
         return RedirectResponse("/review?err=notfound", status_code=303)
 
-    await repo.set_task_state(db, task_id, "rejected",
-                             reject_reason=f"{reason}:{note}".rstrip(":") if note else reason)
-    await repo.set_hit_task(db, row["info_hash"], row["id"], HitDecision.REJECTED)
-    await _record_decision(db, row, "reject", reason)
-    logger.info(f"拒绝待审项: reason={reason} title={row['title'][:60]!r}")
+    await _reject_row(db, row, reason, note)
     return RedirectResponse("/review?ok=rejected", status_code=303)
+
+
+@router.post("/review/batch")
+async def review_batch(
+    request: Request,
+    action: str = Form(...),
+    ids: list[str] = Form(default=[]),
+    reason: str = Form(default=""),
+    note: str = Form(default=""),
+    user: dict = Depends(verify_csrf),
+    db=Depends(get_db),
+    config=Depends(get_config),
+):
+    """批量裁决：同一动作套用到所有勾选条目。单项失败不中断整批，计数回报。"""
+    ids = ids[:500]  # 页面最多渲染 500 条，超出视为异常请求直接截断
+    if not ids:
+        return RedirectResponse("/review?err=batch_empty", status_code=303)
+    if action not in ("accept", "reject"):
+        return RedirectResponse("/review?err=batch_bad_action", status_code=303)
+    if action == "reject" and reason not in {r[0] for r in REJECT_REASONS}:
+        return RedirectResponse("/review?err=bad_reason", status_code=303)
+
+    dispatcher = getattr(getattr(request.app.state, "runner", None), "dispatcher", None)
+    ok_n = fail_n = 0
+    for tid in ids:
+        row = await _get_task(db, tid)
+        if row is None:
+            fail_n += 1
+            continue
+        if action == "accept":
+            err = await _accept_row(db, config, dispatcher, row)
+            if err:
+                fail_n += 1
+                continue
+        else:
+            await _reject_row(db, row, reason, note)
+        ok_n += 1
+    logger.info(f"批量{action}: 成功 {ok_n} / 失败 {fail_n}")
+
+    from urllib.parse import quote
+    key = "batch_accepted" if action == "accept" else "batch_rejected"
+    detail = f"{ok_n} 项成功" + (f"，{fail_n} 项失败（详见命中记录）" if fail_n else "")
+    return RedirectResponse(f"/review?ok={key}&detail={quote(detail)}", status_code=303)
 
 
 # ── /sites 站点中心：v0.6 起在 routes_sites（列表 / 向导 / 测试 / 门禁）──

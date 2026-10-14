@@ -89,6 +89,30 @@ def _setup_admin(client: TestClient, username="ops", password="strongpass123"):
     return resp
 
 
+_first_search_calls: list[tuple] = []
+
+
+def _record_first_search(request, watch_id):
+    """测试用替身：只记录后台首次搜索请求，由 fixture 返回的 flush 在测试线程同步跑完。
+
+    不能直接在应用事件循环里 asyncio.run（RuntimeError），所以拆成记录 + 手动 flush。
+    """
+    _first_search_calls.append((request, watch_id))
+
+
+@pytest.fixture
+def sync_first_search(monkeypatch):
+    _first_search_calls.clear()
+    monkeypatch.setattr(routes_subscriptions, "kick_first_search", _record_first_search)
+
+    def flush():
+        while _first_search_calls:
+            request, watch_id = _first_search_calls.pop(0)
+            _run(routes_subscriptions._search_one(
+                request, app.state.db, app.state.config, watch_id))
+    return flush
+
+
 def _csrf(client: TestClient) -> str:
     page = client.get("/dashboard")
     m = re.search(r'name="csrf-token" content="([^"]+)"', page.text)
@@ -257,8 +281,8 @@ class TestCreate:
         resp = _post(client, "/watchlist", sub_type="artist", query="周杰伦",
                      aliases="Jay Chou, 周杰倫", search_interval_hours="12")
         assert resp.status_code == 303
-        # 无可用站点：明确提示而不是静默
-        assert resp.headers["location"] == "/watchlist?ok=added_no_sites"
+        # 首次搜索转后台（v0.18.1）：路由立即返回，不再同步等跨站搜索
+        assert resp.headers["location"] == "/watchlist?ok=added_bg"
         e = _find_watch("周杰伦")
         assert e.sub_type == SubType.ARTIST and e.artist == "周杰伦"
         assert e.kind == WatchKind.MUSIC
@@ -366,11 +390,13 @@ class TestCreate:
         html = client.get("/watchlist?err=bad_interval").text
         assert "搜索间隔" in html
 
-    def test_create_triggers_immediate_search(self, client, fake_adapter):
+    def test_create_triggers_immediate_search(self, client, fake_adapter, sync_first_search):
+        """后台首次搜索仍会真正执行（flush 在测试线程同步跑完以断言副作用）。"""
         _setup_admin(client)
         resp = _post(client, "/watchlist", sub_type="artist", query="周杰伦",
                      aliases="Jay Chou", auto_download="true")
-        assert resp.headers["location"] == "/watchlist?ok=added_searched"
+        assert resp.headers["location"] == "/watchlist?ok=added_bg"
+        sync_first_search()  # 后台首次搜索在测试线程同步跑完
         # 歌手名 + 别名各搜一次
         assert [q for q, _ in fake_adapter.search_calls] == ["周杰伦", "Jay Chou"]
         e = _find_watch("周杰伦")
@@ -385,7 +411,7 @@ class TestCreate:
         assert all(t["state"] == TaskState.SCORED.value and t["reject_reason"] == engine.DRY_RUN_REASON
                    for t in tasks)
         html = client.get(resp.headers["location"]).text
-        assert "完成首次搜索" in html
+        assert "转入后台" in html
 
 
 # ── 详情 ────────────────────────────────────────────────────
