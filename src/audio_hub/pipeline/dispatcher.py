@@ -375,7 +375,7 @@ class Dispatcher:
         from qbittorrentapi import Conflict409Error, LoginFailed
         from qbittorrentapi.exceptions import APIConnectionError
 
-        client = target.handle.client
+        client = await target.handle.ensure_client()
         if client is None:
             logger.error(f"实跑模式但下载器 {target.downloader_id} 客户端不可用")
             return False, ERR_DOWNLOADER_UNAVAILABLE, None
@@ -406,10 +406,12 @@ class Dispatcher:
                 "tags": target.tags,
                 "is_paused": False,
             }
+            # 客户端是同步 requests 库：必须经 handle.call 进线程（per-client 锁
+            # 串行化），否则一次扫描多个命中会把事件循环卡成串行 HTTP
             if blob is not None:
-                client.torrents_add(torrent_files=blob, **add_kwargs)
+                await target.handle.call(client.torrents_add, torrent_files=blob, **add_kwargs)
             else:
-                client.torrents_add(urls=url, **add_kwargs)
+                await target.handle.call(client.torrents_add, urls=url, **add_kwargs)
             logger.info(f"已派发到 {target.downloader_id} | {t.site} | {t.title[:60]!r}")
             return True, "", real_hash
         except Conflict409Error:

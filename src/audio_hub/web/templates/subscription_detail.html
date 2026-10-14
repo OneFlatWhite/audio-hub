@@ -11,7 +11,7 @@
     <h2 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text)">{{ e.query }}</h2>
     {% if e.sub_type.value == 'album' and e.artist %}<span class="muted">{{ e.artist }}</span>{% endif %}
     {% if e.author %}<span class="muted">{{ e.author }}</span>{% endif %}
-    <span class="pill {{ 'high' if st == 'completed' else ('medium' if st == 'active' else '') }}">{{ status_labels.get(st, st) }}</span>
+    <span class="pill {{ 'high' if st == 'completed' else ('neutral' if st == 'active' else '') }}">{{ status_labels.get(st, st) }}</span>
     {% if not e.enabled %}<span class="pill exclude">停用</span>{% endif %}
     <span class="hint" style="margin:0 0 0 auto"><a href="/watchlist">← 返回列表</a></span>
   </div>
@@ -52,24 +52,31 @@
       <button class="btn-sm" type="submit">{{ '重新追踪' if st == 'completed' else '恢复' }}</button>
     </form>
     {% endif %}
-    <form method="post" action="/watchlist/{{ e.id }}/toggle">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <button class="btn-sm" type="submit">{{ '停用' if e.enabled else '启用' }}</button>
-    </form>
-    {% if user.is_admin %}
-    <form method="post" action="/watchlist/{{ e.id }}/delete">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <button class="btn-sm btn-err" type="submit"
-              data-confirm="删除订阅「{{ e.query }}」？命中记录一并清除，已建任务保留。">删除</button>
-    </form>
-    {% endif %}
+    {# 停用与删除是低频且半危险的操作，收进 ⋯ 菜单，
+       消除「暂停 / 停用」两个开关并排的语义混淆 #}
+    <details class="menu">
+      <summary title="更多操作">⋯</summary>
+      <div class="menu-list">
+        <form method="post" action="/watchlist/{{ e.id }}/toggle">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <button type="submit">{{ '停用' if e.enabled else '启用' }}</button>
+        </form>
+        {% if user.is_admin %}
+        <form method="post" action="/watchlist/{{ e.id }}/delete">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <button class="btn-err" type="submit"
+                  data-confirm="删除订阅「{{ e.query }}」？命中记录一并清除，已建任务保留。">删除</button>
+        </form>
+        {% endif %}
+      </div>
+    </details>
   </div>
 </div>
 
-<div class="detail-grid">
-  <div>
-    <div class="panel">
-      <h2>命中记录（{{ decision_counts.values()|sum }}）</h2>
+{# 单列流：命中记录 → 折叠的编辑面板 → 已获得专辑。
+   编辑表单低频使用，右侧常驻会挤压主内容。 #}
+<div class="panel">
+  <h2>命中记录（{{ decision_counts.values()|sum }}）</h2>
       <div class="filters">
         <a href="/watchlist/{{ e.id }}" class="{{ 'active' if not hit_filter }}">全部</a>
         {% for val, name in decision_labels.items() %}
@@ -102,37 +109,35 @@
         {% endfor %}
         </tbody>
       </table>
-    </div>
+</div>
 
-    <div class="panel">
-      <h2>已获得专辑（{{ owned_albums|length }}）</h2>
-      {% if owned_albums %}
-      <table>
-        <thead><tr><th>专辑键</th><th>最近标题</th><th>最佳音质</th><th class="num">版本</th><th>获得于</th></tr></thead>
-        <tbody>
-        {% for a in owned_albums %}
-          <tr>
-            <td class="mono">{{ a.album_key }}</td>
-            <td><div class="trunc" style="max-width:260px" title="{{ a.title }}">{{ a.title }}</div><div class="hint" style="margin-top:1px">{{ a.site }}</div></td>
-            <td>{{ a.quality_tag or '—' }}</td>
-            <td class="num">{{ a.versions }}</td>
-            <td class="mono" style="font-size:12px;white-space:nowrap">{{ a.obtained_at.strftime('%m-%d %H:%M') if a.obtained_at else '—' }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-      <p class="hint">同一专辑键的候选会被跳过；勾选「洗版」后仅当音质高于此处记录才会再次派发。</p>
-      {% else %}
-      <div class="empty" style="padding:18px 0">还没有派发过任何专辑</div>
-      {% endif %}
-    </div>
+<details class="newsub">
+  <summary>编辑订阅</summary>
+  <div class="panel">
+    {% include "_subscription_form.html" %}
   </div>
+</details>
 
-  <div>
-    <div class="panel">
-      <h2>编辑订阅</h2>
-      {% include "_subscription_form.html" %}
-    </div>
-  </div>
+<div class="panel">
+    <h2>已获得专辑（{{ owned_albums|length }}）</h2>
+    {% if owned_albums %}
+    <table>
+      <thead><tr><th>专辑键</th><th>最近标题</th><th>最佳音质</th><th class="num">版本</th><th>获得于</th></tr></thead>
+      <tbody>
+      {% for a in owned_albums %}
+        <tr>
+          <td class="mono">{{ a.album_key }}</td>
+          <td><div class="trunc" style="max-width:260px" title="{{ a.title }}">{{ a.title }}</div><div class="hint" style="margin-top:1px">{{ a.site }}</div></td>
+          <td>{{ a.quality_tag or '—' }}</td>
+          <td class="num">{{ a.versions }}</td>
+          <td class="mono nowrap">{{ a.obtained_at.strftime('%m-%d %H:%M') if a.obtained_at else '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">同一专辑键的候选会被跳过；勾选「洗版」后仅当音质高于此处记录才会再次派发。</p>
+    {% else %}
+    <div class="empty" style="padding:18px 0">还没有派发过任何专辑</div>
+    {% endif %}
 </div>
 {% endblock %}

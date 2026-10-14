@@ -33,7 +33,7 @@
       <th>站点</th><th>标题</th>
       <th class="num">已做种</th><th class="num">分享率</th>
       <th class="num">要求</th>
-      <th>进度 / 状态</th><th>更新时间</th><th></th>
+      <th>进度 / 状态</th><th>更新时间</th><th class="actions"></th>
     </tr></thead>
     <tbody>
     {% for r in seed_records %}
@@ -64,7 +64,7 @@
           {% endif %}
         </td>
         <td class="mono">{{ r.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
-        <td class="seedacts">
+        <td class="actions"><div class="seedacts">
           {% if r.status in ('seeding', 'satisfied') %}
           <form method="post" action="/seeding/{{ r.task_id }}/pause{{ qs }}">
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -84,7 +84,7 @@
                     data-confirm="手动标记为 H&amp;R 达标？仅在站点已确认免除义务时使用。">标记达标</button>
           </form>
           {% endif %}
-        </td>
+        </div></td>
       </tr>
     {% else %}
       <tr><td colspan="8" class="empty">

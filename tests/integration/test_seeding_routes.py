@@ -97,9 +97,14 @@ def fake_qb(monkeypatch):
 
     v0.6 多下载器：监视器经 _client_for(downloader_id) 取客户端（registry 句柄优先，
     其次按配置自建）；旧式单实例的 _get_client 只在无 registry 时才会走到。
+    客户端懒构建含同步登录，_client_for 是异步的（构建在线程里）。
     """
     qb = FakeQb()
-    monkeypatch.setattr(SeedingMonitor, "_client_for", lambda self, downloader_id=None: qb)
+
+    async def _fake_client_for(self, downloader_id=None):
+        return qb
+
+    monkeypatch.setattr(SeedingMonitor, "_client_for", _fake_client_for)
     return qb
 
 

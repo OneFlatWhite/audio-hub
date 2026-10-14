@@ -223,7 +223,9 @@ class TestWatchlistRender:
         _add_watch(query="叶惠美", sub_type=SubType.ALBUM, album="叶惠美",
                    status=SubStatus.COMPLETED)
         html = client.get("/watchlist").text
-        assert "周杰伦" in html and "Jay Chou" in html
+        # 别名行已从列表精简（别名在详情页才能看到）；
+        # 注意不能整页断言 "Jay Chou" not in html —— 新建表单的 placeholder 里有它
+        assert "周杰伦" in html
         assert f'href="/watchlist/{e.id}"' in html
         # 类型徽标与状态
         for word in ("歌手", "专辑", "有声书", "进行中", "已暂停", "已完成", "刘慈欣"):

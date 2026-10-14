@@ -36,6 +36,7 @@ from ..archive.decision import (
     title_norm_of,
 )
 from ..archive.fs import copy_tree, move_tree, path_within, remove_tree, unique_path
+from ..downloaders.registry import ClientGate
 from ..models import ArchiveDecision, LibraryItem, QuarantineItem, RecycleEntry, Task, TaskState
 from ..notify.base import Event
 from ..scrape.trigger import trigger_for_kind
@@ -103,25 +104,35 @@ class CompletionMonitor:
         self.notifier = notifier
         self.registry = registry
         self.tag = config.qbittorrent.tag
+        # 旧式单实例客户端的线程门（registry 客户端用 handle 自带的）
+        self._legacy_gate = ClientGate()
 
     # ── 下载器遍历 ──
 
-    def _handles(self) -> list[tuple[str | None, str, object]]:
-        """[(downloader_id, tag, client)]。downloader_id=None 表示「全部任务」（旧单实例）。"""
-        if self.registry is None:
-            return [(None, self.tag, self.qb)]
-        return [
-            (h.id, h.config.tag or self.tag, h.client) for h in self.registry.all_enabled()
-        ]
+    async def _handles(self) -> list[tuple[str | None, str, object, object]]:
+        """[(downloader_id, tag, client, caller)]。downloader_id=None 表示「全部任务」（旧单实例）。
 
-    async def _fetch_torrents(self, downloader_id: str | None, tag: str, client) -> dict | None:
+        caller(fn, *args, **kwargs) 把该客户端的同步调用放进线程并串行化
+        （registry 客户端用 handle 自带的门，旧式单实例用本监视器的门）；
+        客户端懒构建（含同步登录）同样经 ensure_client 放进线程。
+        """
+        if self.registry is None:
+            return [(None, self.tag, self.qb, self._legacy_gate.call)]
+        out = []
+        for h in self.registry.all_enabled():
+            client = await h.ensure_client()
+            out.append((h.id, h.config.tag or self.tag, client,
+                        h.call if client is not None else self._legacy_gate.call))
+        return out
+
+    async def _fetch_torrents(self, downloader_id: str | None, tag: str, client, caller) -> dict | None:
         """拉取一台 qb 上带标签的种子 {hash: torrent}；客户端不可用 / 连接失败返回 None。"""
         label = downloader_id or "qb"
         if client is None:
             logger.warning(f"下载器 {label} 客户端不可用，本轮跳过其任务")
             return None
         try:
-            return {t.hash: t for t in client.torrents_info(tag=tag)}
+            return {t.hash: t for t in await caller(client.torrents_info, tag=tag)}
         except Exception as e:  # noqa: BLE001 - 单台不可达不影响其它下载器
             logger.error(f"无法连接下载器 {label}（{e}），本轮跳过其任务")
             await _emit(self.notifier, Event(
@@ -143,17 +154,17 @@ class CompletionMonitor:
         # 1. 清理上次归档中断留下的临时文件（幂等：不存在则跳过）
         stats["cleaned_tmp"] = self._cleanup_upgrading_tmp()
 
-        handles = self._handles()
-        if self.dry_run or not any(c is not None for _, _, c in handles):
+        handles = await self._handles()
+        if self.dry_run or not any(c is not None for _, _, c, _ in handles):
             # dry-run 无真实种子，仅把 in-flight 任务标记为可对账状态
             logger.info(
                 f"[DRY-RUN] 启动对账：跳过 qb 查询，清理临时文件 {stats['cleaned_tmp']} 个"
             )
             return stats
 
-        for downloader_id, tag, client in handles:
+        for downloader_id, tag, client, caller in handles:
             # 2. 从该台 qb 拉取所有带标签的种子真实状态；连不上则保留其任务原状态待下轮
-            qb_torrents = await self._fetch_torrents(downloader_id, tag, client)
+            qb_torrents = await self._fetch_torrents(downloader_id, tag, client, caller)
             if qb_torrents is None:
                 continue
 
@@ -242,8 +253,8 @@ class CompletionMonitor:
             logger.debug("[DRY-RUN] 轮询跳过（无真实种子）")
             return stats
 
-        for downloader_id, tag, client in self._handles():
-            qb_torrents = await self._fetch_torrents(downloader_id, tag, client)
+        for downloader_id, tag, client, caller in await self._handles():
+            qb_torrents = await self._fetch_torrents(downloader_id, tag, client, caller)
             if qb_torrents is None:
                 continue
             rows = await repo.list_inflight_tasks(self.db, downloader_id=downloader_id)
@@ -334,10 +345,11 @@ async def copy_to_scratch(qb_content_path: str | Path, dst: Path) -> Path | None
     """
     src = Path(qb_content_path)
     if not src.exists():
-        logger.warning(f"归档跳过：源路径不存在 {src}")
+        # DEBUG：源缺失的任务会停在 completed 反复重试，逐条 WARNING 会刷屏日志页
+        logger.debug(f"归档跳过：源路径不存在 {src}")
         return None
     if dst.exists():
-        logger.info(f"归档幂等跳过：目标已存在 {dst}")
+        logger.debug(f"归档幂等跳过：目标已存在 {dst}")
         return dst
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)

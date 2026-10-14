@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass
 from loguru import logger
 
 from .. import repo
+from ..downloaders.registry import ClientGate
 from ..models import SeedRecord
 from ..notify.base import Event
 from ..timeutil import utcnow
@@ -105,6 +106,9 @@ class SeedingMonitor:
         self._qb_client_factory = qb_client_factory
         self._own_client = None
         self._own_clients: dict[str, object] = {}
+        # 旧式工厂 / 自建只读客户端的线程门（registry 客户端用 handle 自带的）
+        self._legacy_gate = ClientGate()
+        self._own_gates: dict[str, ClientGate] = {}
         self._running = False
         self._site_cfg = {s.name: s for s in config.sites}
 
@@ -132,28 +136,60 @@ class SeedingMonitor:
         """下载器配置热重建后丢掉自建的客户端缓存，下轮按新配置重建。"""
         self._own_client = None
         self._own_clients.clear()
+        self._own_gates.clear()
 
-    def _client_for(self, downloader_id: str | None):
-        """取某下载器的客户端；None 表示未配置凭据 / 下载器不存在。"""
+    async def _client_for(self, downloader_id: str | None):
+        """取某下载器的客户端；None 表示未配置凭据 / 下载器不存在。
+
+        registry 客户端的懒构建（含同步登录）经 ensure_client 放进线程，
+        首次触碰不阻塞事件循环。
+        """
         if self.registry is None:
             return self._get_client()
         handle = self.registry.get(downloader_id) or self.registry.default()
         if handle is None:
             return None
-        if handle.client is not None:
-            return handle.client
+        client = await handle.ensure_client()
+        if client is not None:
+            return client
         if handle.id not in self._own_clients:
             self._own_clients[handle.id] = _build_client(handle.config)
+            self._gate_of_own(handle.id)
         return self._own_clients[handle.id]
 
-    def _require_client(self, downloader_id: str | None = None):
+    def _gate_of_own(self, handle_id: str) -> ClientGate:
+        """自建客户端的线程门，惰性创建。"""
+        gate = self._own_gates.get(handle_id)
+        if gate is None:
+            gate = self._own_gates[handle_id] = ClientGate()
+        return gate
+
+    def _caller_for(self, downloader_id: str | None):
+        """与 _client_for 同路径解析线程执行器（per-client 锁 + to_thread）。
+
+        registry 客户端复用 handle 自带的门；旧式工厂 / 自建只读客户端用
+        本监视器维护的 ClientGate。须在 _client_for 之后调用（生产路径两处
+        调用点都经 _require_client 保证顺序），否则可能触发同步懒建。
+        """
+        if self.registry is None:
+            return self._legacy_gate.call
+        handle = self.registry.get(downloader_id) or self.registry.default()
+        if handle is None:
+            return self._legacy_gate.call
+        if handle.client is not None:
+            return handle.call
+        return self._gate_of_own(handle.id).call
+
+    async def _require_client(self, downloader_id: str | None = None):
+        """(client, caller) 配对返回；caller(fn, *args, **kwargs) 把同步调用
+        放进线程并按客户端串行化（见 downloaders.registry.ClientGate）。"""
         try:
-            client = self._client_for(downloader_id)
+            client = await self._client_for(downloader_id)
         except Exception as e:  # 构造失败与不可达同等处理
             raise QbUnavailable(f"{type(e).__name__}: {e}") from e
         if client is None:
             raise QbUnavailable("qb 未配置凭据或下载器不存在")
-        return client
+        return client, self._caller_for(downloader_id)
 
     def _downloaders(self) -> list[tuple[str | None, str]]:
         """本轮要轮询的 [(downloader_id, tag)]；旧单实例为 [(None, 全局 tag)]。"""
@@ -164,7 +200,7 @@ class SeedingMonitor:
             for h in self.registry.all_enabled()
         ]
 
-    def _qb_action(self, action: str, info_hash: str, downloader_id: str | None = None) -> bool:
+    async def _qb_action(self, action: str, info_hash: str, downloader_id: str | None = None) -> bool:
         """对单个种子执行 pause / resume。dry_run 下只记日志，返回 False。
 
         刻意写成显式分支而非 getattr(client, f"torrents_{action}")：
@@ -173,12 +209,12 @@ class SeedingMonitor:
         if self.config.dry_run:
             logger.info(f"[DRY-RUN] 跳过 qb {action}: {info_hash[:12]}")
             return False
-        client = self._require_client(downloader_id)
+        client, caller = await self._require_client(downloader_id)
         try:
             if action == "pause":
-                client.torrents_pause(torrent_hashes=info_hash)
+                await caller(client.torrents_pause, torrent_hashes=info_hash)
             elif action == "resume":
-                client.torrents_resume(torrent_hashes=info_hash)
+                await caller(client.torrents_resume, torrent_hashes=info_hash)
             else:  # pragma: no cover - 调用方只会传上面两个值
                 raise ValueError(f"未知动作 {action}")
         except Exception as e:
@@ -221,8 +257,8 @@ class SeedingMonitor:
 
         for downloader_id, tag in self._downloaders():
             try:
-                client = self._require_client(downloader_id)
-                torrents = list(client.torrents_info(tag=tag))
+                client, caller = await self._require_client(downloader_id)
+                torrents = list(await caller(client.torrents_info, tag=tag))
             except Exception as e:  # noqa: BLE001 - 旁路任务：qb 问题不能让调度器停摆
                 label = downloader_id or "qb"
                 logger.warning(f"做种轮询跳过下载器 {label}：不可达（{e}）")
@@ -314,7 +350,7 @@ class SeedingMonitor:
             return
         # 复用 _qb_action：dry_run 下只记日志返回 False，qb 失败抛 QbUnavailable
         try:
-            if self._qb_action("pause", rec.info_hash, downloader_id):
+            if await self._qb_action("pause", rec.info_hash, downloader_id):
                 summary.paused += 1
         except QbUnavailable as e:  # 暂停失败不影响达标记录，下轮不再重试（已达标）
             logger.warning(f"达标后暂停失败 {rec.info_hash[:12]}: {e}")
@@ -386,7 +422,7 @@ class SeedingMonitor:
         rec = await repo.get_seed_record(self.db, task_id)
         if rec is None:
             return None
-        self._qb_action("pause", rec.info_hash, await self._downloader_of(task_id))
+        await self._qb_action("pause", rec.info_hash, await self._downloader_of(task_id))
         await repo.update_seed_record(self.db, task_id, status="paused")
         rec.status = "paused"
         return rec
@@ -396,7 +432,7 @@ class SeedingMonitor:
         rec = await repo.get_seed_record(self.db, task_id)
         if rec is None:
             return None
-        self._qb_action("resume", rec.info_hash, await self._downloader_of(task_id))
+        await self._qb_action("resume", rec.info_hash, await self._downloader_of(task_id))
         rec.status = "satisfied" if rec.hr_satisfied_at else "seeding"
         await repo.update_seed_record(self.db, task_id, status=rec.status)
         return rec

@@ -90,6 +90,19 @@ def _make_qb_client(qb_config):
         return None
 
 
+async def _warm_up_downloaders(registry, app) -> None:
+    """启动后预热全部已启用下载器的客户端（线程内构建 + 登录，见 registry.warm_up）。
+
+    懒建客户端的首次触碰含同步登录，绝不能发生在事件循环上（整站卡顿事故的
+    根因之一）。顺带回填 app.state.qb_client 别名 —— lifespan 里不再同步构建
+    默认客户端，启动耗时与下载器是否在线解耦。
+    """
+    await registry.warm_up()
+    default = registry.default()
+    if default is not None and app.state.qb_client is None:
+        app.state.qb_client = default.client   # 保持「默认下载器客户端」别名语义
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时装配资源，关闭时清理。"""
@@ -123,14 +136,13 @@ async def lifespan(app: FastAPI):
     from . import logsetup
     logsetup.setup_logging(config.log_level, config.db_path)
 
-    # 下载器注册表：多 qb 实例，客户端懒建；dry_run 时一律为 None。
-    # qb_client 保持为默认下载器客户端的别名，现有派发 / 监听 / 做种链路不变。
+    # 下载器注册表：多 qb 实例，客户端懒建 + 启动后后台预热；dry_run 时一律为 None。
+    # lifespan 里不再同步构建默认客户端（那会让启动卡在一个 HTTP 登录超时上），
+    # qb_client 别名由预热任务回填（生产只剩做种页兜底工厂在消费该别名）。
     downloaders = DownloaderRegistry(
         await registry_store.load_downloader_configs(db),
         client_factory=_make_qb_client, dry_run=config.dry_run,
     )
-    default_dl = downloaders.default()
-    qb_client = default_dl.client if default_dl else None
 
     # 日志 + DB 事件流两个基础 sink；推送渠道（企微 / Telegram / webhook）按
     # 已合并覆盖层的 notify 配置追加。hydrate 必须在前，否则界面存的凭据重启后不生效。
@@ -159,12 +171,17 @@ async def lifespan(app: FastAPI):
     scheduler = build_scheduler(runner, config)
     scheduler.start()
 
+    # ── 客户端预热：启动完成后后台构建 + 登录所有已启用下载器 ──
+    # dry_run 注册表永远不建客户端，预热空转，直接跳过。
+    if not config.dry_run:
+        asyncio.get_running_loop().create_task(_warm_up_downloaders(downloaders, app))
+
     app.state.db = db
     app.state.config = config
     app.state.runner = runner
     app.state.scheduler = scheduler
     app.state.downloaders = downloaders   # v0.6 下载器注册表
-    app.state.qb_client = qb_client     # 默认下载器客户端别名；Web 派发待审项时需要（实跑模式）
+    app.state.qb_client = None          # 默认下载器客户端别名；由预热任务回填
     app.state.notifier = notifier       # 通知测试端点 / 隔离区动作等后续模块复用
 
     # 首次启动无管理员时给出醒目提示（引导访问 /setup）

@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from audio_hub import repo
 from audio_hub.adapters.base import DiscountType, MediaCategory, NormalizedTorrent
-from audio_hub.discover.aggregator import WallCache
+from audio_hub.discover.aggregator import WallCache, collect_wall
 from audio_hub.discover.covers import cache_key
 from audio_hub.main import app
 from audio_hub.models import SubType, WatchEntry, WatchKind
@@ -97,6 +97,19 @@ def _run(coro):
 def _post(client: TestClient, path: str, **data):
     data.setdefault("csrf_token", _csrf(client))
     return client.post(path, data=data, follow_redirects=False)
+
+
+def _warm_wall(adapters, kind: str) -> WallCache:
+    """把替身站点的聚合结果灌进 app 的墙缓存。
+
+    冷启动已改为「空墙 + 后台刷新」（routes_discover.discover_page），页面断言
+    数据前必须先预热缓存 —— FakeAdapter 不触网，预热即聚合本身。
+    """
+    cache = WallCache()
+    app.state.discover_cache = cache
+    wall = _run(collect_wall(dict(adapters), kind, cache=cache, ttl=3600))
+    assert wall.cards
+    return cache
 
 
 def _all_entries() -> list[WatchEntry]:
@@ -191,27 +204,60 @@ class TestRender:
             _time.sleep(0.05)
         assert wall is not None and (utcnow() - wall.fetched_at).total_seconds() < 30
 
+    def test_cold_start_renders_empty_wall_with_background_refresh(
+        self, client, fake_wall,
+    ):
+        """首访彻底无缓存：立即渲染空墙并标注「后台刷新中」，绝不在请求里逐站拉取。"""
+        import time as _time
+        from datetime import timedelta
+
+        from audio_hub.timeutil import utcnow
+
+        _setup_admin(client)
+        adapters = fake_wall
+        cache = app.state.discover_cache
+        key = cache.wall_key("music", adapters)
+
+        started = utcnow()
+        resp = client.get("/discover")
+        assert (utcnow() - started).total_seconds() < 5      # 不应同步等站点
+        assert resp.status_code == 200
+        assert "后台刷新中" in resp.text
+
+        # 后台任务把缓存灌成有数据的墙（FakeAdapter 不触网，应当很快）
+        deadline = utcnow() + timedelta(seconds=5)
+        wall = None
+        while utcnow() < deadline:
+            wall = cache.get_wall(key)
+            if wall is not None and wall.cards:
+                break
+            _time.sleep(0.05)
+        assert wall is not None and wall.cards
+
     def test_render_with_data(self, client, fake_wall):
         _setup_admin(client)
+        _warm_wall(fake_wall, "music")
         html = client.get("/discover").text
         # 同专辑跨站合一卡，代表取高音质（flac_24）
         assert "叶惠美" in html and "周杰伦" in html
         assert "FLAC 24bit" in html
         assert "fake1" in html and "fake2" in html
-        assert "追踪歌手" in html and "仅此专辑" in html
+        assert "追踪歌手" in html and "只追这张专辑" in html
         # 站点筛选 chips + 缓存元信息行
         assert "全部站点" in html and "2 个来源站" in html
         assert "有声书" not in html.split('class="discover-grid"')[1]  # music tab 不含有声书卡
 
     def test_audiobook_tab(self, client, fake_wall):
         _setup_admin(client)
+        _warm_wall(fake_wall, "audiobook")
         html = client.get("/discover?kind=audiobook").text
         assert "三体" in html and "刘慈欣" in html
-        assert "追踪作者" in html and "仅此书" in html
+        assert "追踪作者" in html and "只追这本书" in html
         assert "叶惠美" not in html
 
     def test_site_filter(self, client, fake_wall):
         _setup_admin(client)
+        _warm_wall(fake_wall, "music")
         html = client.get("/discover?kind=music&site=fake1").text
         # 跨站合并卡含 fake1 → 保留；fake2 独占的专辑被滤掉
         assert "叶惠美" in html
@@ -221,6 +267,7 @@ class TestRender:
 
     def test_bad_kind_falls_back_to_music(self, client, fake_wall):
         _setup_admin(client)
+        _warm_wall(fake_wall, "music")
         html = client.get("/discover?kind=movie").text
         assert "叶惠美" in html
 
@@ -338,15 +385,17 @@ class TestSubscribe:
 class TestSubscribedGrey:
     def test_artist_button_greyed(self, client, fake_wall):
         _setup_admin(client)
+        _warm_wall(fake_wall, "music")
         _run(repo.add_watch_entry(app.state.db, WatchEntry(
             kind=WatchKind.MUSIC, sub_type=SubType.ARTIST, query="周杰伦", artist="周杰伦")))
         html = client.get("/discover").text
         assert "已订阅 ✓" in html
         # 歌手按钮置灰，专辑按钮仍可点
-        assert "disabled" in html and "仅此专辑" in html
+        assert "disabled" in html and "只追这张专辑" in html
 
     def test_album_button_greyed(self, client, fake_wall):
         _setup_admin(client)
+        _warm_wall(fake_wall, "music")
         _run(repo.add_watch_entry(app.state.db, WatchEntry(
             kind=WatchKind.MUSIC, sub_type=SubType.ALBUM,
             query="周杰伦 叶惠美", artist="周杰伦", album="叶惠美")))
@@ -421,6 +470,7 @@ class TestSearch:
         }
         monkeypatch.setattr(routes_discover, "_adapters_of", lambda request: dict(adapters))
         _setup_admin(client)
+        _warm_wall(adapters, "music")        # 冷启动已改后台刷新，先预热缓存
         html = client.get("/discover").text
         assert "限速站: slowsite" in html
         assert "失败站: badsite" in html

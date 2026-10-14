@@ -34,14 +34,14 @@
       <tr>
         <td class="trunc" title="{{ t.title }}">{{ t.title }}</td>
         <td class="mono">{{ t.site }}</td>
-        <td><span class="pill {{ 'low' if t.state == 'failed' else ('high' if t.state in ['completed','notified','routed'] else '') }}">{{ t.state|state_zh }}</span>
+        <td class="nowrap"><span class="pill {{ 'low' if t.state == 'failed' else ('high' if t.state in ['completed','notified','routed'] else '') }}">{{ t.state|state_zh }}</span>
           {% if t.state in ('dispatched', 'downloading') %}
           <div class="dlbar-wrap" data-hash="{{ (t.info_hash or '')|lower }}">
             <div class="seedbar"><span style="width:0%"></span></div>
             <div class="hint dlmeta">获取进度中…</div>
           </div>
           {% endif %}</td>
-        <td><span class="pill {{ t.confidence }}">{{ t.confidence }}</span></td>
+        <td class="nowrap"><span class="pill {{ t.confidence }}">{{ t.confidence|conf_zh }}</span></td>
         <td class="mono">{{ t.quality or '—' }}</td>
         <td class="num">{{ '%.2f'|format(t.score or 0) }}</td>
         <td class="num">{{ '%.0f'|format((t.size_bytes or 0) / 1048576) }} MB</td>

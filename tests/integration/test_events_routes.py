@@ -144,8 +144,8 @@ class TestEventsRender:
         assert "&#34;reason&#34;: &#34;HTTP 503&#34;" in html or '"reason": "HTTP 503"' in html
         # 非 JSON 的 detail 原样显示，不 500
         assert "not json at all" in html
-        # kind 计数出现在下拉里
-        assert "dispatched (1)" in html and "adapter_error (1)" in html
+        # kind 计数出现在下拉里（展示层走 kind_zh 中文化，value 仍是英文 key）
+        assert "已派发 (1)" in html and "适配器错误 (1)" in html
 
     def test_requires_login(self, client):
         _setup_admin(client)

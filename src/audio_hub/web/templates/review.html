@@ -3,6 +3,7 @@
 {% block h1 %}待审队列{% endblock %}
 
 {% block content %}
+{% if items %}
 <p class="hint" style="margin:-6px 0 14px">
   订阅命中后按置信度分流：<b>high 置信且订阅开了「自动下载」的会直接派发</b>，不经过本页；
   只有 medium / low 置信、或订阅关闭了自动下载的候选才会进这里等你裁决。
@@ -18,6 +19,7 @@
   </p>
   <p class="hint">按置信度倒序排列。拒绝原因是规则迭代的唯一输入，请务必选择准确的一项。</p>
 </div>
+{% endif %}
 
 {% if items %}
 <div id="review-list">
@@ -26,7 +28,7 @@
     <div class="ri-title">{{ t.title }}</div>
     <div class="ri-meta">
       <span>站点 <b>{{ t.site }}</b></span>
-      <span>置信度 <span class="pill {{ t.confidence }}">{{ t.confidence }}</span></span>
+      <span>置信度 <span class="pill {{ t.confidence }}">{{ t.confidence|conf_zh }}</span></span>
       <span>音质 <b>{{ t.quality or '—' }}</b></span>
       <span>分数 <b>{{ '%.2f'|format(t.score or 0) }}</b></span>
       <span>体积 <b>{{ '%.0f'|format((t.size_bytes or 0) / 1048576) }} MB</b></span>
@@ -57,6 +59,25 @@
 </div>
 <p class="hint">共 {{ count }} 项待审。</p>
 {% else %}
-<div class="panel"><p class="empty">待审队列为空 🎉</p></div>
+{# 空队列是常态（全自动派发时不经过本页），说明文字收进折叠，只留一行结论 #}
+<div class="panel">
+  <p class="empty">待审队列为空 🎉</p>
+  <p class="hint" style="text-align:center">
+    只有 medium / low 置信、或订阅关闭了自动下载的命中才会进这里；全自动派发时本页长期为空，属正常现象。
+  </p>
+  <details class="adv">
+    <summary>分流规则与键盘操作说明</summary>
+    <p class="hint" style="margin-top:8px">
+      订阅命中后按置信度分流：<b>high 置信且订阅开了「自动下载」的会直接派发</b>，不经过本页。
+      拒绝原因是规则迭代的唯一输入，请务必选择准确的一项。
+    </p>
+    <p class="hint">
+      <span class="kbd">J</span>/<span class="kbd">↓</span> 下一条 ·
+      <span class="kbd">K</span>/<span class="kbd">↑</span> 上一条 ·
+      <span class="kbd">A</span> 采纳 ·
+      <span class="kbd">R</span> 拒绝（需先选原因）
+    </p>
+  </details>
+</div>
 {% endif %}
 {% endblock %}

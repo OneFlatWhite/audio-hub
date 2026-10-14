@@ -62,9 +62,11 @@
     </tbody>
   </table>
 </div>
+{% if total_count %}
 <p class="hint">
   共 {{ total_count }} 条，当前第 {{ page }} 页。放行会跳过校验直接归档；丢弃只删除隔离副本，原种不变。
   {% if page > 1 %}<a href="/quarantine?status={{ current_status }}&page={{ page - 1 }}">上一页</a>{% endif %}
   {% if has_next %}<a href="/quarantine?status={{ current_status }}&page={{ page + 1 }}">下一页</a>{% endif %}
 </p>
+{% endif %}
 {% endblock %}

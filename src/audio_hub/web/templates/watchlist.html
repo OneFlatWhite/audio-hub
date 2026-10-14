@@ -8,7 +8,9 @@
   <div class="card"><div class="n">{{ status_counts.active }}</div><div class="l">进行中</div></div>
   <div class="card ok"><div class="n">{{ status_counts.completed }}</div><div class="l">已完成</div></div>
   <div class="card"><div class="n">{{ status_counts.paused }}</div><div class="l">已暂停</div></div>
-  <div class="card {{ 'warn' if no_valid_sites }}"><div class="n">{{ valid_sites|length }}</div><div class="l">可用站点</div></div>
+  {# 与订阅自身状态相关才值得占一张卡：可用站点数换成停用计数 #}
+  {% set disabled_subs = entries|rejectattr('enabled')|list|length %}
+  <div class="card {{ 'warn' if disabled_subs }}"><div class="n">{{ disabled_subs }}</div><div class="l">停用</div></div>
 </div>
 
 <details class="newsub" {% if not entries %}open{% endif %}>
@@ -24,7 +26,7 @@
   <table class="subtable">
     <thead><tr>
       <th>类型</th><th>名称</th><th>状态</th><th class="num">命中</th>
-      <th>最近 / 下次搜索</th><th>下载器</th><th>过滤</th><th></th>
+      <th>最近 / 下次搜索</th><th>下载器</th><th>过滤</th><th class="actions"></th>
     </tr></thead>
     <tbody>
     {% for e in entries %}
@@ -39,10 +41,10 @@
             {% if e.series_id is not none %}<a href="/series/{{ e.series_id }}" style="font-size:12px;margin-left:6px">查看连载</a>
             {% else %}<a href="/series?watch_id={{ e.id }}" style="font-size:12px;margin-left:6px">建立连载</a>{% endif %}
           {% endif %}
-          {% if e.aliases %}<div class="hint mono trunc" style="margin-top:2px" title="{{ e.aliases|join(', ') }}">{{ e.aliases|join(', ') }}</div>{% endif %}
+          {# 别名行已删：别名全量在详情页，列表只留识别所需的最小信息 #}
         </td>
         <td>
-          <span class="pill {{ 'high' if st == 'completed' else ('medium' if st == 'active' else '') }}">{{ status_labels.get(st, st) }}</span>
+          <span class="pill {{ 'high' if st == 'completed' else ('neutral' if st == 'active' else '') }}">{{ status_labels.get(st, st) }}</span>
           {% if not e.enabled %}<span class="pill exclude" title="总闸已停用，不参与任何搜索">停用</span>{% endif %}
           {% if not e.auto_download %}<span class="pill low" title="命中进待审，不自动下载">待审</span>{% endif %}
         </td>
@@ -55,7 +57,7 @@
         <td>
           {% for s in summaries[e.id] %}<span class="pill" style="margin:0 3px 3px 0">{{ s }}</span>{% else %}<span class="muted">—</span>{% endfor %}
         </td>
-        <td class="subacts">
+        <td class="actions"><div class="subacts">
           <form method="post" action="/watchlist/{{ e.id }}/search-now">
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
             <button class="btn-sm" type="submit" title="立刻对该订阅搜索一轮">搜索</button>
@@ -87,7 +89,7 @@
               {% endif %}
             </div>
           </details>
-        </td>
+        </div></td>
       </tr>
     {% else %}
       <tr><td colspan="8" class="empty">还没有订阅。展开上方「新建订阅」添加，添加后会立即搜索一次。</td></tr>

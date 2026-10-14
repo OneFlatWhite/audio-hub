@@ -420,7 +420,11 @@ class TestWatchlistCRUD:
                                         "aliases": "Jay Chou", "csrf_token": token})
         resp = client.get("/watchlist")
         assert "周杰伦" in resp.text
-        assert "Jay Chou" in resp.text
+        # 别名只在详情页展示，列表页已精简掉别名行
+        import asyncio
+        entries = asyncio.run(repo.list_watch_entries(app.state.db, enabled_only=False))
+        eid = next(e.id for e in entries if e.query == "周杰伦")
+        assert "Jay Chou" in client.get(f"/watchlist/{eid}").text
 
     def test_toggle(self, client):
         _setup_admin(client)

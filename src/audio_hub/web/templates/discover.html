@@ -100,7 +100,7 @@
           <input type="hidden" name="album" value="{{ card.title }}">
           <button class="btn-sm" type="submit" {{ 'disabled' if st.album_subbed }}
                   title="{{ '已在订阅中' if st.album_subbed else '仅此专辑，拿到即完成' }}">
-            {{ '已订阅 ✓' if st.album_subbed else '仅此专辑' }}</button>
+            {{ '已订阅 ✓' if st.album_subbed else '只追这张专辑' }}</button>
         </form>
         {% else %}
         <form method="post" action="/discover/subscribe">
@@ -120,7 +120,7 @@
           <input type="hidden" name="album" value="{{ card.title }}">
           <button class="btn-sm" type="submit" {{ 'disabled' if st.album_subbed }}
                   title="{{ '已在订阅中' if st.album_subbed else '仅此书，拿到即完成' }}">
-            {{ '已订阅 ✓' if st.album_subbed else '仅此书' }}</button>
+            {{ '已订阅 ✓' if st.album_subbed else '只追这本书' }}</button>
         </form>
         {% endif %}
       </div>

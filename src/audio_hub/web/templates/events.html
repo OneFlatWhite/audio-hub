@@ -9,14 +9,14 @@
   <div class="card {{ 'err' if error_count }}"><div class="n">{{ error_count }}</div><div class="l">错误</div></div>
 </div>
 
-{# ── 筛选：下拉 + 快捷标签。下拉是主入口（种类可能很多）；
-   标签只放最常用的两个与各 kind 计数，便于一眼看出分布。 #}
+{# ── 筛选：下拉 + 计数。下拉是主入口（种类可能很多），
+   种类选项一并中文化（值仍是英文 key，提交不变）。 #}
 <form method="get" action="/events" class="filters">
   <label for="flt-kind" style="margin:0">种类</label>
   <select name="kind" id="flt-kind" style="width:auto">
     <option value="" {{ 'selected' if not current_kind }}>全部</option>
     {% for k in kind_options %}
-    <option value="{{ k }}" {{ 'selected' if current_kind == k }}>{{ k }}{% if kind_counts[k] %} ({{ kind_counts[k] }}){% endif %}</option>
+    <option value="{{ k }}" {{ 'selected' if current_kind == k }}>{{ k|kind_zh }}{% if kind_counts[k] %} ({{ kind_counts[k] }}){% endif %}</option>
     {% endfor %}
   </select>
   <label for="flt-level" style="margin:0">级别</label>
@@ -27,8 +27,6 @@
     {% endfor %}
   </select>
   <button type="submit" class="btn-sm">筛选</button>
-  <a href="/events" class="{{ 'active' if not current_kind and not current_level }}">全部</a>
-  <a href="/events?level=error" class="{{ 'active' if current_level == 'error' }}">仅错误</a>
 </form>
 
 <div class="panel">
@@ -39,11 +37,11 @@
     <tbody>
     {% for ev in events %}
       <tr>
-        <td class="mono">{{ ev.created_at|dtfmt }}</td>
-        <td><span class="dot {{ 'err' if ev.level == 'error' else ('off' if ev.level == 'warning' else 'ok') }}"></span>{{ ev.level|state_zh }}</td>
-        <td class="mono"><a href="/events?kind={{ ev.kind }}">{{ ev.kind }}</a></td>
+        <td class="mono nowrap">{{ ev.created_at|dtfmt }}</td>
+        <td class="nowrap"><span class="dot {{ 'err' if ev.level == 'error' else ('off' if ev.level == 'warning' else 'ok') }}"></span>{{ ev.level|state_zh }}</td>
+        <td class="nowrap"><a href="/events?kind={{ ev.kind }}">{{ ev.kind|kind_zh }}</a></td>
         <td class="mono">{{ ev.site or '—' }}</td>
-        <td class="trunc" title="{{ ev.title or '' }}">{{ ev.title or '—' }}</td>
+        <td class="trunc" title="{{ ev.title or ev.detail_summary or '' }}">{% if ev.title %}{{ ev.title }}{% elif ev.detail_summary %}<span class="muted">{{ ev.detail_summary }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="mono">
           {% if ev.detail_pretty %}
           {# 摘要一行放 summary，点开看缩进全文；pre 继承 mono #}
@@ -51,7 +49,7 @@
             <summary class="trunc" title="点击展开完整 detail">{{ ev.detail_summary }}</summary>
             <pre style="margin:6px 0 0;white-space:pre-wrap;word-break:break-all">{{ ev.detail_pretty }}</pre>
           </details>
-          {% else %}—{% endif %}
+          {% else %}<span class="muted">—</span>{% endif %}
         </td>
       </tr>
     {% else %}

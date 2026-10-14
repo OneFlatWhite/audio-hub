@@ -6,13 +6,15 @@
 {% if detail and (flash_ok or flash_err) %}<p class="hint" style="margin:-10px 0 14px">详情：{{ detail }}</p>{% endif %}
 
 <div class="panel">
-  <h2>下载器（qBittorrent / Transmission）</h2>
+  <h2>下载器（qBittorrent / Transmission）
+    {% if is_admin %}<span class="h2-side"><a class="btn btn-primary btn-sm" href="/downloaders/new">新建下载器</a></span>{% endif %}
+  </h2>
   <div class="tbl-wrap">
   <table>
     <thead><tr>
       <th>名称</th><th>地址</th><th>状态 · 最近测试</th><th>版本</th><th>剩余空间</th>
       <th class="num">活跃任务</th><th>默认</th><th>启用</th>
-      {% if is_admin %}<th>操作</th>{% endif %}
+      {% if is_admin %}<th class="actions">操作</th>{% endif %}
     </tr></thead>
     <tbody>
     {% for d in downloaders %}
@@ -22,21 +24,28 @@
         <td class="mono">{{ d.host }}:{{ d.port }}
           <div class="hint">{{ 'Transmission' if d.type == 'transmission' else 'qBittorrent' }}
             · {{ '用户名 / 密码' if d.has_password else ('API Key' if d.has_api_key else '无凭据') }}</div></td>
-        <td>
+        <td class="nowrap">
           <span class="pill {{ d.state_css }}">{{ d.state_label }}</span>
           {% if d.last_test_local %}<div class="hint mono">{{ d.last_test_local }}</div>{% endif %}
           {% if d.state == 'failed' and d.last_test_error %}
             <div class="hint trunc" title="{{ d.last_test_error }}">{{ d.last_test_error }}</div>
           {% endif %}
         </td>
-        <td class="mono">{% if d.version %}{{ d.version }}<div class="hint">API {{ d.api_version or '—' }}</div>{% else %}—{% endif %}</td>
+        {% if d.version %}
+        {# 构建 hash 截 7 位足够辨认（如 4.1.3 (8388773…)）#}
+        {% set vp = d.version.split('(') %}
+        <td class="mono nowrap">{{ vp[0] }}{% if vp|length > 1 %}({{ vp[1][:7] }}…){% endif %}
+          <div class="hint">API {{ d.api_version or '—' }}</div></td>
+        {% else %}
+        <td class="mono">—</td>
+        {% endif %}
         <td class="mono">{{ d.free_space_bytes | filesize }}
           {% if d.default_save_path %}<div class="hint trunc" title="下载器默认保存路径：{{ d.default_save_path }}">{{ d.default_save_path }}</div>{% endif %}</td>
         <td class="num">{{ d.active_tasks }}</td>
         <td>{% if d.is_default %}<span class="pill high">默认</span>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>{{ '✓' if d.enabled else '✗' }}</td>
         {% if is_admin %}
-        <td style="white-space:nowrap">
+        <td class="actions">
           <a class="btn btn-sm" href="/downloaders/{{ d.id }}/edit">编辑</a>
           <form method="post" action="/downloaders/{{ d.id }}/test" style="display:inline">
             <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -94,12 +103,4 @@
     </p>
   </details>
 </div>
-
-{% if is_admin %}
-<div class="panel">
-  <h2>添加下载器</h2>
-  <a class="btn btn-primary" href="/downloaders/new">新建下载器</a>
-  <span class="hint" style="margin-left:10px">保存后立即热生效，不需重启服务。</span>
-</div>
-{% endif %}
 {% endblock %}

@@ -12,7 +12,7 @@
     <thead><tr>
       <th>站点</th><th>状态</th><th>账号 / 凭据</th>
       <th>认证检查</th><th>上次成功</th><th class="num">连续失败</th><th>最后错误</th>
-      {% if is_admin %}<th>操作</th>{% endif %}
+      {% if is_admin %}<th class="actions">操作</th>{% endif %}
     </tr></thead>
     <tbody>
     {% for s in sites %}
@@ -33,27 +33,26 @@
         </td>
         <td>
           {% if s.user_info and s.user_info.username %}
-            {{ s.user_info.username }}{% if s.user_info.level %} <span class="pill">{{ s.user_info.level }}</span>{% endif %}
-            <div class="hint mono" style="font-size:11.5px">
+            <div class="nowrap">{{ s.user_info.username }}{% if s.user_info.level %} <span class="pill">{{ s.user_info.level }}</span>{% endif %}
+              <span class="hint mono" style="font-size:11.5px">↑{{ s.user_info.uploaded or '—' }} ↓{{ s.user_info.downloaded or '—' }}{% if s.user_info.ratio %} · 分享率 {{ s.user_info.ratio }}{% endif %}</span></div>
+            <div class="hint mono nowrap" style="font-size:11.5px">
               {% if s.adapter_type == 'mteam' %}API Key {{ '✓' if s.has_api_key else '✗' }}
               {% else %}Cookie {{ '✓' if s.has_cookie else '✗' }} · RSS {{ '✓' if s.has_rss else '✗' }}{% endif %}
             </div>
-            <div class="hint mono" style="font-size:11.5px">↑{{ s.user_info.uploaded or '—' }} ↓{{ s.user_info.downloaded or '—' }}
-              {% if s.user_info.ratio %}· 分享率 {{ s.user_info.ratio }}{% endif %}</div>
           {% else %}
             <span class="muted">未登录</span>
-            <div class="hint mono" style="font-size:11.5px">
+            <div class="hint mono nowrap" style="font-size:11.5px">
               {% if s.adapter_type == 'mteam' %}API Key {{ '✓' if s.has_api_key else '✗' }}
               {% else %}Cookie {{ '✓' if s.has_cookie else '✗' }} · RSS {{ '✓' if s.has_rss else '✗' }}{% endif %}
             </div>
           {% endif %}
         </td>
-        <td class="mono">{{ s.auth_checked_local or '—' }}</td>
-        <td class="mono" title="{{ s.last_success_at or '' }}">{{ s.last_success_at|dtfmt }}</td>
+        <td class="mono nowrap">{{ s.auth_checked_local or '—' }}</td>
+        <td class="mono nowrap" title="{{ s.last_success_at or '' }}">{{ s.last_success_at|dtfmt }}</td>
         <td class="num">{{ s.consecutive_fail }}</td>
-        <td class="mono trunc" title="{{ s.last_error or '' }}">{{ s.last_error or '—' }}</td>
+        <td class="mono trunc" style="max-width:220px" title="{{ s.last_error or '' }}">{{ s.last_error or '—' }}</td>
         {% if is_admin %}
-        <td style="white-space:nowrap">
+        <td class="actions">
           <a class="btn btn-sm" href="/sites/{{ s.id }}/edit">编辑</a>
           {% if s.enabled %}
             <form method="post" action="/sites/{{ s.id }}/toggle" style="display:inline">

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from loguru import logger
 
 from .. import repo
-from ..discover.aggregator import WallCache, collect_wall, search_wall
+from ..discover.aggregator import DiscoverWall, WallCache, collect_wall, search_wall
 from ..discover.covers import covers_dir, fill_covers, is_valid_key, read_meta
 from ..discover.pinyin_map import apply_artist_map, build_pinyin_index
 from ..models import SubType, WatchEntry, WatchKind
@@ -203,7 +203,8 @@ async def discover_page(
     else:
         # stale-while-revalidate（v0.12.1）：页面永远立即返回——
         # 缓存新鲜直接用；过期/缺失但有旧数据时先回旧数据、后台静默重拉
-        # （下次访问生效）；彻底无缓存（首访）才同步拉取。
+        # （下次访问生效）；彻底无缓存（首访）也只渲染空墙 + 后台拉取，
+        # 逐站串行的 collect_wall 绝不占着请求等。
         cache = _wall_cache(request)
         ttl = config.discover.cache_ttl_minutes * 60
         key = cache.wall_key(kind, adapters)
@@ -215,7 +216,12 @@ async def discover_page(
             wall = cached.model_copy(update={"from_cache": True, "refreshing": True})
             _kick_background_refresh(request, adapters, kind, cache, ttl)
         else:
-            wall = await collect_wall(adapters, kind, cache=cache, ttl=ttl)
+            # 彻底无缓存（首访）：collect_wall 会逐站串行拉 RSS（每站限速间隔 +
+            # 超时，最坏几分钟），不能在请求里同步等 —— 后台拉取，本次渲染空墙
+            # 并标注「后台刷新中」，下次打开即是新数据（模板已有该提示）。
+            wall = DiscoverWall(refreshing=True)
+            if adapters:       # 无站点时后台任务是空转，直接渲染引导卡即可
+                _kick_background_refresh(request, adapters, kind, cache, ttl)
 
     all_sites = sorted({s for c in wall.cards for s in c.sites})
     cards = wall.cards

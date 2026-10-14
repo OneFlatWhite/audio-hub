@@ -291,30 +291,35 @@ async def download_progress(request: Request, user: dict = Depends(require_user)
     """各下载器种子实时进度：{info_hash: {pct, dlspeed, eta, state}}（需登录）。
 
     多下载器聚合，单台失败跳过；8 秒进程内节流避免多端打开页面打爆 API。
+    空结果 / 查询失败同样按窗口缓存：否则下载器全闲（无在途种子）或临时
+    不可达时节流失效，每次轮询都真打下载器。失败只缓存一个窗口（8s），
+    不把瞬态错误缓存太久。
     """
     now = time.monotonic()
-    if now - _DLPROG["at"] < _DLPROG_TTL and _DLPROG["data"]:
+    if now - _DLPROG["at"] < _DLPROG_TTL:
         return _DLPROG["data"]
     data: dict[str, dict] = {}
     registry = getattr(request.app.state, "downloaders", None)
     if registry is not None:
         for handle in registry.all_enabled():
-            client = handle.client
-            if client is None:
-                continue
             try:
-                for t in client.torrents_info(tag=handle.config.tag):
-                    h = str(getattr(t, "hash", "") or "").lower()
-                    if not h:
-                        continue
-                    data[h] = {
-                        "pct": round(float(getattr(t, "progress", 0) or 0) * 100),
-                        "dlspeed": int(getattr(t, "dlspeed", 0) or 0),
-                        "eta": int(getattr(t, "eta", -1) if getattr(t, "eta", -1) is not None else -1),
-                        "state": str(getattr(t, "state", "") or ""),
-                    }
+                client = await handle.ensure_client()
+                if client is None:
+                    continue
+                torrents = await handle.call(client.torrents_info, tag=handle.config.tag)
             except Exception as e:  # noqa: BLE001 - 单台失败不拖垮整体
                 logger.debug(f"下载进度查询失败（{handle.id}）: {e}")
+                continue
+            for t in torrents:
+                h = str(getattr(t, "hash", "") or "").lower()
+                if not h:
+                    continue
+                data[h] = {
+                    "pct": round(float(getattr(t, "progress", 0) or 0) * 100),
+                    "dlspeed": int(getattr(t, "dlspeed", 0) or 0),
+                    "eta": int(getattr(t, "eta", -1) if getattr(t, "eta", -1) is not None else -1),
+                    "state": str(getattr(t, "state", "") or ""),
+                }
     _DLPROG["at"], _DLPROG["data"] = now, data
     return data
 
@@ -568,7 +573,7 @@ async def _dispatch_task(db, config, row: dict, dispatcher) -> str | None:
         task_save_path=row.get("qb_save_path"),
         task_category=row.get("qb_category"),
     )
-    client = target.handle.client if target is not None else None
+    client = await target.handle.ensure_client() if target is not None else None
     if client is None:
         logger.error("下载器客户端不可用（dry_run 或凭据无效），无法真实派发")
         await repo.set_task_state(db, row["id"], TaskState.FAILED,
@@ -587,7 +592,8 @@ async def _dispatch_task(db, config, row: dict, dispatcher) -> str | None:
     from qbittorrentapi.exceptions import APIConnectionError
 
     try:
-        client.torrents_add(
+        await target.handle.call(
+            client.torrents_add,
             urls=url,
             save_path=target.save_path,
             category=target.category,

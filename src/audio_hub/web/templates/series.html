@@ -43,7 +43,7 @@
 <div class="panel" id="series-detail">
   <div class="detail-head">
     <h2>{{ ds.name }}</h2>
-    <span class="pill {{ 'high' if ds.status == 'completed' else ('medium' if ds.status == 'active' else '') }}">{{ ds.status }}</span>
+    <span class="pill {{ 'high' if ds.status == 'completed' else ('neutral' if ds.status == 'active' else '') }}">{{ ds.status }}</span>
     <span class="hint" style="margin:0">
       订阅：{% if ds.watch_id %}<a href="/watchlist">{{ watch_names.get(ds.watch_id) or ds.watch_id[:8] }}</a>{% else %}—{% endif %}
       · 更新 {{ ds.updated_at.strftime('%Y-%m-%d %H:%M') }}
@@ -193,7 +193,7 @@
         </td>
         <td class="num">{{ n_parts }}</td>
         <td class="mono trunc" title="{{ s.part_pattern or '' }}">{{ s.part_pattern or '默认' }}</td>
-        <td><span class="pill {{ 'high' if s.status == 'completed' else ('medium' if s.status == 'active' else '') }}">{{ s.status }}</span></td>
+        <td><span class="pill {{ 'high' if s.status == 'completed' else ('neutral' if s.status == 'active' else '') }}">{{ s.status }}</span></td>
         <td class="mono">{{ s.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
       </tr>
     {% else %}
@@ -204,9 +204,11 @@
     </tbody>
   </table>
 </div>
+{% if total_count %}
 <p class="hint">
   共 {{ total_count }} 条，当前第 {{ page }} 页。
   {% if page > 1 %}<a href="/series?page={{ page - 1 }}{{ '&status=' ~ current_status if current_status }}">上一页</a>{% endif %}
   {% if has_next %}<a href="/series?page={{ page + 1 }}{{ '&status=' ~ current_status if current_status }}">下一页</a>{% endif %}
 </p>
+{% endif %}
 {% endblock %}

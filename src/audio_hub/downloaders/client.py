@@ -33,8 +33,15 @@ from transmission_rpc import (
     TransmissionTimeoutError,
 )
 
-#: Transmission RPC 请求超时（秒）；探测路径用自己的更短超时
+#: Transmission RPC 请求超时（秒）；探测路径用自己的更短超时。
+#: transmission_rpc 只支持单一超时且不重试，15s 已是「读超时上限」档位。
 TR_CLIENT_TIMEOUT = 15.0
+
+#: qbittorrentapi 请求超时（秒），(连接, 读)：库默认 15.1s 且 _request_manager
+#: 的重试下限为 1（无法完全关掉——二次尝试用于 HTTP→HTTPS 探测切换），单台
+#: 无响应 qb 最坏可冻结事件循环 30s+。收紧后单次调用上限 ≈ 2×(5+20)=50s，
+#: 且全部发生在 handle.call 的线程里，事件循环无感。
+QBA_REQUEST_TIMEOUT = (5.0, 20.0)
 
 #: Transmission status → qb 状态词表（可直译的部分）
 _TR_STATE_MAP = {
@@ -214,13 +221,20 @@ def build_client(config, *, login: bool = False):
     # qbittorrent（默认，未知类型回落）
     import qbittorrentapi as _qba
 
+    # REQUESTS_ARGS 透传给 requests.Session.request，覆盖库默认的 15.1s 超时
+    # （见 QBA_REQUEST_TIMEOUT 注释：重试次数受库下限约束，只能靠超时封顶）
+    requests_args = {"timeout": QBA_REQUEST_TIMEOUT}
     if config.username:
         client = _qba.Client(
             host=config.host, port=int(config.port),
             username=config.username, password=config.password or "",
+            REQUESTS_ARGS=requests_args,
         )
     elif config.api_key:
-        client = _qba.Client(host=config.host, port=int(config.port), api_key=config.api_key)
+        client = _qba.Client(
+            host=config.host, port=int(config.port), api_key=config.api_key,
+            REQUESTS_ARGS=requests_args,
+        )
     else:
         return None
     if login:

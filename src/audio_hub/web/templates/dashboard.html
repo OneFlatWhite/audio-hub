@@ -55,10 +55,16 @@
     {% for d in downloaders %}
       <tr>
         <td>{{ d.name }}{% if d.is_default %} <span class="hint">默认</span>{% endif %}</td>
-        <td><span class="dot {{ d.state }}"></span>{{ d.state_label }}
+        <td><span class="nowrap"><span class="dot {{ d.state }}"></span>{{ d.state_label }}</span>
           {%- if d.state == 'err' and d.error %} <span class="hint" title="{{ d.error }}">{{ d.error }}</span>{% endif %}</td>
         <td class="mono">{{ d.endpoint }}</td>
-        <td class="mono">{{ d.version or '—' }}</td>
+        {% if d.version %}
+        {# 构建 hash 很长，截 7 位足够辨认（如 4.1.3 (8388773…)），列挤压时也不竖排 #}
+        {% set vp = d.version.split('(') %}
+        <td class="mono nowrap">{{ vp[0] }}{% if vp|length > 1 %}({{ vp[1][:7] }}…){% endif %}</td>
+        {% else %}
+        <td class="mono">—</td>
+        {% endif %}
         <td class="num">{{ d.free_gb ~ ' GB' if d.free_gb is not none else '—' }}</td>
         <td class="num">{{ d.active_tasks }}</td>
       </tr>
@@ -87,7 +93,7 @@
           {% elif s.state == 'circuit_open' and s.circuit_until_local %}<span class="hint">至 {{ s.circuit_until_local }}</span>
           {% elif s.state == 'ok' and not s.healthy %}<span class="hint"><span class="dot err"></span>连续失败 {{ s.consecutive_fail }}</span>{% endif %}
         </td>
-        <td class="mono" title="{{ s.last_success_at or '' }}">{{ s.last_success_at|dtfmt }}</td>
+        <td class="mono nowrap" title="{{ s.last_success_at or '' }}">{{ s.last_success_at|dtfmt }}</td>
         <td class="num">{{ s.last_count }}</td>
         <td class="num">{{ s.total_requests }}</td>
         <td class="num">{{ s.total_errors }}</td>
@@ -108,11 +114,11 @@
     <tbody>
     {% for ev in recent_events %}
       <tr>
-        <td class="mono">{{ ev.created_at|dtfmt }}</td>
-        <td><span class="dot {{ 'err' if ev.level == 'error' else ('off' if ev.level == 'warning' else 'ok') }}"></span>{{ ev.level|state_zh }}</td>
-        <td class="mono">{{ ev.kind }}</td>
+        <td class="mono nowrap">{{ ev.created_at|dtfmt }}</td>
+        <td class="nowrap"><span class="dot {{ 'err' if ev.level == 'error' else ('off' if ev.level == 'warning' else 'ok') }}"></span>{{ ev.level|state_zh }}</td>
+        <td class="nowrap">{{ ev.kind|kind_zh }}</td>
         <td class="mono">{{ ev.site or '—' }}</td>
-        <td class="trunc" title="{{ ev.title or '' }}">{{ ev.title or '—' }}</td>
+        <td class="trunc" title="{{ ev.title or ev.detail_summary or '' }}">{{ ev.title or ev.detail_summary or '—' }}</td>
       </tr>
     {% else %}
       <tr><td colspan="5" class="empty">最近没有事件</td></tr>

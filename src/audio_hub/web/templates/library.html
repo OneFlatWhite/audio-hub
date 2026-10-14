@@ -41,11 +41,13 @@
     </tbody>
   </table>
 </div>
+{% if total_count %}
 <p class="hint">
   共 {{ total_count }} 条，当前第 {{ page }} 页。
   {% if page > 1 %}<a href="/library?page={{ page - 1 }}{{ '&kind=' ~ current_kind if current_kind }}">上一页</a>{% endif %}
   {% if has_next %}<a href="/library?page={{ page + 1 }}{{ '&kind=' ~ current_kind if current_kind }}">下一页</a>{% endif %}
 </p>
+{% endif %}
 
 <div class="panel" id="recycle">
   <h2>回收区</h2>

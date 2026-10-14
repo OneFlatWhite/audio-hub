@@ -107,7 +107,8 @@ async def decide(db, task: Task, cfg=None) -> tuple[ArchiveDecision, LibraryItem
         )
         return ArchiveDecision.UPGRADE, existing
 
-    logger.info(
+    # DEBUG：skip 是逐条例行结论（库内不差），升级才值得 INFO；刷屏会淹没异常
+    logger.debug(
         f"归档决策 skip: {title_norm!r} 库内 {existing.quality_score} ≥ 新 {new_score}"
     )
     return ArchiveDecision.SKIP, existing

@@ -26,13 +26,23 @@
   {{ err }}{% if detail %} —— {{ detail }}{% endif %}
 </div>{% endif %}
 
+{# ── 页内锚点导航：sticky 置顶 chip 行，长页面免滚找分区 ───────── #}
+<nav class="setnav" aria-label="设置分区">
+  {% for g in groups %}<a href="#set-g{{ loop.index0 }}">{{ g.title }}</a>{% endfor %}
+  <a href="#set-qb">qBittorrent</a>
+  <a href="#set-readonly">只读项</a>
+  <a href="#set-creds">凭据状态</a>
+  <a href="#set-password">修改密码</a>
+  <a href="#set-session">会话</a>
+</nav>
+
 {# ── 可编辑设置（由 settings_store 的 SPEC 驱动，模板不写死字段名）── #}
 {% for g in groups %}
 {# 嵌套 for 中内层 loop 会遮蔽外层，故先把外层序号存下来。
    v1 曾写成 g.loop_index（不存在的属性），会让各组字段 id 重复，
    label 的 for 错配到别的控件 —— 点击标签会操作错误的输入框。 #}
 {% set gi = loop.index0 %}
-<div class="panel">
+<div class="panel" id="set-g{{ gi }}">
   <h2>{{ g.title }}</h2>
   {% if g.note %}<p class="hint">{{ g.note }}</p>{% endif %}
 
@@ -121,7 +131,7 @@
    旧表单把改动写进 config.qbittorrent + app_settings，而运行时的权威源是
    downloaders 表 —— 首启后改这里永远不生效，「保存成功」是假象。
    故只读展示当前默认实例，编辑入口指向下载器中心。 #}
-<div class="panel">
+<div class="panel" id="set-qb">
   <h2>qBittorrent</h2>
   <p class="hint">连接参数已迁移到<a href="/downloaders"><b>下载器中心</b></a>管理：
     支持多实例、测试连接、默认切换，保存即热生效。本页不再提供编辑。</p>
@@ -144,7 +154,7 @@
 </div>
 
 {# ── 只读展示：刻意不放进覆盖层的项 ─────────────────────── #}
-<div class="panel">
+<div class="panel" id="set-readonly">
   <h2>只读项（需改 config.yaml）</h2>
   <table>
     <tbody>
@@ -168,7 +178,7 @@
    原实现对所有站一律显示 passkey 状态，实际测的是 rss_url 有无，
    对 mteam（必需 api_key）更是判断错了必需项 —— 会误导使用者
    以为凭据齐了、启用后却每轮失败触发熔断。 #}
-<div class="panel">
+<div class="panel" id="set-creds">
   <h2>凭据状态（只写不读）</h2>
   <table>
     <thead><tr><th>对象</th><th>所需凭据</th><th>状态</th><th>说明</th></tr></thead>
@@ -230,7 +240,7 @@
     后者优先级更高。</p>
 </div>
 
-<div class="panel">
+<div class="panel" id="set-password">
   <h2>修改密码</h2>
   <form method="post" action="/account/password">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -245,7 +255,7 @@
   </form>
 </div>
 
-<div class="panel">
+<div class="panel" id="set-session">
   <h2>会话</h2>
   <form method="post" action="/account/revoke-all">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">

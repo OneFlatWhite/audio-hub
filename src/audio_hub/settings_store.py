@@ -728,7 +728,11 @@ async def rebuild_downloaders(app) -> None:
     async with _REBUILD_LOCK:
         registry.replace(await load_downloader_configs(db))
         default = registry.default()
-        app.state.qb_client = default.client if default else None
+        # 默认实例别名：懒构建（含同步登录）放进线程，不在事件循环上登录；
+        # 其余实例后台预热，几秒内就绪（抢先首触的调用方同样走线程懒建）。
+        app.state.qb_client = await default.ensure_client() if default else None
+        if not registry.dry_run:
+            asyncio.get_running_loop().create_task(registry.warm_up())
         runner = getattr(app.state, "runner", None)
         if runner is not None and hasattr(runner, "on_downloaders_rebuilt"):
             runner.on_downloaders_rebuilt()
