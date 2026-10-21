@@ -74,6 +74,7 @@ _FLASH_OK = {
     "saved_scrape": "刮削设置已保存",
     "saved_seeding": "做种设置已保存",
     "saved_notify": "通知设置已保存，推送渠道已重建",
+    "saved_lackfill": "缺集补齐设置已保存",
     "notify_test": "测试通知已发送，请到对应渠道查收",
     "events_cleared": "已清理 30 天前的事件",
 }

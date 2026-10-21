@@ -3,13 +3,14 @@
 设计约束见 settings_store 模块文档。本文件只负责 HTTP 层：
 表单解析、权限、保存、把生效范围如实反馈给使用者。
 
-六类写端点，各自只接受自己那组字段：
+七类写端点，各自只接受自己那组字段：
     POST /settings/general      运行参数（模式 / 轮询 / 日志 / cookie）
     POST /settings/paths        归档链路目录（v0.11 起热生效：保存即建目录校验）
     POST /settings/validation   完成后文件校验
     POST /settings/scrape       刮削联动（MTW / ABS）
     POST /settings/seeding      做种 / H&R 全局默认
     POST /settings/notify       外部推送渠道
+    POST /settings/lackfill     缺集补齐（Emby 核销 / 115 转存 / TMDB 匹配）
     POST /settings/notify/test  用当前生效的推送配置发一条测试通知
 
 站点开关 / 凭据 / 站点 H&R 规则（原 POST /settings/sites）已于 v0.6 迁到站点中心
@@ -58,6 +59,7 @@ VALIDATION_KEYS = frozenset(s.key for s in store.VALIDATION_SPECS)
 SCRAPE_KEYS = frozenset(s.key for s in store.SCRAPE_SPECS)
 SEEDING_KEYS = frozenset(s.key for s in store.SEEDING_SPECS)
 NOTIFY_KEYS = frozenset(s.key for s in store.NOTIFY_SPECS)
+LACKFILL_KEYS = frozenset(s.key for s in store.LACKFILL_SPECS)
 
 #: action -> (标题, 说明, 键集合, flash key)
 #: 渲染与保存都从这张表取字段，避免「保存端点收得到、渲染却漏掉」的漂移
@@ -82,6 +84,9 @@ _GROUPS: tuple[tuple[str, str, str, frozenset[str], str], ...] = (
     ("/settings/notify", "通知推送",
      "事件始终写入本地事件流；这里配置的是额外的外部推送渠道。",
      NOTIFY_KEYS, "saved_notify"),
+    ("/settings/lackfill", "缺集补齐",
+     "Emby 核销 / 115 转存 / TMDB 匹配。全部保存即生效；启用开关关闭时核销轮询空跑。",
+     LACKFILL_KEYS, "saved_lackfill"),
 )
 
 #: 保存成功后的 flash key（对应 routes_pages._FLASH_OK 的条目）
@@ -262,6 +267,14 @@ async def save_notify(
         rebuild_push_sinks(app, app.state.config.notify)
 
     return await _save(request, "/settings/notify", await request.form(), on_hot=_rebuild)
+
+
+@router.post("/settings/lackfill")
+async def save_lackfill(
+    request: Request,
+    _user: dict = Depends(require_admin_csrf),
+):
+    return await _save(request, "/settings/lackfill", await request.form())
 
 
 @router.post("/settings/notify/test")

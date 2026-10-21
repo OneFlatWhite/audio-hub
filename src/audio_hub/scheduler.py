@@ -497,7 +497,7 @@ def build_scheduler(runner: PipelineRunner, config) -> AsyncIOScheduler:
 
     # ── lackfill_verify：缺集补齐核销（pending → complete/timeout），间隔可配 ──
     lackfill = getattr(config, "lackfill", None)
-    if lackfill is not None and lackfill.enabled and hasattr(runner, "run_lackfill_verify_once"):
+    if lackfill is not None and hasattr(runner, "run_lackfill_verify_once"):
         verify_hours = max(int(getattr(lackfill, "verify_interval_hours", 6)), 1)
         _add(
             scheduler, runner.run_lackfill_verify_once, IntervalTrigger(hours=verify_hours),

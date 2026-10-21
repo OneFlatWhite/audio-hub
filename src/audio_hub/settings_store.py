@@ -336,6 +336,97 @@ NOTIFY_SPECS: tuple[Spec, ...] = (
     ),
 )
 
+#: 缺集补齐（lackfill）。全部热生效：核销轮询/转存链每次执行实时读 config，
+#: 间隔项保存后由 apply_hot 重排 lackfill_verify（键在 _INTERVAL_JOBS 登记）。
+LACKFILL_SPECS = (
+    Spec(
+        "lackfill_enabled", "启用缺集补齐", "bool", SCOPE_HOT, "lackfill.enabled",
+        hint="热生效。关闭时核销轮询空跑，不发起任何 Emby/115 请求。",
+    ),
+    Spec(
+        "lackfill_emby_url", "Emby 地址", "str", SCOPE_HOT, "lackfill.emby_url",
+        hint="热生效。完整 http(s) 地址；留空则核销不可用。",
+        require_url=True,
+    ),
+    Spec(
+        "lackfill_emby_api_key", "Emby API Key", "secret", SCOPE_HOT,
+        "lackfill.emby_api_key",
+        hint="只写不读：保存后 Fernet 加密入库，界面永不回显。留空表示不修改。",
+    ),
+    Spec(
+        "lackfill_tmdb_api_key", "TMDB API Key", "secret", SCOPE_HOT,
+        "lackfill.tmdb_api_key",
+        hint="只写不读：保存后 Fernet 加密入库。留空表示不修改。",
+    ),
+    Spec(
+        "lackfill_tmdb_language", "TMDB 匹配语言", "str", SCOPE_HOT,
+        "lackfill.tmdb_language",
+        hint="热生效。如 zh-CN。",
+    ),
+    Spec(
+        "lackfill_max_round_shows", "单轮最多处理剧集数", "int", SCOPE_HOT,
+        "lackfill.max_round_shows",
+        hint="热生效。",
+        lo=1, hi=200,
+    ),
+    Spec(
+        "lackfill_verify_hours", "核销轮询间隔（小时）", "int", SCOPE_HOT,
+        "lackfill.verify_interval_hours",
+        hint="热生效：保存后调度器自动重排 lackfill_verify 任务。",
+        lo=1, hi=168,
+    ),
+    Spec(
+        "lackfill_verify_timeout_days", "核销超时（天）", "int", SCOPE_HOT,
+        "lackfill.verify_timeout_days",
+        hint="热生效。超时未核销标记失败。",
+        lo=1, hi=365,
+    ),
+    Spec(
+        "lackfill_new_show_daily_quota", "新剧每日配额", "int", SCOPE_HOT,
+        "lackfill.new_show_daily_quota",
+        hint="热生效。0 表示不限。",
+        lo=0,
+    ),
+    Spec(
+        "lackfill_p115_cookie", "115 Cookie", "secret", SCOPE_HOT,
+        "lackfill.p115_cookie",
+        hint="只写不读：保存后 Fernet 加密入库。留空表示不修改。",
+    ),
+    Spec(
+        "lackfill_transfer_cid", "115 转存目录 CID", "int", SCOPE_HOT,
+        "lackfill.transfer_cid",
+        hint="热生效。0 为根目录。",
+        lo=0,
+    ),
+    Spec(
+        "lackfill_sa_base_url", "SA 服务地址", "str", SCOPE_HOT,
+        "lackfill.sa_base_url",
+        hint="热生效。完整 http(s) 地址；备用转存链，留空则只用 cookie 直连。",
+        require_url=True,
+    ),
+    Spec(
+        "lackfill_sa_username", "SA 用户名", "str", SCOPE_HOT,
+        "lackfill.sa_username",
+        hint="热生效。",
+    ),
+    Spec(
+        "lackfill_sa_secret", "SA 密钥", "secret", SCOPE_HOT,
+        "lackfill.sa_secret",
+        hint="只写不读：保存后 Fernet 加密入库。留空表示不修改。",
+    ),
+    Spec(
+        "lackfill_wecom_webhook", "企业微信通知 Webhook", "secret", SCOPE_HOT,
+        "lackfill.wecom_webhook",
+        hint="只写不读：地址含 key，整条当凭据加密存储。留空表示不修改。",
+    ),
+    Spec(
+        "lackfill_max_verify_rounds", "核销熔断轮数", "int", SCOPE_HOT,
+        "lackfill.max_verify_rounds",
+        hint="热生效。连续 N 轮无进展熔断该条目。",
+        lo=1, hi=10,
+    ),
+)
+
 
 def credential_status(config, downloaders=None) -> dict:
     """计算 qb 与各站点的凭据配置状态，供界面展示。
@@ -401,7 +492,7 @@ def all_specs(config) -> tuple[Spec, ...]:
     """全部可编辑设置项。config 参数保留（历史签名），v0.6 起站点组已迁到 sites 表。"""
     return (
         GENERAL_SPECS + PATHS_SPECS + VALIDATION_SPECS + SCRAPE_SPECS
-        + SEEDING_SPECS + NOTIFY_SPECS
+        + SEEDING_SPECS + NOTIFY_SPECS + LACKFILL_SPECS
     )
 
 
@@ -645,6 +736,7 @@ _INTERVAL_JOBS: dict[str, tuple[str, str, int]] = {
     "rss_interval_minutes": ("rss_capture", "minutes", MIN_POLL_MINUTES),
     "subscription_scan_minutes": ("subscription_search", "minutes", 1),
     "auth_check_hours": ("site_auth_check", "hours", 1),
+    "lackfill_verify_hours": ("lackfill_verify", "hours", 1),
 }
 
 

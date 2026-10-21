@@ -771,3 +771,78 @@ class TestNotifyPush:
         resp = _post_settings(client, "/settings/notify/test", {})
         assert "ok=notify_test" in resp.headers["location"]
         assert generic.called
+
+
+
+# ── lackfill（缺集补齐）设置组 ──────────────────────────────
+class TestLackfillGroup:
+    def test_page_renders_lackfill_group(self, client):
+        _setup_admin(client)
+        page = client.get("/settings")
+        assert page.status_code == 200
+        assert 'action="/settings/lackfill"' in page.text
+        assert 'name="lackfill_enabled"' in page.text
+        assert 'name="lackfill_emby_url"' in page.text
+
+    def test_save_lackfill_applies_without_restart(self, client):
+        """lackfill 组全量 SCOPE_HOT：保存即热生效，无重启标记。"""
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill", {
+            "lackfill_enabled": "1",
+            "lackfill_verify_hours": "12",
+            "lackfill_max_round_shows": "30",
+        })
+        assert resp.status_code == 303, resp.text[:200]
+        location = resp.headers["location"]
+        assert "ok=saved_lackfill" in location
+        assert "restart" not in location
+        assert app.state.config.lackfill.enabled is True
+        assert app.state.config.lackfill.verify_interval_hours == 12
+        assert app.state.config.lackfill.max_round_shows == 30
+        assert asyncio.run(store.is_restart_pending(app.state.db)) is False
+        overrides = asyncio.run(store.load_overrides(app.state.db))
+        assert overrides["lackfill_enabled"] == "1"
+        assert overrides["lackfill_verify_hours"] == "12"
+
+    def test_lackfill_secret_write_only(self, client):
+        """lackfill 密钥：加密入库、热生效、页面不回显、留空不覆盖。"""
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill", {
+            "lackfill_emby_api_key": "EMBY_SECRET_123",
+        })
+        assert resp.status_code == 303, resp.text[:200]
+        assert app.state.config.lackfill.emby_api_key == "EMBY_SECRET_123"
+        overrides = asyncio.run(store.load_overrides(app.state.db))
+        assert "EMBY_SECRET_123" not in str(overrides)
+        page = client.get("/settings")
+        assert "EMBY_SECRET_123" not in page.text
+        # 留空提交不覆盖已保存的凭据（带上另一字段避免「无变更」短路）
+        resp2 = _post_settings(client, "/settings/lackfill", {
+            "lackfill_emby_api_key": "",
+            "lackfill_max_round_shows": "40",
+        })
+        assert resp2.status_code == 303
+        overrides2 = asyncio.run(store.load_overrides(app.state.db))
+        assert overrides2["lackfill_emby_api_key"] == overrides["lackfill_emby_api_key"], \
+            "留空的凭据被覆盖了"
+
+    def test_lackfill_url_validation(self, client):
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill",
+                              {"lackfill_emby_url": "not-a-url"})
+        assert "err=" in resp.headers["location"]
+        assert app.state.config.lackfill.emby_url != "not-a-url"
+
+    def test_lackfill_int_range_validation(self, client):
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill",
+                              {"lackfill_max_round_shows": "0"})
+        assert "err=" in resp.headers["location"]
+
+    def test_lackfill_group_rejects_foreign_keys(self, client):
+        """往 /settings/lackfill 塞其他组的键应被忽略（组间互斥）。"""
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill",
+                              {"library_music": "/music"})
+        assert "err=" in resp.headers["location"]
+        assert "library_music" not in asyncio.run(store.load_overrides(app.state.db))
