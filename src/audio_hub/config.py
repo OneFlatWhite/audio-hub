@@ -179,6 +179,31 @@ class DiscoverConfig(BaseModel):
     auto_refresh_minutes: int = 0
 
 
+class LackfillConfig(BaseModel):
+    """缺集补齐（v0.8 / M1，/lackfill 页）：Emby 剧集缺集扫描。
+
+    Emby / TMDB 凭据与站点点同理，YAML 中以 *_encrypted 后缀 + Fernet token
+    存储，启动时自动解密到去掉后缀的同名字段（见 _decrypt_sensitive）。
+    TMDB 免费档限速较紧，service 层对每次调用间隔 50ms，max_round_shows
+    控制单轮扫描的剧集数预算，避免一轮打满 TMDB 配额。
+    """
+    enabled: bool = False
+    emby_url: str = ""                  # https://emby.example.com:8096（去尾斜杠由客户端处理）
+    emby_api_key: str = ""              # 加密存储（emby_api_key_encrypted）
+    emby_api_key_encrypted: str = ""    # Fernet token，启动时解密到 emby_api_key
+    tmdb_api_key: str = ""              # v3 key 或 v4 read token（eyJ 开头），加密存储
+    tmdb_api_key_encrypted: str = ""    # Fernet token，启动时解密到 tmdb_api_key
+    tmdb_language: str = "zh-CN"
+    #: 单轮扫描剧集数上限（Emby 库大时分轮消化，防止一轮扫描跑太久）
+    max_round_shows: int = 50
+    #: 已集齐剧集的复检间隔（小时）；补齐后的复核与 M2 调度用
+    verify_interval_hours: int = 6
+    #: 视为「不再更新」的静止天数：超过后降低复检频率
+    verify_timeout_days: int = 7
+    #: 新剧每日扫描配额（M2 新剧发现用）
+    new_show_daily_quota: int = 3
+
+
 #: 通知事件种类的全集，也是设置页 notify.kinds 的合法值集合。
 #: 与代码里实际产出的事件一一对应（grep `Event(kind=` / `EVENT_*` 常量核对）；
 #: "test" 是推送测试专用、不落事件流，不在其列。
@@ -244,6 +269,7 @@ class AppConfig(BaseModel):
     seeding: SeedingConfig = Field(default_factory=SeedingConfig)
     notify: NotifyConfig = Field(default_factory=NotifyConfig)
     discover: DiscoverConfig = Field(default_factory=DiscoverConfig)
+    lackfill: LackfillConfig = Field(default_factory=LackfillConfig)
 
     @model_validator(mode="before")
     @classmethod

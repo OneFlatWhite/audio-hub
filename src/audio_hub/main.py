@@ -42,6 +42,7 @@ from .web import (
     routes_discover,
     routes_downloaders,
     routes_events,
+    routes_lackfill,
     routes_library,
     routes_license,
     routes_logs,
@@ -249,6 +250,7 @@ app.include_router(routes_logs.router)
 app.include_router(routes_sites.router)
 app.include_router(routes_subscriptions.router)
 app.include_router(routes_downloaders.router)
+app.include_router(routes_lackfill.router)
 
 
 # ── 无认证端点 ──────────────────────────────────────────────

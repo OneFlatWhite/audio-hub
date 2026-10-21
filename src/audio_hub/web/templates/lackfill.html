@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}缺集补齐 · audio-hub{% endblock %}
+{% block h1 %}缺集补齐{% endblock %}
+
+{% block content %}
+{% if not enabled %}
+<div class="flash err">缺集补齐未启用：请在 config.yaml 的 <code>lackfill</code> 段设置 <code>enabled: true</code>，并配置 <code>emby_url</code> 与 Emby / TMDB 凭据（支持 <code>*_encrypted</code> 加密存储），重启后生效。</div>
+{% elif not configured %}
+<div class="flash err">凭据未配齐：还需要 <code>emby_url</code> / <code>emby_api_key</code> / <code>tmdb_api_key</code> 三项才能扫描。</div>
+{% endif %}
+
+<div class="cards" style="margin-bottom:18px">
+  <div class="card {{ 'ok' if enabled else 'err' }}"><div class="n">{{ '已启用' if enabled else '未启用' }}</div><div class="l">功能状态</div></div>
+  <div class="card"><div class="n">{{ last_report.shows_scanned if last_report else '—' }}</div><div class="l">本次扫描剧数</div></div>
+  <div class="card {{ 'warn' if last_report and last_report.lack_show_count }}"><div class="n">{{ last_report.lack_show_count if last_report else '—' }}</div><div class="l">缺集剧数</div></div>
+  <div class="card {{ 'warn' if last_report and last_report.lack_episode_count }}"><div class="n">{{ last_report.lack_episode_count if last_report else '—' }}</div><div class="l">缺集总集数</div></div>
+</div>
+
+<div class="filters">
+  <span class="muted">对照 TMDB 播出进度，找出 Emby 媒体库里缺的剧集。</span>
+  <form method="post" action="/api/lackfill/scan" style="margin-left:auto">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    <button class="btn-sm" type="submit" title="扫描一轮（预算 {{ max_round_shows }} 部，逐季对照 TMDB）" {{ 'disabled' if not enabled or not configured }}>立即扫描</button>
+  </form>
+</div>
+
+<div class="panel">
+{% if not last_report %}
+  <p class="muted">尚未扫描。配置好凭据后点「立即扫描」，结果会显示在这里。</p>
+{% elif last_report.errors %}
+  <div class="flash err" style="margin-bottom:12px">本轮扫描有 {{ last_report.errors|length }} 条错误：</div>
+  <ul class="mono" style="margin:0 0 12px 18px">
+    {% for e in last_report.errors %}<li>{{ e }}</li>{% endfor %}
+  </ul>
+{% endif %}
+
+{% if last_report and not last_report.lacks %}
+  <p class="muted">本次扫描（{{ last_report.shows_scanned }}/{{ last_report.shows_total }} 部）未发现缺集。</p>
+{% elif last_report %}
+  <table>
+    <thead><tr>
+      <th>剧名</th><th class="num">年份</th><th>各季缺集</th><th class="num">缺集数</th>
+    </tr></thead>
+    <tbody>
+    {% for lack in last_report.lacks %}
+      <tr>
+        <td>{{ lack.title }}</td>
+        <td class="num">{{ lack.year if lack.year else '—' }}</td>
+        <td class="mono">
+          {% for season, eps in lack.missing.items() %}
+          <div>S{{ '%02d'|format(season|int) }}:
+            {%- for ep in eps %} E{{ '%02d'|format(ep|int) }}{% endfor -%}
+          </div>
+          {% endfor %}
+        </td>
+        <td class="num">{{ lack.missing_count }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% endif %}
+{% if last_report %}
+  <p class="hint" style="margin:12px 0 0">扫描时间：{{ last_report.started_at[:19].replace('T', ' ') }}</p>
+{% endif %}
+</div>
+{% endblock %}
