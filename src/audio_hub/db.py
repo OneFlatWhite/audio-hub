@@ -9,6 +9,7 @@ v0.4 归档链路：library_items / recycle_entries / quarantine_items /
 v0.6 站点 / 下载器中心与订阅引擎：sites / site_categories / downloaders /
      subscription_hits，并为 tasks（downloader_id / watch_id / album_key /
      quality_tag）与 watchlist（订阅类型、过滤规则、下载器归属）补列。
+lackfill M2 缺集补齐台账：lackfill_ledger 表与状态索引。
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import aiosqlite
 from loguru import logger
 
 #: 当前 schema 版本，写入 PRAGMA user_version 供诊断脚本读取
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Migration v1 SQL
 _MIGRATION_V1 = """
@@ -352,6 +353,25 @@ CREATE INDEX IF NOT EXISTS idx_hits_watch_album ON subscription_hits(watch_id, a
 CREATE INDEX IF NOT EXISTS idx_hits_info_hash ON subscription_hits(info_hash);
 """
 
+_MIGRATION_V6 = """
+
+-- lackfill M2 缺集补齐台账：115 转存记录与 Emby 核销状态机
+CREATE TABLE IF NOT EXISTS lackfill_ledger (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    show_key      TEXT NOT NULL,          -- 剧集/综艺标识
+    season        TEXT,
+    missing_json  TEXT NOT NULL,          -- 缺集清单 JSON 数组
+    share_code    TEXT,                   -- 115 分享码
+    package_name  TEXT,                   -- 转存包名
+    emby_id       TEXT NOT NULL DEFAULT '',  -- Emby 剧集 ID(核销用)
+    status        TEXT NOT NULL DEFAULT 'pending',  -- pending|partial|complete|timeout
+    verify_round  INTEGER NOT NULL DEFAULT 0,       -- 核销轮次计数
+    created_at    TEXT,
+    updated_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_lackfill_ledger_status ON lackfill_ledger(status);
+"""
+
 # tasks 表的后续新增列（v2 派发 + v4 归档）。
 #
 # 为什么必须有 v2 这些列：/review 采纳待审项后要真实派发，而 TorrentMeta（含
@@ -485,12 +505,13 @@ async def init_db(db_path: str | Path) -> aiosqlite.Connection:
     await conn.execute("PRAGMA busy_timeout = 5000")
     await conn.execute("PRAGMA foreign_keys = ON")
 
-    # 执行 migration（v1 → v5 顺序）
+    # 执行 migration（v1 → v6 顺序）
     await conn.executescript(_MIGRATION_V1)
     await conn.executescript(_MIGRATION_V2)
     await conn.executescript(_MIGRATION_V3)
     await conn.executescript(_MIGRATION_V4)
     await conn.executescript(_MIGRATION_V5)
+    await conn.executescript(_MIGRATION_V6)
     await _migrate_task_columns(conn)
     await _migrate_watchlist_columns(conn)
     await conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

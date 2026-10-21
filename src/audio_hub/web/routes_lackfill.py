@@ -84,6 +84,20 @@ async def lackfill_status(
     }
 
 
+@router.get("/api/lackfill/ledger")
+async def lackfill_ledger(
+    user: dict = Depends(require_user),
+    db=Depends(get_db),
+):
+    """补齐台账 JSON：全部台账行（含 pending/partial/complete/timeout/failed）。"""
+    from ..lackfill import ledger as ledger_mod
+
+    rows = await ledger_mod.list_by_status(
+        db, "pending", "partial", "complete", "timeout", "failed"
+    )
+    return {"rows": rows}
+
+
 @router.post("/api/lackfill/scan")
 async def lackfill_scan(
     request: Request,

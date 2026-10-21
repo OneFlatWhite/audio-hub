@@ -11,6 +11,7 @@ v0.6 job 清单（间隔键在 config.SearchConfig / poll_interval_minutes，设
 - completion_poll     每 poll_interval_minutes            monitor.poll_once（取代旧 pipeline_round）
 - site_auth_check     每 search.auth_check_hours 小时     sites.auth_check.run_auth_check_once
 - seeding_check       每 seeding.check_interval_minutes   seeding_monitor.poll_once
+- lackfill_verify     每 lackfill.verify_interval_hours 小时（默认6）  LackfillService.verify_pending（pending 台账核销）
 
 旧「search_round → match_candidates → dispatch」轮次已由订阅引擎取代：引擎只把命中建成
 DISCOVERED 任务（不碰 qb），本模块把 created_tasks 交给 Dispatcher.dispatch_tasks 派发。
@@ -299,6 +300,23 @@ class PipelineRunner:
         summary = await self.seeding_monitor.poll_once()
         return summary.as_dict()
 
+    async def run_lackfill_verify_once(self) -> dict:
+        """lackfill_verify job：pending 台账核销轮询；单轮异常不停摆。"""
+        from datetime import datetime
+
+        from .lackfill import LackfillService
+
+        cfg = getattr(self.config, "lackfill", None)
+        if cfg is None or not cfg.enabled:
+            return {"skipped": True}
+        try:
+            return await LackfillService(cfg).verify_pending(
+                self.db, now=datetime.now().isoformat()
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"缺集核销轮询异常: {e}")
+            return {"error": str(e)}
+
     # ── 手动触发入口（/run-once、CLI run-once） ──
 
     async def run_once(self) -> dict:
@@ -476,6 +494,16 @@ def build_scheduler(runner: PipelineRunner, config) -> AsyncIOScheduler:
             "license_revalidate", "授权在线复核",
         )
         logger.info(f"授权复核已配置：每 {_license.REVALIDATE_INTERVAL_HOURS} 小时")
+
+    # ── lackfill_verify：缺集补齐核销（pending → complete/timeout），间隔可配 ──
+    lackfill = getattr(config, "lackfill", None)
+    if lackfill is not None and lackfill.enabled and hasattr(runner, "run_lackfill_verify_once"):
+        verify_hours = max(int(getattr(lackfill, "verify_interval_hours", 6)), 1)
+        _add(
+            scheduler, runner.run_lackfill_verify_once, IntervalTrigger(hours=verify_hours),
+            "lackfill_verify", "缺集补齐核销轮询",
+        )
+        logger.info(f"缺集核销已配置：每 {verify_hours} 小时")
 
     # ── update_check：每日拉一次 GitHub 最新 release，仅提示不自动升级 ──
     from . import updates as _updates

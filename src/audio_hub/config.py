@@ -180,7 +180,7 @@ class DiscoverConfig(BaseModel):
 
 
 class LackfillConfig(BaseModel):
-    """缺集补齐（v0.8 / M1，/lackfill 页）：Emby 剧集缺集扫描。
+    """缺集补齐（M1 扫描 + M2 转存/核销，/lackfill 页）：Emby 剧集缺集扫描与补齐。
 
     Emby / TMDB 凭据与站点点同理，YAML 中以 *_encrypted 后缀 + Fernet token
     存储，启动时自动解密到去掉后缀的同名字段（见 _decrypt_sensitive）。
@@ -202,6 +202,22 @@ class LackfillConfig(BaseModel):
     verify_timeout_days: int = 7
     #: 新剧每日扫描配额（M2 新剧发现用）
     new_show_daily_quota: int = 3
+    # ---- M2：115 转存链 + 核销状态机 ----
+    #: 115 cookie 直连链（主），加密存储（p115_cookie_encrypted）
+    p115_cookie: str = ""
+    p115_cookie_encrypted: str = ""     # Fernet token，启动时解密到 p115_cookie
+    #: 115 转存目标目录 CID，0 = 根目录/客户端默认
+    transfer_cid: int = 0
+    #: SA 备链服务地址（cookie 直连失败时降级，每条分享仅降级一次）
+    sa_base_url: str = ""
+    sa_username: str = ""
+    sa_secret: str = ""                 # 加密存储（sa_secret_encrypted）
+    sa_secret_encrypted: str = ""       # Fernet token，启动时解密到 sa_secret
+    #: lackfill 告警企微回调（与 notify.wecom_webhook 独立，缺集补齐专用），加密存储
+    wecom_webhook: str = ""
+    wecom_webhook_encrypted: str = ""   # Fernet token，启动时解密到 wecom_webhook
+    #: 核销熔断轮数：pending 条目复检超 verify_timeout_days 未齐则轮数 +1，达到本轮数置 timeout
+    max_verify_rounds: int = 3
 
 
 #: 通知事件种类的全集，也是设置页 notify.kinds 的合法值集合。
