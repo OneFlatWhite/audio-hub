@@ -531,3 +531,17 @@ Pydantic 默认忽略多余字段，所以**填裸 passkey 会被静默丢弃**�
 `/seeding`（`/{task_id}/pause|resume|mark-satisfied`、`/check-now`）、`/events`（`/events/clear`）。
 总览新增隔离待处理 / H&R 未达标 / 活跃连载三卡 + 最近事件。
 版本号唯一真源 `src/audio_hub/__init__.py`：`pyproject` dynamic 读它，`/health` 读它，`base.html` brand 通过 Jinja 全局 `version` 读它（0.2 时写死过一次导致漂移）。
+
+---
+
+## 附:lackfill(缺集补齐)子包 —— 进行中(M1 已收尾)
+
+> 需求/方案/开发日志在 Obsidian `05-项目研发/lackfill-docker/`(需求文档.md / 迁移方案.md / 开发日志.md),
+> 涉及外部通道的敏感细节以 Ob 为准、不进本仓库。本节只记工程事实。
+
+- **目标**:替代 MoviePilot 插件 LackEpisodeAutoSub(7829 行),砍掉 PT 通道,资源只走爱影(主)+ re0.me 回填桥(辅),全部产出 115 链接整包转存;补完以 Emby 实际入库核销。
+- **M1 已完成**(2026-10-21,commit `fb2a87c` + 导航/闪信 polish):`src/audio_hub/lackfill/`(models / diff 纯函数 / emby / tmdb / service)+ `web/routes_lackfill.py` + `templates/lackfill.html` + `LackfillConfig`(enabled 默认关)+ 侧边栏「缺集补齐」入口 + `tests/unit/test_lackfill_diff.py` 7 用例。
+- **验收基线注意**:v0.18.1 全量测试为 1093 passed / **90 failed(固有,与 lackfill 无关,站点解析与 torrent 抓取类)**;lackfill 改动的验收线 = 全量失败数不增 + 新增测试全过 + ruff 0 error。修那 90 个固有失败是另一件事。
+- **本机 dev**:`AUDIO_HUB_LICENSE_REQUIRED=0 .venv/bin/python -m audio_hub`(授权门禁默认开,dev 用环境变量关);`config/config.yaml` 与 `config/secrets.key` 不入库(gitignore 已覆盖);数据在 `~/audio-hub-data/`。
+- **FastAPI 新版行为**:`include_router` 返回 `_IncludedRouter` 惰性包装,`app.routes` 不展开子路由;TestClient 必须走 lifespan(license_gate 依赖 app.state.db)。
+- **下一步 M2**:115 转存链(cookie 直连主、SA 备两级)+ 补齐台账入 DB + Emby 核销状态机(6h 轮询 / 7 天超时 / 3 轮熔断告警)+ 转存后主动触发 Emby 库刷新;之后 M3 re0 回填桥、M4 AY 移植(NAS 白名单,部署后联调)、M5 新剧自动监控 + Web 状态页完善、M6 NAS 部署。

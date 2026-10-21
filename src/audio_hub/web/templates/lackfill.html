@@ -3,6 +3,8 @@
 {% block h1 %}缺集补齐{% endblock %}
 
 {% block content %}
+{% if flash_ok %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}
+{% if flash_err %}<div class="flash err">{{ flash_err }}</div>{% endif %}
 {% if not enabled %}
 <div class="flash err">缺集补齐未启用：请在 config.yaml 的 <code>lackfill</code> 段设置 <code>enabled: true</code>，并配置 <code>emby_url</code> 与 Emby / TMDB 凭据（支持 <code>*_encrypted</code> 加密存储），重启后生效。</div>
 {% elif not configured %}
@@ -18,7 +20,7 @@
 
 <div class="filters">
   <span class="muted">对照 TMDB 播出进度，找出 Emby 媒体库里缺的剧集。</span>
-  <form method="post" action="/api/lackfill/scan" style="margin-left:auto">
+  <form method="post" action="/lackfill/scan" style="margin-left:auto">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <button class="btn-sm" type="submit" title="扫描一轮（预算 {{ max_round_shows }} 部，逐季对照 TMDB）" {{ 'disabled' if not enabled or not configured }}>立即扫描</button>
   </form>
