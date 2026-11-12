@@ -100,6 +100,9 @@ def _flash(request: Request, kind: str) -> str | None:
         waiting = request.query_params.get("waiting", "0")
         failed = request.query_params.get("failed", "0")
         return f"CD2 检查完成：新确认 {ready}，等待文件 {waiting}，失败 {failed}。"
+    if key == "probe":
+        detail = request.query_params.get("detail", "")
+        return f"连通性自检：{detail or key}"
     if kind == "err":
         return _FLASH_ERR.get(key, key)
     return key
@@ -590,6 +593,28 @@ def _hours_between(start_iso: str, end_iso: str) -> float:
     except (TypeError, ValueError):
         return 0.0
     return delta.total_seconds() / 3600
+
+
+@router.post("/api/lackfill/probe")
+async def lackfill_probe(
+    request: Request,
+    target: str = Form(...),
+    _admin: None = Depends(require_admin_csrf),
+    config=Depends(get_config),
+):
+    """连通性自检:凡与外部程序打通的通道必须可一键验证(FRONTEND-RULES §2)。"""
+    from urllib.parse import quote
+
+    from ..lackfill import probe as probe_mod
+
+    try:
+        result = await probe_mod.probe(target.strip(), config.lackfill)
+    except ValueError as exc:
+        return RedirectResponse(f"/lackfill?err=probe&detail={quote(str(exc)[:120])}", 303)
+    flag = "ok" if result["ok"] else "err"
+    return RedirectResponse(
+        f"/lackfill?{flag}=probe&detail={quote(result['detail'])}", 303
+    )
 
 
 @router.post("/api/lackfill/re0_points")

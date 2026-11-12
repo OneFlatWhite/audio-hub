@@ -438,6 +438,17 @@ LACKFILL_SPECS = (
         lo=0,
     ),
     Spec(
+        "lackfill_cloud_staging_dir", "CD2 云下载目录(容器内)", "str", SCOPE_HOT,
+        "lackfill.cloud_staging_dir",
+        hint="落盘验证起点:CD2 挂载的 115 云下载目录,audio-hub 容器必须挂载同一路径,"
+             "否则「CD2 文件确认」永远失败;可用通道区的「连通性自检」验证。",
+    ),
+    Spec(
+        "lackfill_cloud_feed_dir", "CD2 集合爱影目录(容器内)", "str", SCOPE_HOT,
+        "lackfill.cloud_feed_dir",
+        hint="落盘验证终点:文件稳定后移入此 SA 监控目录,再触发 Emby 刷新。",
+    ),
+    Spec(
         "lackfill_sa_base_url", "SA 服务地址", "str", SCOPE_HOT,
         "lackfill.sa_base_url",
         hint="热生效。完整 http(s) 地址；备用转存链，留空则只用 cookie 直连。",

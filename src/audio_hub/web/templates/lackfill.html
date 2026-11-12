@@ -156,6 +156,22 @@
     <span class="muted">主源 Re0 · 限额补充爱影 · 落盘确认 CD2 · 出问题才需要展开</span>
   </div>
 
+  {# ── 连通性自检:凡打通必可测(FRONTEND-RULES)────────────── #}
+  <div class="filters" style="padding:6px 0 10px;border:0">
+    <span class="muted">连通性自检(只读,不产生转存/解锁):</span>
+    {% if user.is_admin %}
+    {% for t, label in [("emby", "Emby"), ("tmdb", "TMDB"), ("p115", "115 接口"), ("sa", "SA 登录"), ("cd2", "CD2 目录")] %}
+    <form method="post" action="/api/lackfill/probe">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="target" value="{{ t }}">
+      <button class="btn-sm" type="submit" title="只读探测,结果提示在本页顶部">{{ label }}</button>
+    </form>
+    {% endfor %}
+    {% else %}
+    <span class="muted">管理员登录后可用</span>
+    {% endif %}
+  </div>
+
   <details open>
     <summary style="cursor:pointer;padding:8px 0"><b>Re0 主资源库 · NAS Chromium</b>
       <span class="pill {{ 'high' if re0.enabled and re0.worker.online and re0.worker.auto_running else 'low' }}">
