@@ -109,7 +109,7 @@
         <td>
           <span class="pill {{ s.state_css }}">{{ s.state_label }}</span>
           {# 熔断是次级提示：主状态为未认证 / 已禁用时也要能看到 #}
-          {% if s.circuit_tripped and s.state != 'circuit_open' %}<span class="hint"><span class="dot err"></span>熔断中{% if s.circuit_until_local %} · 至 {{ s.circuit_until_local }}{% endif %}</span>
+          {% if s.circuit_tripped and s.state != 'circuit_open' %}<span class="hint"><span class="dot err"></span><abbr title="熔断:连续失败达阈值后暂停请求该站一段时间,防止重试风暴触发 PT 站风控,到期自动恢复">熔断</abbr>中{% if s.circuit_until_local %} · 至 {{ s.circuit_until_local }}{% endif %}</span>
           {% elif s.state == 'circuit_open' and s.circuit_until_local %}<span class="hint">至 {{ s.circuit_until_local }}</span>
           {% elif s.state == 'ok' and not s.healthy %}<span class="hint"><span class="dot err"></span>连续失败 {{ s.consecutive_fail }}</span>{% endif %}
         </td>

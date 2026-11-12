@@ -620,7 +620,7 @@ details.newsub > .panel { margin-top: 12px; }
 .cover-ph {
   position: absolute; inset: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
-  background: linear-gradient(155deg, var(--panel-2) 12%, var(--surface) 90%);
+  background: var(--panel-2);   /* 实色(§3.4 禁装饰渐变) */
 }
 .cover-ph .ph-char { font-size: 30px; font-weight: 700; color: var(--muted); opacity: .35; }
 .cover-ph .ph-q {

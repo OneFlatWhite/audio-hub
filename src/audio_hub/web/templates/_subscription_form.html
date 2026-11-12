@@ -72,7 +72,7 @@
     </div>
     <div class="check" style="flex:0 0 auto">
       <input id="f-up" name="upgrade_enabled" type="checkbox" value="true" {{ 'checked' if e and e.upgrade_enabled }}>
-      <label for="f-up" style="margin:0">洗版：出现更高音质时替换已获得专辑</label>
+      <label for="f-up" style="margin:0"><abbr title="洗版:库内已有该专辑但音质更差,出现更高音质版本时自动替换,旧版进回收站可回滚">洗版</abbr>：出现更高音质时替换已获得专辑</label>
     </div>
     {% if not e %}
     <div class="check" data-for="audiobook" style="flex:0 0 auto">

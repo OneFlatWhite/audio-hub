@@ -273,7 +273,8 @@ class TestPagesRender:
         assert "熔断中" in html
         assert "熔断至" in html
         assert "HTTP 503" in html
-        assert "熔断中" in client.get("/dashboard").text
+        # 总览的「熔断」带 abbr 悬停解释,锚点按渲染后的结构断言
+        assert '熔断</abbr>中' in client.get("/dashboard").text
 
         # 成功一次即恢复：文案消失
         asyncio.run(repo.record_site_success(app.state.db, site_cfg.name, rows=3))
