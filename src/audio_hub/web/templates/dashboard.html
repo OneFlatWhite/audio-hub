@@ -16,7 +16,7 @@
       <tr>
         <td class="nowrap">{{ '✅' if sites_done else '①' }} 站点凭据</td>
         <td>{{ '已认证 ' ~ sites_done|length ~ ' 个站点' if sites_done else '填 PT 站的 RSS/Cookie/令牌并通过「测试认证」' }}</td>
-        <td><a class="btn-sm" href="/sites">站点中心 →</a></td>
+        <td><a class="btn-sm" href="/sites">站点 →</a></td>
       </tr>
       <tr>
         <td class="nowrap">{{ '✅' if dl_done else '②' }} 下载器</td>
@@ -32,7 +32,7 @@
   </table>
   <p class="hint">三步完成后本卡自动消失。当前为
     <b>{{ 'DRY-RUN 空跑(只记录不真实下载)' if dry_run else '实跑(会真实派发下载)' }}</b>;
-    切换开关在 设置 → 运行参数。剧集缺集补齐在<a href="/lackfill">补缺集页</a>单独配置。</p>
+    切换开关在 设置 → 运行参数。剧集补缺集在<a href="/lackfill">补缺集页</a>单独配置。</p>
 </div>
 {% endif %}
 
@@ -97,7 +97,7 @@
 </div>
 
 <div class="panel">
-  <h2>站点健康 <a class="h2-side" href="/sites">站点中心 →</a></h2>
+  <h2>站点健康 <a class="h2-side" href="/sites">站点 →</a></h2>
   <div class="tbl-wrap">
   <table>
     <thead><tr><th>站点</th><th>状态</th><th>上次成功</th><th class="num">上次条数</th>
@@ -119,7 +119,7 @@
         <td class="num">{{ s.total_errors }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="empty">尚未配置站点，<a href="/sites">去站点中心添加</a></td></tr>
+      <tr><td colspan="6" class="empty">尚未配置站点，<a href="/sites">去站点添加</a></td></tr>
     {% endfor %}
     </tbody>
   </table>

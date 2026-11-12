@@ -10,10 +10,10 @@
     POST /settings/scrape       刮削联动（MTW / ABS）
     POST /settings/seeding      做种 / H&R 全局默认
     POST /settings/notify       外部推送渠道
-    POST /settings/lackfill     缺集补齐（Emby 核销 / 115 转存 / TMDB 匹配）
+    POST /settings/lackfill     补缺集（Emby 核销 / 115 转存 / TMDB 匹配）
     POST /settings/notify/test  用当前生效的推送配置发一条测试通知
 
-站点开关 / 凭据 / 站点 H&R 规则（原 POST /settings/sites）已于 v0.6 迁到站点中心
+站点开关 / 凭据 / 站点 H&R 规则（原 POST /settings/sites）已于 v0.6 迁到站点
 （sites 表 + /sites 页），设置页不再承载。
 
 qBittorrent 组（原 POST /settings/qbittorrent）于 v0.6.0 撤下：v0.6 起运行时
@@ -79,12 +79,12 @@ _GROUPS: tuple[tuple[str, str, str, frozenset[str], str], ...] = (
      "归档完成后通知 MusicTag Web 与 Audiobookshelf 。地址留空则不联动。",
      SCRAPE_KEYS, "saved_scrape"),
     ("/settings/seeding", "做种与 H&R",
-     "全局默认规则；站点中心（/sites）可逐站覆盖。达标前不会对种子做任何动作。",
+     "全局默认规则；站点（/sites）可逐站覆盖。达标前不会对种子做任何动作。",
      SEEDING_KEYS, "saved_seeding"),
     ("/settings/notify", "通知推送",
      "事件始终写入本地事件流；这里配置的是额外的外部推送渠道。",
      NOTIFY_KEYS, "saved_notify"),
-    ("/settings/lackfill", "缺集补齐",
+    ("/settings/lackfill", "补缺集",
      "Emby 核销 / 115 转存 / TMDB 匹配。全部保存即生效；启用开关关闭时核销轮询空跑。",
      LACKFILL_KEYS, "saved_lackfill"),
 )

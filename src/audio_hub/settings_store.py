@@ -336,11 +336,11 @@ NOTIFY_SPECS: tuple[Spec, ...] = (
     ),
 )
 
-#: 缺集补齐（lackfill）。全部热生效：核销轮询/转存链每次执行实时读 config，
+#: 补缺集（lackfill）。全部热生效：核销轮询/转存链每次执行实时读 config，
 #: 间隔项保存后由 apply_hot 重排 lackfill_verify / lackfill_ay / lackfill_cloud。
 LACKFILL_SPECS = (
     Spec(
-        "lackfill_enabled", "启用缺集补齐", "bool", SCOPE_HOT, "lackfill.enabled",
+        "lackfill_enabled", "启用补缺集", "bool", SCOPE_HOT, "lackfill.enabled",
         hint="热生效。关闭时核销轮询空跑，不发起任何 Emby/115 请求。",
     ),
     Spec(
@@ -508,7 +508,7 @@ LACKFILL_SPECS = (
     Spec(
         "lackfill_refill_api_key", "Re0 回填令牌", "secret", SCOPE_HOT,
         "lackfill.refill_api_key",
-        hint="油猴脚本专用，至少 32 位。只写不读、Fernet 加密入库；也可在缺集补齐页生成。",
+        hint="油猴脚本专用，至少 32 位。只写不读、Fernet 加密入库；也可在补缺集页生成。",
         min_len=32,
     ),
     Spec(

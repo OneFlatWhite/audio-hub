@@ -332,7 +332,7 @@ PENDING_REVIEW_REASONS = ("pending_review", "confidence_below", "auto_download_d
 
 
 async def count_pending_review(db) -> int:
-    """待审队列条目数（导航栏徽标用）。
+    """待我确认条目数（导航栏徽标用）。
 
     待审 = state=scored 且 reject_reason 属于待审类（含 NULL）。
     与 web 层 _query_tasks(review_only=True) 用同一判据，避免两处不一致。
@@ -1217,7 +1217,7 @@ def _load_json(raw: str | None):
 
 # ---- sites ----
 #
-# v0.6 站点中心：sites 表是站点配置的唯一权威源（YAML 仅首启种子，见 registry_store）。
+# v0.6 站点：sites 表是站点配置的唯一权威源（YAML 仅首启种子，见 registry_store）。
 # 凭据列 cookie_enc / rss_url_enc / api_key_enc 永不随 SiteRecord 返回明文；
 # 需要明文的唯一场景是构建适配器，走 site_config_from_row / get_site_secret。
 
@@ -1777,7 +1777,7 @@ def _row_hit(r) -> SubscriptionHit:
 
 
 async def add_hit(db, hit: SubscriptionHit) -> int:
-    """写一条命中记录，返回自增 id。不做去重：同一种子在不同轮次的决策可能不同，都要留痕。"""
+    """写一条任务记录，返回自增 id。不做去重：同一种子在不同轮次的决策可能不同，都要留痕。"""
     cur = await db.execute(
         """INSERT INTO subscription_hits
              (watch_id, site, torrent_title, info_hash, album_key, quality_tag, discount,

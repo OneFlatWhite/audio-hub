@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{{ (site.name if site else '新建站点') }} · 站点中心 · audio-hub{% endblock %}
+{% block title %}{{ (site.name if site else '新建站点') }} · 站点 · audio-hub{% endblock %}
 {% block h1 %}{% if site %}站点 · {{ site.name }}{% else %}新建站点{% endif %}{% endblock %}
 
 {% block content %}
 {% if detail and (flash_ok or flash_err) %}<p class="hint" style="margin:-10px 0 14px">详情：{{ detail }}</p>{% endif %}
 
 <p class="hint" style="margin-bottom:14px">
-  <a href="/sites">← 返回站点中心</a>
+  <a href="/sites">← 返回站点</a>
   {% if site %} · 当前状态 <span class="pill {{ site.state_css }}">{{ site.state_label }}</span>
     {% if site.circuit_tripped %}<span class="dot err"></span>熔断中{% if site.circuit_until_local %} · 熔断至 {{ site.circuit_until_local }}{% endif %}{% endif %}
   {% endif %}

@@ -9,7 +9,7 @@ v0.4 归档链路：library_items / recycle_entries / quarantine_items /
 v0.6 站点 / 下载器中心与订阅引擎：sites / site_categories / downloaders /
      subscription_hits，并为 tasks（downloader_id / watch_id / album_key /
      quality_tag）与 watchlist（订阅类型、过滤规则、下载器归属）补列。
-lackfill M2 缺集补齐台账：lackfill_ledger 表与状态索引。
+lackfill M2 补缺集台账：lackfill_ledger 表与状态索引。
 lackfill M3 Re0 回填队列：lackfill_queue 表与等待时间索引。
 lackfill M3 转存幂等：lackfill_reservations 每剧唯一活动意图与崩溃恢复。
 lackfill CD2 文件验证：lackfill_cloud 真实包目录、稳定快照与 Emby 刷新状态。
@@ -334,7 +334,7 @@ CREATE TABLE IF NOT EXISTS downloaders (
     updated_at     TEXT
 );
 
--- 订阅命中记录：每次候选命中及其决策，专辑级去重 / 洗版按 (watch_id, album_key) 查
+-- 订阅任务记录：每次候选命中及其决策，专辑级去重 / 洗版按 (watch_id, album_key) 查
 CREATE TABLE IF NOT EXISTS subscription_hits (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     watch_id      TEXT NOT NULL,
@@ -359,7 +359,7 @@ CREATE INDEX IF NOT EXISTS idx_hits_info_hash ON subscription_hits(info_hash);
 
 _MIGRATION_V6 = """
 
--- lackfill M2 缺集补齐台账：115 转存记录与 Emby 核销状态机
+-- lackfill M2 补缺集台账：115 转存记录与 Emby 核销状态机
 CREATE TABLE IF NOT EXISTS lackfill_ledger (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     show_key      TEXT NOT NULL,          -- 剧集/综艺标识
@@ -469,7 +469,7 @@ CREATE INDEX IF NOT EXISTS idx_lackfill_cloud_files_status ON lackfill_cloud_fil
 #
 # 为什么必须有 v2 这些列：/review 采纳待审项后要真实派发，而 TorrentMeta（含
 # download_url）只存在于流水线轮次的内存中。若不持久化，采纳动作就只能改状态、
-# 无法下载 —— 整个待审队列在实跑模式下失去意义。
+# 无法下载 —— 整个待我确认在实跑模式下失去意义。
 #
 # 为什么不用 ALTER TABLE ... executescript：SQLite 的 ALTER ADD COLUMN 没有
 # IF NOT EXISTS，重复执行会抛 "duplicate column name"，破坏 init_db 的幂等性。

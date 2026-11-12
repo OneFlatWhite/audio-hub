@@ -114,10 +114,10 @@ def _post_settings(client, action, data, token=None):
 
 
 def _set_site_enabled(site_id: str, enabled: bool) -> None:
-    """v0.6：站点开关在 sites 表（站点中心页），保存后经 rebuild_adapters 热生效。
+    """v0.6：站点开关在 sites 表（站点页），保存后经 rebuild_adapters 热生效。
 
     认证门禁（2A）：auth_status != valid 的站点不会被 build_adapters 构造，故启用前
-    先标记为 valid（等于站点中心「测试认证」通过），本文件关心的是开关热生效本身。
+    先标记为 valid（等于站点「测试认证」通过），本文件关心的是开关热生效本身。
     """
     async def _go():
         if enabled:
@@ -464,7 +464,7 @@ class TestV4Groups:
         for name in ("library_music", "allowed_exts", "abs_token",
                      "default_min_ratio", "notify_kinds"):
             assert f'name="{name}"' in page.text, f"缺少字段 {name}"
-        # 站点级 H&R 已迁至站点中心，设置页不再渲染
+        # 站点级 H&R 已迁至站点，设置页不再渲染
         assert 'name="site_hr_hours:hhanclub"' not in page.text
         # list 字段以逗号串回显
         assert "dispatched, completed" in page.text
@@ -774,7 +774,7 @@ class TestNotifyPush:
 
 
 
-# ── lackfill（缺集补齐）设置组 ──────────────────────────────
+# ── lackfill（补缺集）设置组 ──────────────────────────────
 class TestLackfillGroup:
     def test_settings_page_points_to_lackfill_drawer(self, client):
         """FRONTEND-RULES §1.3:配置跟着使用走——设置页不再渲染该组,只留指引卡。"""

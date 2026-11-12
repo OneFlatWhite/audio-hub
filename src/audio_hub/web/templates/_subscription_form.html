@@ -9,7 +9,7 @@
   {% if no_valid_sites or no_downloaders %}
   <div class="banner-restart" style="margin-bottom:14px">
     {% if no_valid_sites %}<div>⚠ 当前没有<b>已启用且认证通过</b>的站点，订阅不会发出任何搜索 ——
-      <a href="/sites">去「站点中心」配置</a></div>{% endif %}
+      <a href="/sites">去「站点」配置</a></div>{% endif %}
     {% if no_downloaders %}<div>⚠ 当前没有<b>启用的下载器</b>，命中后无法派发 ——
       <a href="/downloaders">去「下载器」配置</a></div>{% endif %}
   </div>
@@ -177,6 +177,6 @@
 
   <div style="margin-top:14px;display:flex;gap:10px;align-items:center">
     <button class="btn-primary" type="submit">{{ '保存修改' if e else '添加并立即搜索' }}</button>
-    {% if not e %}<span class="hint" style="margin:0">添加后会立刻对可用站点做一次搜索，结果见该订阅的命中记录</span>{% endif %}
+    {% if not e %}<span class="hint" style="margin:0">添加后会立刻对可用站点做一次搜索，结果见该订阅的任务记录</span>{% endif %}
   </div>
 </form>

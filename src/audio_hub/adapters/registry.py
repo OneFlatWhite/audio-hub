@@ -76,7 +76,7 @@ def build_adapters(
 
     require_valid_auth 是 v0.6 的认证门禁：默认 True，auth_status != valid 的站
     即便 enabled 也不构造 —— 没验过凭据的站参与自动搜索只会用失败触发熔断、
-    甚至拿过期 Cookie 反复敲站点。站点中心的「测试」端点不走这里，
+    甚至拿过期 Cookie 反复敲站点。站点的「测试」端点不走这里，
     用 make_adapter_for_test。传 False 仅供脚本 / 诊断场景。
 
     Returns:
@@ -101,7 +101,7 @@ def build_adapters(
 
 
 def make_adapter_for_test(site_config: SiteConfig) -> BaseAdapter:
-    """为站点中心的测试端点构造适配器：不看 enabled，也不看 auth_status。
+    """为站点的测试端点构造适配器：不看 enabled，也不看 auth_status。
 
     测试动作的目的恰恰是把 unconfigured / expired 的站验成 valid，
     门禁对它没有意义；语义与 build_adapter 相同，单独命名是为了让

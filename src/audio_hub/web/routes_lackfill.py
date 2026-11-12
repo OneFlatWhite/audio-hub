@@ -80,7 +80,7 @@ async def _require_refill_key(
 
 
 _FLASH_ERR = {
-    "disabled": "缺集补齐未启用：请先在设置页的缺集补齐分组启用。",
+    "disabled": "补缺集未启用：请先在设置页的补缺集分组启用。",
     "not_configured": "凭据未配齐：还需要 emby_url / emby_api_key / tmdb_api_key 三项才能扫描。",
     "secrets_key": "密钥文件不可用，无法保存回填令牌；请先检查部署的 secrets.key。",
 }

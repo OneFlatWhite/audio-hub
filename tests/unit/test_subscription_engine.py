@@ -156,7 +156,7 @@ class TestDecideBasic:
         assert task is not None
         assert task.watch_id == w.id and task.album_key == "周杰伦|叶惠美"
         assert task.quality_tag == "flac_16"
-        # dry_run：任务停在 scored，且不混进待审队列
+        # dry_run：任务停在 scored，且不混进待我确认
         assert task.state == TaskState.SCORED
         assert task.reject_reason == engine.DRY_RUN_REASON
         assert await repo.count_pending_review(test_db) == 0

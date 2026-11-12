@@ -191,7 +191,7 @@ def test_path_setting_is_hot_and_creates_dir(web_env, client):
     assert asyncio.run(settings_store.is_restart_pending(app.state.db)) is False
 
 
-# ── 命中记录分页 ────────────────────────────────────────────
+# ── 任务记录分页 ────────────────────────────────────────────
 
 def _seed_task(title: str, state=TaskState.DISPATCHED) -> str:
     import asyncio

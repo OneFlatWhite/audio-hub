@@ -1,7 +1,7 @@
 """lackfill 外部依赖连通性探测。
 
 FRONTEND-RULES 约定:凡是与外部程序打通的通道(Emby/TMDB/115/SA/CD2 挂载),
-必须能从界面一键验证「连没连通」——参照站点中心「测试认证」与下载器中心
+必须能从界面一键验证「连没连通」——参照站点「测试认证」与下载器中心
 「测试连接」的既有语义。全部只读探测,不产生转存/解锁等副作用:
 - emby: GET /System/Info(X-Emby-Token),200 即认证通过
 - tmdb: GET /3/configuration(v3 key 或 v4 Bearer,与 tmdb.py 同规则)

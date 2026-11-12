@@ -471,7 +471,7 @@ class TestWatchlistCRUD:
         assert not any(e.query == "临时" for e in entries2)
 
 
-# ── 待审队列：采纳 / 拒绝 ───────────────────────────────────
+# ── 待我确认：采纳 / 拒绝 ───────────────────────────────────
 
 def _seed_review_task(title="待审 FLAC 专辑", reason="pending_review") -> str:
     import asyncio
@@ -542,7 +542,7 @@ class TestReviewQueue:
         assert resp.status_code == 403
 
 
-# ── 待审队列：批量裁决 ──────────────────────────────────────
+# ── 待我确认：批量裁决 ──────────────────────────────────────
 
 class TestReviewBatch:
     def _batch_post(self, client, action, ids, reason="", note=""):

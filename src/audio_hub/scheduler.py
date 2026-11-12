@@ -633,13 +633,13 @@ def build_scheduler(runner: PipelineRunner, config) -> AsyncIOScheduler:
         )
         logger.info(f"授权复核已配置：每 {_license.REVALIDATE_INTERVAL_HOURS} 小时")
 
-    # ── lackfill_verify：缺集补齐核销（pending → complete/timeout），间隔可配 ──
+    # ── lackfill_verify：补缺集核销（pending → complete/timeout），间隔可配 ──
     lackfill = getattr(config, "lackfill", None)
     if lackfill is not None and hasattr(runner, "run_lackfill_verify_once"):
         verify_hours = max(int(getattr(lackfill, "verify_interval_hours", 6)), 1)
         _add(
             scheduler, runner.run_lackfill_verify_once, IntervalTrigger(hours=verify_hours),
-            "lackfill_verify", "缺集补齐核销轮询",
+            "lackfill_verify", "补缺集核销轮询",
         )
         logger.info(f"缺集核销已配置：每 {verify_hours} 小时")
 

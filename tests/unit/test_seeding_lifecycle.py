@@ -349,7 +349,7 @@ class TestRefreshSites:
     """refresh_sites 让做种监视器立刻按新 H&R 阈值轮询。
 
     陷阱：SeedingMonitor 构造时把 config.sites 拷成 _site_cfg 快照，
-    站点中心改 H&R 后 config.sites 已整体替换，监视器却仍按旧阈值跑，
+    站点改 H&R 后 config.sites 已整体替换，监视器却仍按旧阈值跑，
     界面「已生效」与实际行为不一致，要到重启才收敛。
     """
 

@@ -1,4 +1,4 @@
-"""lackfill 缺集补齐台账（lackfill_ledger，schema v9）的迁移与 CRUD 测试。
+"""lackfill 补缺集台账（lackfill_ledger，schema v9）的迁移与 CRUD 测试。
 
 结构对照 test_migration_v5.py：全新建库幂等、v5 老库升级、CRUD 行为。
 """

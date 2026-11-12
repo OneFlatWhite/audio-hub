@@ -292,7 +292,7 @@ class EventRecord(BaseModel):
     created_at: datetime = Field(default_factory=utcnow)
 
 
-# ── v0.6：站点中心 ──────────────────────────────────────────
+# ── v0.6：站点 ──────────────────────────────────────────
 
 class AuthStatus(str, Enum):
     """站点认证状态。只有 valid 才允许启用 / 参与搜索（门禁由 2A 在路由层强制）。"""

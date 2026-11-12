@@ -222,7 +222,7 @@ class TestWatchlistRender:
         _setup_admin(client)
         html = client.get("/watchlist").text
         assert "新建订阅" in html and "还没有订阅" in html
-        # 没有已启用且认证通过的站点 → 表单顶部引导到站点中心
+        # 没有已启用且认证通过的站点 → 表单顶部引导到站点
         assert 'href="/sites"' in html and "认证通过" in html
         # 类型下拉含四种订阅类型
         for val in ("artist", "album", "audiobook", "keyword"):
@@ -443,10 +443,10 @@ class TestDetail:
             assert title in html
         # 决策筛选链接与计数
         assert f'href="/watchlist/{e.id}?decision=review"' in html
-        assert "命中记录（4）" in html
+        assert "任务记录（4）" in html
         # 已获得专辑：只有派发过的那一张
         assert "已获得专辑（1）" in html and "周杰伦|叶惠美" in html
-        assert "周杰伦|范特西" in html  # 命中记录里出现
+        assert "周杰伦|范特西" in html  # 任务记录里出现
         # 编辑表单预填 + 操作按钮
         assert 'value="周杰伦"' in html and "保存修改" in html
         assert f'action="/watchlist/{e.id}/search-now"' in html and "立即搜索" in html
@@ -464,7 +464,7 @@ class TestDetail:
             )))
         html = client.get(f"/watchlist/{e.id}?decision=review").text
         assert "B [FLAC]" in html and "A [FLAC]" not in html
-        assert "命中记录（2）" in html  # 计数仍是全部
+        assert "任务记录（2）" in html  # 计数仍是全部
         html_all = client.get(f"/watchlist/{e.id}?decision=bogus").text
         assert "A [FLAC]" in html_all and "B [FLAC]" in html_all
 
@@ -538,7 +538,7 @@ class TestActions:
         assert e2.last_search_at is not None
         hits = _run(repo.list_hits(app.state.db, e.id))
         assert hits and all(h.decision == HitDecision.REVIEW for h in hits)
-        # 待审项出现在待审队列
+        # 待审项出现在待我确认
         assert "叶惠美" in client.get("/review").text
 
     def test_search_now_ignores_schedule(self, client, fake_adapter):

@@ -65,7 +65,7 @@
         <form method="post" action="/watchlist/{{ e.id }}/delete">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <button class="btn-err" type="submit"
-                  data-confirm="删除订阅「{{ e.query }}」？命中记录一并清除，已建任务保留。">删除</button>
+                  data-confirm="删除订阅「{{ e.query }}」？任务记录一并清除，已建任务保留。">删除</button>
         </form>
         {% endif %}
       </div>
@@ -73,10 +73,10 @@
   </div>
 </div>
 
-{# 单列流：命中记录 → 折叠的编辑面板 → 已获得专辑。
+{# 单列流：任务记录 → 折叠的编辑面板 → 已获得专辑。
    编辑表单低频使用，右侧常驻会挤压主内容。 #}
 <div class="panel">
-  <h2>命中记录（{{ decision_counts.values()|sum }}）</h2>
+  <h2>任务记录（{{ decision_counts.values()|sum }}）</h2>
       <div class="filters">
         <a href="/watchlist/{{ e.id }}" class="{{ 'active' if not hit_filter }}">全部</a>
         {% for val, name in decision_labels.items() %}
@@ -105,7 +105,7 @@
             <td><span class="pill {{ 'high' if h.decision.value in ('dispatched', 'upgrade') else ('medium' if h.decision.value == 'review' else ('low' if h.decision.value == 'rejected' else '')) }}">{{ decision_labels.get(h.decision.value, h.decision.value) }}</span></td>
           </tr>
         {% else %}
-          <tr><td colspan="7" class="empty">{{ '该决策下没有记录' if hit_filter else '还没有命中记录——点「立即搜索」试试' }}</td></tr>
+          <tr><td colspan="7" class="empty">{{ '该决策下没有记录' if hit_filter else '还没有任务记录——点「立即搜索」试试' }}</td></tr>
         {% endfor %}
         </tbody>
       </table>

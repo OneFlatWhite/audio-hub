@@ -8,7 +8,7 @@
 
 v0.6 起站点配置的权威源是 sites 表（registry_store），不再走 app_settings 覆盖层与
 POST /settings/sites。本文件的写操作改为直接经 repo.upsert_site +
-settings_store.rebuild_adapters（即站点中心页保存后的同一条路径），断言仍落在同一组行为上。
+settings_store.rebuild_adapters（即站点页保存后的同一条路径），断言仍落在同一组行为上。
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def _csrf(client) -> str:
 
 
 def _save_site(site_id: str, **fields):
-    """模拟站点中心「只改提交的字段」：读现状 → 覆盖字段 → upsert → 热重建适配器。
+    """模拟站点「只改提交的字段」：读现状 → 覆盖字段 → upsert → 热重建适配器。
 
     凭据字段留空（""）时 upsert_site 保留库中已有值，与界面「留空＝不修改」一致。
     启用时先把认证状态置为 valid（v0.6 门禁：auth 未通过的站点不构建适配器），

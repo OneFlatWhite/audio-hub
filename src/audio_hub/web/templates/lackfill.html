@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}缺集补齐 · audio-hub{% endblock %}
-{% block h1 %}缺集补齐{% endblock %}
+{% block title %}补缺集 · audio-hub{% endblock %}
+{% block h1 %}补缺集{% endblock %}
 
 {% block content %}
 {% if flash_ok %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}
@@ -12,7 +12,7 @@
 </div>
 {% endif %}
 {% if not enabled %}
-<div class="flash err">缺集补齐未启用：在<a href="#lackfill-settings">下方「设置」</a>里启用并填写 Emby / TMDB 凭据，保存后立即生效。</div>
+<div class="flash err">补缺集未启用：在<a href="#lackfill-settings">下方「设置」</a>里启用并填写 Emby / TMDB 凭据，保存后立即生效。</div>
 {% elif not configured %}
 <div class="flash err">凭据未配齐：在<a href="#lackfill-settings">下方「设置 · 主链」</a>填写 Emby 地址/Key 与 TMDB Key 三项。</div>
 {% endif %}

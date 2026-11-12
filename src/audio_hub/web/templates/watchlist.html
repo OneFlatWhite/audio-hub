@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block body_attr %}data-autorefresh="60"{% endblock %}
-{% block title %}订阅 · audio-hub{% endblock %}
-{% block h1 %}订阅{% endblock %}
+{% block title %}我的订阅 · audio-hub{% endblock %}
+{% block h1 %}我的订阅{% endblock %}
 
 {% block content %}
 <div class="cards" style="margin-bottom:16px">
@@ -84,7 +84,7 @@
               <form method="post" action="/watchlist/{{ e.id }}/delete">
                 <input type="hidden" name="csrf_token" value="{{ csrf }}">
                 <button class="btn-err" type="submit"
-                        data-confirm="删除订阅「{{ e.query }}」？命中记录一并清除，已建任务保留。">删除</button>
+                        data-confirm="删除订阅「{{ e.query }}」？任务记录一并清除，已建任务保留。">删除</button>
               </form>
               {% endif %}
             </div>

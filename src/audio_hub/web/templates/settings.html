@@ -37,7 +37,7 @@
 </nav>
 
 {# ── 可编辑设置（由 settings_store 的 SPEC 驱动，模板不写死字段名）──
-   缺集补齐组已按 FRONTEND-RULES §1.3「配置跟着使用走」迁往 /lackfill 页，
+   补缺集组已按 FRONTEND-RULES §1.3「配置跟着使用走」迁往 /lackfill 页，
    路由层已从 groups 里滤掉,页面只剩指引卡。 #}
 {% for g in groups %}
 {% set gi = loop.index0 %}
@@ -73,7 +73,7 @@
 {% endfor %}
 
 <div class="panel" id="set-lackfill-pointer">
-  <h2>缺集补齐(Emby / TMDB / 115 / 爱影 / Re0)</h2>
+  <h2>补缺集(Emby / TMDB / 115 / 爱影 / Re0)</h2>
   <p class="hint">这组配置已搬到它被使用的地方 —— 在<a href="/lackfill"><b>补缺集页的「设置」</b></a>填写,
     主链凭据默认展开,爱影 / SA 备链 / Re0 浏览器细节折叠,不用时完全不占注意力。</p>
 </div>

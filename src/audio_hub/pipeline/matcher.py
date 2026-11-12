@@ -1,7 +1,7 @@
 """匹配与准入层：类型判别 → 关键词命中 → 置信度分级 → 去重准入。
 
 v0.1 用最简规则（PRD §5）：关键词包含 + 体积区间。
-v0.2 再上完整归一化打分与待审队列。
+v0.2 再上完整归一化打分与待我确认。
 v0.6 增「订阅型」匹配（match_subscription / match_for_subscriptions）：按 sub_type
 （artist / album / audiobook / keyword）命中，再过 include / exclude / free_only / 体积 /
 preferred_quality / min_seeders 这一套按订阅配的过滤器。订阅引擎（subscription.engine）
@@ -148,7 +148,7 @@ def score_candidate(
     # high：命中订阅词（query 或别名）+ 明确音质标记 + 类型明确（音乐或有声书）
     #
     # 注意：类型判断必须涵盖 AUDIOBOOK。早期实现写死 == MUSIC，
-    # 导致有声书永远达不到 high、整条有声书链路卡在待审队列。
+    # 导致有声书永远达不到 high、整条有声书链路卡在待我确认。
     has_term_hit = bool(hits)
     category_explicit = torrent.category in (MediaCategory.MUSIC, MediaCategory.AUDIOBOOK)
 

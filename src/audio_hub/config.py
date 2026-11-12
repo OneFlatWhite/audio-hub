@@ -180,7 +180,7 @@ class DiscoverConfig(BaseModel):
 
 
 class LackfillConfig(BaseModel):
-    """缺集补齐（扫描 + Re0 主源 + AY 限额补充 + 转存/核销）的运行配置。
+    """补缺集（扫描 + Re0 主源 + AY 限额补充 + 转存/核销）的运行配置。
 
     Emby / TMDB 凭据与站点点同理，YAML 中以 *_encrypted 后缀 + Fernet token
     存储，启动时自动解密到去掉后缀的同名字段（见 _decrypt_sensitive）。
@@ -230,7 +230,7 @@ class LackfillConfig(BaseModel):
     sa_callback_corpid: str = ""
     sa_callback_userid: str = ""
     sa_callback_agentid: str = ""
-    #: lackfill 告警企微回调（与 notify.wecom_webhook 独立，缺集补齐专用），加密存储
+    #: lackfill 告警企微回调（与 notify.wecom_webhook 独立，补缺集专用），加密存储
     wecom_webhook: str = ""
     wecom_webhook_encrypted: str = ""   # Fernet token，启动时解密到 wecom_webhook
     #: Re0 油猴回填桥独立凭据，与 Web 登录会话和站点凭据分离
