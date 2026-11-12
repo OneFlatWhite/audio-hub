@@ -133,3 +133,50 @@ sites:
     audiobook_cat_id: ""
     max_rows: 50
     title_bracket_style: "[]"
+
+# ── 缺集补齐（推荐直接在设置页配置并即时生效）────────────────────────
+lackfill:
+  enabled: false
+  # 爱影 API 主通道；tg_id 只是请求标识，不使用 Telegram 会话
+  ay_api_enabled: false
+  ay_api_url: ""                      # 完整地址，例如 https://example.com/api/user
+  ay_api_token_encrypted: ""
+  ay_tg_id: ""
+  ay_max_links: 3
+  ay_round_clicks: 100
+  ay_scan_minutes: 60
+  emby_url: ""
+  emby_api_key_encrypted: ""
+  tmdb_api_key_encrypted: ""
+  tmdb_language: "zh-CN"
+  max_round_shows: 50
+  verify_interval_hours: 6
+  verify_timeout_days: 7
+  max_verify_rounds: 3
+  p115_cookie_encrypted: ""
+  transfer_cid: 0
+  sa_base_url: ""
+  sa_username: ""
+  sa_secret_encrypted: ""
+  sa_parent_id: ""
+  sa_callback_url: ""
+  sa_callback_token_encrypted: ""
+  sa_callback_aeskey_encrypted: ""
+  sa_callback_corpid: ""
+  sa_callback_userid: ""
+  sa_callback_agentid: ""
+  wecom_webhook_encrypted: ""
+  # Re0 油猴独立令牌；也可在 /lackfill 页面生成，重启后从 DB 覆盖层恢复
+  refill_api_key_encrypted: ""
+  # Re0 主资源库：NAS Chromium + 远程人工接管；不保存 Re0 账密到本应用
+  re0_browser_enabled: false
+  re0_browser_cdp_url: "http://127.0.0.1:9222"
+  re0_browser_ui_url: "https://127.0.0.1:3001"
+  re0_browser_health_seconds: 60
+  # CD2 文件落地验证：路径均为容器内视角，保存成功必须先看到真实包目录
+  cloud_verify_enabled: true
+  cloud_staging_dir: "/CloudNAS/CloudDrive/115open/云下载"
+  cloud_feed_dir: "/CloudNAS/CloudDrive/115open/集合爱影"
+  cloud_share_move: true
+  cloud_stable_minutes: 5
+  cloud_poll_minutes: 5

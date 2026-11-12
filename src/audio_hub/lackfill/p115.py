@@ -5,6 +5,7 @@ import asyncio
 import random
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -17,6 +18,12 @@ _PASSWORD_RE = re.compile(r"[?&]password=([A-Za-z0-9]+)")
 _MAX_DEPTH = 3
 _MAX_TOTAL = 3000
 _PAGE_LIMIT = 1000
+
+
+@dataclass
+class ShareSnapshot:
+    package_name: str
+    files: list[dict[str, Any]]
 
 
 class P115Error(RuntimeError):
@@ -53,10 +60,18 @@ class P115Client:
         )
 
     async def snap(self, share_code: str, receive_code: str = "") -> list[dict[str, Any]]:
-        """递归拉取分享包文件清单(目录 ≤3 层、总数 ≤3000),state 为假抛 P115Error。"""
+        """兼容旧调用：返回不含路径元数据的文件清单。"""
+        snapshot = await self.inspect_share(share_code, receive_code)
+        return [
+            {"name": f["name"], "file_id": f["file_id"], "is_dir": f["is_dir"]}
+            for f in snapshot.files
+        ]
+
+    async def inspect_share(self, share_code: str, receive_code: str = "") -> ShareSnapshot:
+        """返回真实包名与带目录路径的快照，供验包而不是仅检查 snap 可调通。"""
         out: list[dict[str, Any]] = []
-        await self._snap_dir(share_code, receive_code, None, 1, out)
-        return out
+        package_name = await self._snap_dir(share_code, receive_code, None, 1, out)
+        return ShareSnapshot(package_name=package_name, files=out)
 
     async def _snap_dir(
         self,
@@ -65,9 +80,11 @@ class P115Client:
         cid: str | None,
         depth: int,
         out: list[dict[str, Any]],
-    ) -> None:
+        parent_path: str = "",
+    ) -> str:
         start = len(out)
         offset = 0
+        package_name = ""
         while True:
             params: dict[str, str] = {
                 "share_code": share_code,
@@ -82,17 +99,32 @@ class P115Client:
             if not payload.get("state"):
                 raise P115Error(f"snap 失败: {payload.get('error') or payload}")
             data = payload.get("data") or {}
+            if depth == 1 and not package_name:
+                package_name = str(
+                    data.get("share_name")
+                    or data.get("share_title")
+                    or data.get("file_name")
+                    or data.get("title")
+                    or data.get("name")
+                    or ""
+                )
             entries = data.get("list") or []
             count = data.get("count")
             for item in entries:
                 if len(out) >= _MAX_TOTAL:
-                    return
+                    return package_name
                 fid = item.get("fid")
                 dir_cid = item.get("cid")
+                name = item.get("n", "")
+                path = f"{parent_path}/{name}" if parent_path else name
                 if fid is not None:
-                    out.append({"name": item.get("n", ""), "file_id": str(fid), "is_dir": False})
+                    out.append({
+                        "name": name, "path": path, "file_id": str(fid), "is_dir": False,
+                    })
                 elif dir_cid is not None:
-                    out.append({"name": item.get("n", ""), "file_id": str(dir_cid), "is_dir": True})
+                    out.append({
+                        "name": name, "path": path, "file_id": str(dir_cid), "is_dir": True,
+                    })
             offset += len(entries)
             if (
                 not entries
@@ -101,12 +133,15 @@ class P115Client:
             ):
                 break
         if depth >= _MAX_DEPTH:
-            return
+            return package_name
         for item in out[start:]:
             if len(out) >= _MAX_TOTAL:
-                return
+                return package_name
             if item["is_dir"]:
-                await self._snap_dir(share_code, receive_code, item["file_id"], depth + 1, out)
+                await self._snap_dir(
+                    share_code, receive_code, item["file_id"], depth + 1, out, item["path"]
+                )
+        return package_name
 
     async def receive(
         self,

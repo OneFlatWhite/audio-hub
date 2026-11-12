@@ -116,6 +116,10 @@ async def lifespan(app: FastAPI):
     # （改完路径，下次就读不到覆盖层了），故它只能改 YAML。
     db = await init_db(config.db_path)
 
+    # reserved 尚未进入外部调用可安全回收；attempted 保留人工核对，不自动重放。
+    from .lackfill import reservations as _lackfill_reservations
+    await _lackfill_reservations.recover_unstarted(db)
+
     # 合并界面保存的设置（含 secret 解密）。必须在适配器与 qb 客户端
     # 构建之前，否则 dry_run / 站点开关的改动重启后依然不生效。
     await settings_store.hydrate_config(db, config, settings_store.all_specs(config))
@@ -205,7 +209,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="audio-hub", version=__version__, lifespan=lifespan)
 
-# ── 授权门禁（可选）：AUDIO_HUB_LICENSE_REQUIRED=1 时，无有效授权码的部署
+# ── 授权门禁：已配置验签公钥且未显式关闭时，无有效授权码的部署
 #    只放行激活 / 登录 / 初始化 / 静态资源 / 健康检查，其余页面一律跳 /activate。
 _GATE_ALLOW = {"/activate", "/login", "/setup", "/logout", "/health"}
 

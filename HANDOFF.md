@@ -8,6 +8,63 @@
 
 ---
 
+## 当前续作（2026-10-29，Re0 主资源库与 NAS 常驻浏览器）
+
+用户明确：AY 只能补充且有额度限制，Re0 才是最全主库且为永久会员。当前按 **Re0 主源、AY 限额补充** 实现，不再要求个人电脑常开。未 commit、未 push、未发版。
+
+### 已完成
+
+- `src/audio_hub/db.py`：schema v10，保留旧库数据，新增 Re0 每剧状态、AY 每剧退避和多文件 CD2 表。
+- `src/audio_hub/lackfill/re0_status.py:18`：白名单心跳、过期离线、明确无结果/连续失败的补充资格；不保存 URL、cookies 或 Token。
+- `src/audio_hub/lackfill/ay_state.py:11`：无资源/失败指数退避，0 额度当月停止、下月恢复，避免定时烧光限额。
+- `src/audio_hub/web/static/re0_refill.user.js:346,658`：v1.1 待机/运行心跳、失败次数、暂停原因保持、自动恢复；只有页面明确无结果才报 `not_found`，选择器失败仍报 `failed`。
+- `src/audio_hub/lackfill/re0_browser.py:53` 与 `src/audio_hub/scheduler.py:323,369`：CDP 与脚本双重健康检查；Re0 正常时普通缺集不查 AY，明确无结果/连续失败才补，人工接管时不烧额度，离线时 AY 限额补充。状态变化只通知一次。
+- `src/audio_hub/web/routes_lackfill.py:102,221,503`：管理页面区分浏览器在线与脚本心跳，提供远程桌面、当前阶段/失败原因、实时健康 API；远程地址脱敏，普通用户不能执行管理操作。
+- `docker/re0-browser/Dockerfile`：固定多架构 Chromium 镜像 digest，构建时下载官方 Violentmonkey MV3 ZIP 并校验 SHA-256，运行时不依赖 Chrome 商店。
+- `scripts/init_re0_browser.py`：首次创建 0600 的独立桌面凭据和 0700 的浏览器目录，二次执行不覆盖、不回显。`docker-compose.yml` 的 `re0` profile 只绑定 `127.0.0.1:3001/9222`，不 privileged、不挂 Docker socket，profile/cookies/`.env` 均忽略。
+- `src/audio_hub/lackfill/refill.py:181`、`service.py:280`、`cloud.py:236`：AY 多行 ed2k 整包一次提交、稳定复合身份、同名不同内容拒绝、逐文件 CD2 验证/移动/恢复，全部文件稳定后才刷新 Emby 一次；单文件与消息目录回退保持兼容。
+
+### 已验证与待集中验收
+
+- 全量 `.venv/bin/pytest -q`：**1391 passed / 0 failed**（另有 3 个已有依赖弃用警告）。
+- 全仓 `.venv/bin/ruff check`：0 error；`git diff --check` 通过。油猴 Node 测试 **28/28**；Compose 实际解析确认回环绑定、无特权和敏感目录忽略。
+- 本地 HTTP/CDP 替身 + 真实浏览器确认 `primary_mode=available`、心跳、当前阶段、远程桌面入口及脱敏健康接口。
+- 真实 Docker 镜像构建、Violentmonkey 实机加载、Re0 登录/Cloudflare、真实 AY/115/SA/CD2/Emby 尚未执行，按用户要求集中测试；这些不能由本机测试替代。
+
+---
+
+## 此前阶段（2026-10-26，M4：AY API 接入）
+
+本节是当前缺集补齐工作的交接；下方 v0.7.x 内容保留为历史记录，不代表当前版本或测试数。
+本轮不依赖 MoviePilot、不恢复 PT 订阅、不引入 telethon，未提交、未推送、未发版。
+
+### 已接线
+
+- `src/audio_hub/lackfill/ay.py:15`：真实 `POST /api/user`，请求体为 `tg_id/type=tv/tmdb_id/token`，兼容空 `data={}`、`message/mesage` 和 `times` 额度；HTTP/JSON 错误显式失败，`trust_env=False` 避免代理改变 AY 白名单出口。
+- `src/audio_hub/lackfill/ay.py:61,132`：按季集文本覆盖贪心选包，并从真实快照路径提取缺集；`ay.py:221` 从内部键读取额度，敏感 Token 不进入普通设置覆盖层。
+- `src/audio_hub/lackfill/service.py:385`：`fill_ay` 统一 AY 查询、预算、预览/执行、115/ed2k 分流、预留、台账与 Re0 保留；115 在 receive 前必须验证包内真实目标缺集。多行 ed2k 在该阶段先保守拒绝，后续已补齐整包与逐文件核销。
+- `src/audio_hub/config.py:190` 与 `src/audio_hub/settings_store.py:347`：AY 开关、完整 API 地址、加密 Token、TG ID、候选包数、单轮预算、扫描间隔均开放设置并热生效。
+- `src/audio_hub/web/routes_lackfill.py:215,230`：管理员 `GET /api/lackfill/ay_api_test?save=0` 只预览；管理员 + CSRF `POST ...?save=1` 才真实执行。`tmdb_id` 同时支持 query 与页面表单，修复真实浏览器提交时被误读为 0 的问题。
+- `/api/lackfill/status` 与 `/lackfill` 展示额度和时间，不回显 Token；页面有独立的预览/真实执行入口。
+- `src/audio_hub/scheduler.py:369`：`lackfill_ay` 定时处理到期队列，保存间隔立即重排；无资源、失败和预算不足不删除 Re0。
+- `src/audio_hub/lackfill/cloud.py:94,236`：除整包目录外，SA API 单条 ed2k 按真实文件名 `move_file` 验证/中转，多行整包按文件组 `move_files` 核销；目录和文件都拒绝零字节，确认稳定后才刷新 Emby。
+
+### 验证证据
+
+- 全量 `.venv/bin/pytest -q`：**1360 passed / 0 failed**（另有 3 个已有依赖弃用警告）。
+- 全仓 `.venv/bin/ruff check`：0 error；`git diff --check` 通过。
+- `node --check` + `node --test tests/js/*.test.mjs`：**24 passed / 0 failed**。
+- 本地隔离 HTTP + 真实浏览器：初始化登录、缺集页、AY `save=0` 预览、额度跨重启恢复、真实表单 `save=1 + CSRF` 均通过；最终返回 `status=ok / entry_id=1`，`/api/lackfill/ledger` 为 `pending`。
+- 上述联调的 AY/TMDB 使用本机 HTTP 替身，115/SA/Emby 使用进程内测试替身，**没有访问真实 AY、115、Re0、SA、CD2 或 Emby，也没有修改 NAS**。
+
+### 仍需用户实站验收
+
+- 真实 AY 白名单、Token/TG ID、响应字段和当月额度；
+- 真实 Re0 登录、Cloudflare、0 积分解锁与油猴长期稳定性（不承诺绕过验证）；
+- 真实 SA 离线/加密消息、115/CD2 落盘、刮削及 Emby 入库。先单找一部已知免费资源，再决定是否放大自动任务。
+
+---
+
 ## 一、用户要的目标
 
 **在本机（WSL Ubuntu）连通 NAS 上的 qBittorrent，跑通「订阅 → 搜索 → 筛选 → 派发下载」全链路。**
@@ -534,7 +591,7 @@ Pydantic 默认忽略多余字段，所以**填裸 passkey 会被静默丢弃**�
 
 ---
 
-## 附:lackfill(缺集补齐)子包 —— 进行中(M2 已收尾)
+## 附:lackfill(缺集补齐)子包 —— M3 代码完成，待实站验收
 
 > 需求/方案/开发日志在 Obsidian `05-项目研发/lackfill-docker/`(需求文档.md / 迁移方案.md / 开发日志.md),
 > 涉及外部通道的敏感细节以 Ob 为准、不进本仓库。本节只记工程事实。
@@ -542,7 +599,12 @@ Pydantic 默认忽略多余字段，所以**填裸 passkey 会被静默丢弃**�
 - **目标**:替代 MoviePilot 插件 LackEpisodeAutoSub(7829 行),砍掉 PT 通道,资源只走爱影(主)+ re0.me 回填桥(辅),全部产出 115 链接整包转存;补完以 Emby 实际入库核销。
 - **M1 已完成**(2026-10-21,commit `fb2a87c` + 导航/闪信 polish):`src/audio_hub/lackfill/`(models / diff 纯函数 / emby / tmdb / service)+ `web/routes_lackfill.py` + `templates/lackfill.html` + `LackfillConfig`(enabled 默认关)+ 侧边栏「缺集补齐」入口 + `tests/unit/test_lackfill_diff.py` 7 用例。
 - **M2 已完成**(2026-10-22):115 转存链两级——`p115.py` cookie 直连主(snap 验包 + receive 转存)+ `sa.py` SA 备(JWT API / 企微 AES 告警);`ledger.py` 补齐台账入 DB(status pending/partial/complete/timeout/failed + verify_round);service 编排主备降级 + Emby 核销状态机(6h 轮询 / 7 天超时 / 3 轮熔断告警,转存后主动 refresh_library);`LackfillConfig` 扩展(verify_interval_hours=6 / verify_timeout_days=7 / max_verify_rounds=3 / p115_cookie / transfer_cid / sa_* / wecom_webhook,敏感字段 *_encrypted);`GET /api/lackfill/ledger`(require_user);scheduler 新增 `lackfill_verify` job(IntervalTrigger(hours=verify_interval_hours),runner `run_lackfill_verify_once` 未启用返回 {"skipped": True});新增测试 test_lackfill_{ledger,p115,sa,service}.py。
-- **验收基线注意**:v0.18.1 全量测试为 1093 passed / **90 failed(固有,与 lackfill 无关,站点解析与 torrent 抓取类)**;lackfill 改动的验收线 = 全量失败数不增 + 新增测试全过 + ruff 0 error。修那 90 个固有失败是另一件事。
+- **M3 代码完成**(2026-10-25,工作区未提交/未发版):schema v9 包含 `lackfill_queue`、`lackfill_reservations` 与 `lackfill_cloud`;扫描结果持久化且活动台账/预留不重复入队;新增 `queue.py` / `refill.py` / `reservations.py` / `cloud.py`;`GET /api/lackfill/refill_queue`、`POST /api/lackfill/refill_submit`、`POST /api/lackfill/refill_status` 使用独立令牌,拒绝 GET 提交;多个链接只作备选,首次成功即停;单条 SQL 原子预留保证同剧跨请求/跨 worker 只有一个活动转存,台账与释放预留在成功时同事务提交;启动仅回收未调用外部的 reserved,attempted 由管理员在 `/lackfill` 核对后清除。
+- **SA 真实协议与 ed2k 分流**:JWT 登录 `/api/v1/login/access-token`,ed2k 走 `/api/v1/plugin/115/offline`(`magnets+parent_id`,folders 自动取第一项),115 分享走 cookie 转存或 SA WXBizMsgCrypt 加密消息回调,不再误用 `/api/transfer` 或把分享投离线;`token=symedia` 仅作路由标识,签名 token/AESKey 均可在设置页加密配置。油猴支持 115 分享、115 密码页、直接 ed2k 资源页和中文空格/零宽字符清理。
+- **真实验包与 CD2 硬验证**:`p115.inspect_share` 保留真实包名和目录路径,`refill.validate_share_package` 在 receive 前检查非空、包名与目标季一致、每个目标季可识别;`cloud.py` 再按包名检查 CD2 真实目录、非空文件、两轮稳定快照和最老稳定时间。需要中转的整包从云下载移到集合爱影,目标已有包不覆盖;只有 ready 后才 Emby Refresh,随后按实际集数核销。默认路径为 `/CloudNAS/CloudDrive/115open/{云下载,集合爱影}`,均可在设置页修改;新增 `lackfill_cloud` 调度与页面手动检查。
+- **油猴已内建**:`web/static/re0_refill.user.js` 从 `/lackfill` 安装,无 MoviePilot 依赖、无个人地址/令牌硬编码;GM 私有存储保存连接配置,已保存令牌不回填 DOM,变更 origin 必须重输令牌,115 页面不挂面板;TMDB ID 搜索 → `/tv/` → `/resource/` → 115/ed2k 链接,POST JSON 回填;每日 20 部/会话 30 页(跨天及人工可重置)/全局连续 3 次失败熔断;Cloudflare 自动通过后继续当前任务,非 0 积分在读取链接前转人工,仅唯一容器明确的 0 积分按钮自动解锁;支持手动单找、115 直接分享页/goto 与清除当前任务。
+- **令牌与页面**:管理员+CSRF 可在 `/lackfill` 生成/重置令牌,Fernet 加密入 `app_settings`,只在新响应显示一次且 `Cache-Control: no-store`;旧令牌立即失效。设置组也可手工写 `lackfill_refill_api_key`(≥32 位,热生效);YAML 对应 `lackfill.refill_api_key_encrypted`。
+- **M3 验收证据**:独立审查发现 Critical/Important 后已逐项修复并补反例;全量 `pytest` **1332 passed / 0 failed**;全仓 `ruff check` 0 error;两个 Node 测试文件合计 **24 passed**(DOM、配置、115/ed2k、POST、手动单找、CF/积分/配额/goto);真实临时 HTTP 服务通过令牌/队列/非法输入、schema v9 启动恢复、CD2 waiting→ready、Emby 仅稳定后刷新一次。NAS 只读确认 symedia:8095 可达、emby:8096 可达及 `/CloudNAS/CloudDrive/115open/{云下载,集合爱影}` 存在,**未执行真实 Re0 过盾、积分解锁、SA/115 提交或生产转存**,这些仍需用户实站验收。
 - **本机 dev**:`AUDIO_HUB_LICENSE_REQUIRED=0 .venv/bin/python -m audio_hub`(授权门禁默认开,dev 用环境变量关);`config/config.yaml` 与 `config/secrets.key` 不入库(gitignore 已覆盖);数据在 `~/audio-hub-data/`。
 - **FastAPI 新版行为**:`include_router` 返回 `_IncludedRouter` 惰性包装,`app.routes` 不展开子路由;TestClient 必须走 lifespan(license_gate 依赖 app.state.db)。
-- **下一步 M3**:re0 回填桥;之后 M4 AY 移植(NAS 白名单,部署后联调)、M5 新剧自动监控 + Web 状态页完善、M6 NAS 部署。
+- **下一步 M4**:AY API 移植(NAS 白名单,部署后联调);之后 M5 新剧自动监控 + Web 状态页完善、M6 NAS 部署。

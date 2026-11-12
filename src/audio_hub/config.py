@@ -180,7 +180,7 @@ class DiscoverConfig(BaseModel):
 
 
 class LackfillConfig(BaseModel):
-    """缺集补齐（M1 扫描 + M2 转存/核销，/lackfill 页）：Emby 剧集缺集扫描与补齐。
+    """缺集补齐（扫描 + Re0 主源 + AY 限额补充 + 转存/核销）的运行配置。
 
     Emby / TMDB 凭据与站点点同理，YAML 中以 *_encrypted 后缀 + Fernet token
     存储，启动时自动解密到去掉后缀的同名字段（见 _decrypt_sensitive）。
@@ -188,6 +188,14 @@ class LackfillConfig(BaseModel):
     控制单轮扫描的剧集数预算，避免一轮打满 TMDB 配额。
     """
     enabled: bool = False
+    ay_api_enabled: bool = False
+    ay_api_url: str = ""
+    ay_api_token: str = ""
+    ay_api_token_encrypted: str = ""
+    ay_tg_id: str = ""
+    ay_max_links: int = 3
+    ay_round_clicks: int = 100
+    ay_scan_minutes: int = 60
     emby_url: str = ""                  # https://emby.example.com:8096（去尾斜杠由客户端处理）
     emby_api_key: str = ""              # 加密存储（emby_api_key_encrypted）
     emby_api_key_encrypted: str = ""    # Fernet token，启动时解密到 emby_api_key
@@ -211,11 +219,34 @@ class LackfillConfig(BaseModel):
     #: SA 备链服务地址（cookie 直连失败时降级，每条分享仅降级一次）
     sa_base_url: str = ""
     sa_username: str = ""
-    sa_secret: str = ""                 # 加密存储（sa_secret_encrypted）
+    sa_secret: str = ""                 # SA 登录密码，加密存储（sa_secret_encrypted）
     sa_secret_encrypted: str = ""       # Fernet token，启动时解密到 sa_secret
+    sa_parent_id: str = ""              # 离线目标 cid；空则取 folders 第一项
+    sa_callback_url: str = ""
+    sa_callback_token: str = ""
+    sa_callback_token_encrypted: str = ""
+    sa_callback_aeskey: str = ""
+    sa_callback_aeskey_encrypted: str = ""
+    sa_callback_corpid: str = ""
+    sa_callback_userid: str = ""
+    sa_callback_agentid: str = ""
     #: lackfill 告警企微回调（与 notify.wecom_webhook 独立，缺集补齐专用），加密存储
     wecom_webhook: str = ""
     wecom_webhook_encrypted: str = ""   # Fernet token，启动时解密到 wecom_webhook
+    #: Re0 油猴回填桥独立凭据，与 Web 登录会话和站点凭据分离
+    refill_api_key: str = ""
+    refill_api_key_encrypted: str = ""
+    re0_browser_enabled: bool = False
+    re0_browser_cdp_url: str = "http://127.0.0.1:9222"
+    re0_browser_ui_url: str = "https://127.0.0.1:3001"
+    re0_browser_health_seconds: int = 60
+    #: CD2 文件落地硬验证；默认路径与群晖 CD2/SA 挂载一致
+    cloud_verify_enabled: bool = True
+    cloud_staging_dir: str = "/CloudNAS/CloudDrive/115open/云下载"
+    cloud_feed_dir: str = "/CloudNAS/CloudDrive/115open/集合爱影"
+    cloud_share_move: bool = True
+    cloud_stable_minutes: int = 5
+    cloud_poll_minutes: int = 5
     #: 核销熔断轮数：pending 条目复检超 verify_timeout_days 未齐则轮数 +1，达到本轮数置 timeout
     max_verify_rounds: int = 3
 
@@ -234,8 +265,8 @@ NOTIFY_KINDS: tuple[str, ...] = (
     # 站点与下载器健康
     "adapter_error", "site_circuit_open", "site_auth_expired",
     "downloader_unreachable",
-    # 轮次汇总
-    "round_summary",
+    # 轮次汇总与 Re0 回填桥
+    "round_summary", "lackfill_refill",
 )
 
 

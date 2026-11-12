@@ -337,11 +337,50 @@ NOTIFY_SPECS: tuple[Spec, ...] = (
 )
 
 #: 缺集补齐（lackfill）。全部热生效：核销轮询/转存链每次执行实时读 config，
-#: 间隔项保存后由 apply_hot 重排 lackfill_verify（键在 _INTERVAL_JOBS 登记）。
+#: 间隔项保存后由 apply_hot 重排 lackfill_verify / lackfill_ay / lackfill_cloud。
 LACKFILL_SPECS = (
     Spec(
         "lackfill_enabled", "启用缺集补齐", "bool", SCOPE_HOT, "lackfill.enabled",
         hint="热生效。关闭时核销轮询空跑，不发起任何 Emby/115 请求。",
+    ),
+    Spec(
+        "lackfill_ay_api_enabled", "启用爱影 API 限额补充", "bool", SCOPE_HOT,
+        "lackfill.ay_api_enabled",
+        hint="热生效。Re0 主资源库优先，AY 在需要时按额度补充；无资源或失败保留 Re0 队列。",
+    ),
+    Spec(
+        "lackfill_ay_api_url", "爱影 API 完整地址", "str", SCOPE_HOT,
+        "lackfill.ay_api_url",
+        hint="包含 /api/user 的完整 http(s) 地址；强制直连，不使用容器代理。",
+        require_url=True,
+    ),
+    Spec(
+        "lackfill_ay_api_token", "爱影 API Token", "secret", SCOPE_HOT,
+        "lackfill.ay_api_token",
+        hint="只写不读：Fernet 加密入库，页面和接口不回显。留空表示不修改。",
+    ),
+    Spec(
+        "lackfill_ay_tg_id", "爱影绑定 TG ID", "str", SCOPE_HOT,
+        "lackfill.ay_tg_id",
+        hint="爱影账号绑定的数字 TG ID；只作为 API 请求标识，不连接 Telegram。",
+    ),
+    Spec(
+        "lackfill_ay_max_links", "单剧最多候选包数", "int", SCOPE_HOT,
+        "lackfill.ay_max_links",
+        hint="按缺集贪心选包；实际成功一条即停止。",
+        lo=1, hi=10,
+    ),
+    Spec(
+        "lackfill_ay_round_clicks", "单轮 AY 操作预算", "int", SCOPE_HOT,
+        "lackfill.ay_round_clicks",
+        hint="查询一次计 1，提交每个候选包计 1；预算不足时保留到下一轮。",
+        lo=2, hi=1000,
+    ),
+    Spec(
+        "lackfill_ay_scan_minutes", "AY 自动补齐间隔（分钟）", "int", SCOPE_HOT,
+        "lackfill.ay_scan_minutes",
+        hint="保存后调度器自动重排 lackfill_ay。",
+        lo=1, hi=1440,
     ),
     Spec(
         "lackfill_emby_url", "Emby 地址", "str", SCOPE_HOT, "lackfill.emby_url",
@@ -410,14 +449,111 @@ LACKFILL_SPECS = (
         hint="热生效。",
     ),
     Spec(
-        "lackfill_sa_secret", "SA 密钥", "secret", SCOPE_HOT,
+        "lackfill_sa_secret", "SA 登录密码", "secret", SCOPE_HOT,
         "lackfill.sa_secret",
-        hint="只写不读：保存后 Fernet 加密入库。留空表示不修改。",
+        hint="只写不读：用于 /api/v1/login/access-token，留空表示不修改。",
+    ),
+    Spec(
+        "lackfill_sa_parent_id", "SA 离线目标 CID", "str", SCOPE_HOT,
+        "lackfill.sa_parent_id",
+        hint="留空自动取 folders 第一项。",
+    ),
+    Spec(
+        "lackfill_sa_callback_url", "SA 加密回调地址", "str", SCOPE_HOT,
+        "lackfill.sa_callback_url",
+        hint="115 分享转存的消息通道，完整 http(s) 地址。",
+        require_url=True,
+    ),
+    Spec(
+        "lackfill_sa_callback_token", "SA 回调签名 Token", "secret", SCOPE_HOT,
+        "lackfill.sa_callback_token",
+        hint="只写不读：用于消息签名，不是 URL 中的 symedia 路由标识。",
+    ),
+    Spec(
+        "lackfill_sa_callback_aeskey", "SA EncodingAESKey", "secret", SCOPE_HOT,
+        "lackfill.sa_callback_aeskey",
+        hint="只写不读：43 位 EncodingAESKey，Fernet 加密入库。",
+    ),
+    Spec(
+        "lackfill_sa_callback_corpid", "SA CorpID", "str", SCOPE_HOT,
+        "lackfill.sa_callback_corpid",
+        hint="热生效。",
+    ),
+    Spec(
+        "lackfill_sa_callback_userid", "SA 回调 UserID", "str", SCOPE_HOT,
+        "lackfill.sa_callback_userid",
+        hint="热生效。",
+    ),
+    Spec(
+        "lackfill_sa_callback_agentid", "SA 回调 AgentID", "str", SCOPE_HOT,
+        "lackfill.sa_callback_agentid",
+        hint="热生效。",
     ),
     Spec(
         "lackfill_wecom_webhook", "企业微信通知 Webhook", "secret", SCOPE_HOT,
         "lackfill.wecom_webhook",
         hint="只写不读：地址含 key，整条当凭据加密存储。留空表示不修改。",
+    ),
+    Spec(
+        "lackfill_refill_api_key", "Re0 回填令牌", "secret", SCOPE_HOT,
+        "lackfill.refill_api_key",
+        hint="油猴脚本专用，至少 32 位。只写不读、Fernet 加密入库；也可在缺集补齐页生成。",
+        min_len=32,
+    ),
+    Spec(
+        "lackfill_re0_browser_enabled", "启用 Re0 NAS 浏览器主通道", "bool", SCOPE_HOT,
+        "lackfill.re0_browser_enabled",
+        hint="Re0 主资源库在 NAS Chromium 中自动运行；AY 只作限额补充。",
+    ),
+    Spec(
+        "lackfill_re0_browser_cdp_url", "Re0 浏览器 CDP 地址", "str", SCOPE_HOT,
+        "lackfill.re0_browser_cdp_url",
+        hint="仅用于本机健康检查，默认 http://127.0.0.1:9222，不要暴露到局域网。",
+        require_url=True,
+    ),
+    Spec(
+        "lackfill_re0_browser_ui_url", "Re0 远程桌面地址", "str", SCOPE_HOT,
+        "lackfill.re0_browser_ui_url",
+        hint="默认 https://127.0.0.1:3001；远程电脑通过 SSH 隧道访问，不保存 Re0 账密。",
+        require_url=True,
+    ),
+    Spec(
+        "lackfill_re0_browser_health_seconds", "Re0 浏览器健康检查（秒）", "int", SCOPE_HOT,
+        "lackfill.re0_browser_health_seconds",
+        hint="保存后立即重排 re0_browser_health；最低 15 秒。",
+        lo=15, hi=3600,
+    ),
+    Spec(
+        "lackfill_cloud_verify_enabled", "启用 CD2 文件验证", "bool", SCOPE_HOT,
+        "lackfill.cloud_verify_enabled",
+        hint="开启后必须看到真实包目录并确认稳定，才触发 Emby 刷新。",
+    ),
+    Spec(
+        "lackfill_cloud_staging_dir", "CD2 云下载目录", "str", SCOPE_HOT,
+        "lackfill.cloud_staging_dir",
+        hint="容器内路径，如 /CloudNAS/CloudDrive/115open/云下载。",
+    ),
+    Spec(
+        "lackfill_cloud_feed_dir", "SA 监控投喂目录", "str", SCOPE_HOT,
+        "lackfill.cloud_feed_dir",
+        hint="容器内路径，如 /CloudNAS/CloudDrive/115open/集合爱影。",
+    ),
+    Spec(
+        "lackfill_cloud_share_move", "115 分享也经云下载中转", "bool", SCOPE_HOT,
+        "lackfill.cloud_share_move",
+        hint="开启后整包从云下载移到 SA 监控目录；关闭则只验证投喂目录。",
+    ),
+    Spec(
+        "lackfill_cloud_stable_minutes", "文件稳定分钟数", "int", SCOPE_HOT,
+        "lackfill.cloud_stable_minutes",
+        hint="两轮文件清单一致且最老稳定时间达到该值才确认。",
+        lo=1, hi=60,
+    ),
+    Spec(
+        "lackfill_cloud_poll_minutes", "CD2 检查间隔（分钟）", "int", SCOPE_HOT,
+        "lackfill.cloud_poll_minutes",
+        hint="保存后调度器自动重排 lackfill_cloud。",
+        lo=1, hi=60,
     ),
     Spec(
         "lackfill_max_verify_rounds", "核销熔断轮数", "int", SCOPE_HOT,
@@ -737,6 +873,9 @@ _INTERVAL_JOBS: dict[str, tuple[str, str, int]] = {
     "subscription_scan_minutes": ("subscription_search", "minutes", 1),
     "auth_check_hours": ("site_auth_check", "hours", 1),
     "lackfill_verify_hours": ("lackfill_verify", "hours", 1),
+    "lackfill_cloud_poll_minutes": ("lackfill_cloud", "minutes", 1),
+    "lackfill_ay_scan_minutes": ("lackfill_ay", "minutes", 1),
+    "lackfill_re0_browser_health_seconds": ("re0_browser_health", "seconds", 15),
 }
 
 

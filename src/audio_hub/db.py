@@ -10,6 +10,10 @@ v0.6 站点 / 下载器中心与订阅引擎：sites / site_categories / downloa
      subscription_hits，并为 tasks（downloader_id / watch_id / album_key /
      quality_tag）与 watchlist（订阅类型、过滤规则、下载器归属）补列。
 lackfill M2 缺集补齐台账：lackfill_ledger 表与状态索引。
+lackfill M3 Re0 回填队列：lackfill_queue 表与等待时间索引。
+lackfill M3 转存幂等：lackfill_reservations 每剧唯一活动意图与崩溃恢复。
+lackfill CD2 文件验证：lackfill_cloud 真实包目录、稳定快照与 Emby 刷新状态。
+Re0 主源与 AY 限额协调：re0/ay 任务状态、限额退避与多文件落地记录（v10）。
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ import aiosqlite
 from loguru import logger
 
 #: 当前 schema 版本，写入 PRAGMA user_version 供诊断脚本读取
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 10
 
 # Migration v1 SQL
 _MIGRATION_V1 = """
@@ -360,16 +364,105 @@ CREATE TABLE IF NOT EXISTS lackfill_ledger (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     show_key      TEXT NOT NULL,          -- 剧集/综艺标识
     season        TEXT,
-    missing_json  TEXT NOT NULL,          -- 缺集清单 JSON 数组
+    missing_json  TEXT NOT NULL,          -- 旧版集号数组，或季号 -> 缺集数组对象
     share_code    TEXT,                   -- 115 分享码
     package_name  TEXT,                   -- 转存包名
     emby_id       TEXT NOT NULL DEFAULT '',  -- Emby 剧集 ID(核销用)
-    status        TEXT NOT NULL DEFAULT 'pending',  -- pending|partial|complete|timeout
+    status        TEXT NOT NULL DEFAULT 'pending',  -- pending|partial|complete|timeout|manual
     verify_round  INTEGER NOT NULL DEFAULT 0,       -- 核销轮次计数
     created_at    TEXT,
     updated_at    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_lackfill_ledger_status ON lackfill_ledger(status);
+"""
+
+_MIGRATION_V7 = """
+
+-- lackfill M3 Re0 油猴回填队列：扫描结果跨重启保留
+CREATE TABLE IF NOT EXISTS lackfill_queue (
+    tmdb_id      INTEGER PRIMARY KEY,
+    title        TEXT NOT NULL,
+    year         INTEGER,
+    emby_id      TEXT NOT NULL DEFAULT '',
+    missing_json TEXT NOT NULL,          -- 季号 -> 缺集数组的 JSON 对象
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lackfill_queue_created
+    ON lackfill_queue(created_at, tmdb_id);
+"""
+
+_MIGRATION_V8 = """
+
+-- 每部剧最多一个转存意图；attempted 崩溃后需人工核对，不自动重放
+CREATE TABLE IF NOT EXISTS lackfill_reservations (
+    show_key   TEXT PRIMARY KEY,
+    share_code TEXT NOT NULL,
+    stage      TEXT NOT NULL DEFAULT 'reserved',  -- reserved|attempted
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+_MIGRATION_V9 = """
+
+-- CD2 文件落地验证：真实包目录、稳定快照、整包移动与 Emby 刷新状态
+CREATE TABLE IF NOT EXISTS lackfill_cloud (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id     INTEGER NOT NULL UNIQUE,
+    package_name  TEXT NOT NULL,
+    mode          TEXT NOT NULL,              -- move|verify
+    source_dir    TEXT NOT NULL,
+    feed_dir      TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL DEFAULT '{}',
+    stable_since  TEXT,
+    status        TEXT NOT NULL DEFAULT 'waiting',  -- waiting|ready|failed
+    error         TEXT,
+    created_at    TEXT,
+    updated_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_lackfill_cloud_status ON lackfill_cloud(status);
+"""
+
+_MIGRATION_V10 = """
+
+-- Re0 主源每剧状态、AY 限额退避与多文件 CD2 验证
+CREATE TABLE IF NOT EXISTS lackfill_re0_tasks (
+    tmdb_id     INTEGER PRIMARY KEY,
+    status      TEXT NOT NULL,
+    stage       TEXT NOT NULL DEFAULT '',
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    title       TEXT NOT NULL DEFAULT '',
+    reason      TEXT NOT NULL DEFAULT '',
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lackfill_re0_tasks_status ON lackfill_re0_tasks(status);
+
+CREATE TABLE IF NOT EXISTS lackfill_ay_tasks (
+    tmdb_id        INTEGER PRIMARY KEY,
+    attempts       INTEGER NOT NULL DEFAULT 0,
+    last_status    TEXT NOT NULL,
+    last_error     TEXT NOT NULL DEFAULT '',
+    next_retry_at  TEXT,
+    updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lackfill_ay_tasks_retry ON lackfill_ay_tasks(next_retry_at);
+
+CREATE TABLE IF NOT EXISTS lackfill_cloud_files (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ledger_id     INTEGER NOT NULL,
+    file_name     TEXT NOT NULL,
+    source_dir    TEXT NOT NULL,
+    feed_dir      TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL DEFAULT '{}',
+    stable_since  TEXT,
+    status        TEXT NOT NULL DEFAULT 'waiting',
+    error         TEXT,
+    created_at    TEXT,
+    updated_at    TEXT,
+    UNIQUE (ledger_id, file_name)
+);
+CREATE INDEX IF NOT EXISTS idx_lackfill_cloud_files_status ON lackfill_cloud_files(status);
 """
 
 # tasks 表的后续新增列（v2 派发 + v4 归档）。
@@ -505,13 +598,17 @@ async def init_db(db_path: str | Path) -> aiosqlite.Connection:
     await conn.execute("PRAGMA busy_timeout = 5000")
     await conn.execute("PRAGMA foreign_keys = ON")
 
-    # 执行 migration（v1 → v6 顺序）
+    # 执行 migration（v1 → v10 顺序）
     await conn.executescript(_MIGRATION_V1)
     await conn.executescript(_MIGRATION_V2)
     await conn.executescript(_MIGRATION_V3)
     await conn.executescript(_MIGRATION_V4)
     await conn.executescript(_MIGRATION_V5)
     await conn.executescript(_MIGRATION_V6)
+    await conn.executescript(_MIGRATION_V7)
+    await conn.executescript(_MIGRATION_V8)
+    await conn.executescript(_MIGRATION_V9)
+    await conn.executescript(_MIGRATION_V10)
     await _migrate_task_columns(conn)
     await _migrate_watchlist_columns(conn)
     await conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

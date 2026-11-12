@@ -93,10 +93,10 @@ class TestFreshInit:
                   "priority", "last_test_json", "last_test_at"):
             assert c in cols, f"downloaders 缺列 {c}"
 
-    async def test_schema_version_is_6(self, test_db):
-        assert SCHEMA_VERSION == 6
+    async def test_schema_version_is_10(self, test_db):
+        assert SCHEMA_VERSION == 10
         async with test_db.execute("PRAGMA user_version") as cur:
-            assert (await cur.fetchone())[0] == 6
+            assert (await cur.fetchone())[0] == 10
 
 
 class TestIdempotent:
@@ -170,7 +170,7 @@ class TestUpgradeFromV4:
                 t = await cur.fetchone()
             assert t["downloader_id"] is None
             async with conn.execute("PRAGMA user_version") as cur:
-                assert (await cur.fetchone())[0] == 6
+                assert (await cur.fetchone())[0] == 10
         finally:
             await conn.close()
 

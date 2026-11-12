@@ -17,3 +17,30 @@ services:
       - ./config:/config
       - /volume1/musiclab:/musiclab       # 必须与 qb1 容器内路径一致
       - /volume1/audiolab:/audiolab       # 有声书路由目标（v0.2+）
+
+  re0-browser:
+    build:
+      context: ./docker/re0-browser
+    container_name: audio-hub-re0-browser
+    restart: unless-stopped
+    profiles:
+      - re0
+    environment:
+      PUID: "${RE0_PUID:?run scripts/init_re0_browser.py first}"
+      PGID: "${RE0_PGID:?run scripts/init_re0_browser.py first}"
+      TZ: Asia/Shanghai
+      CUSTOM_USER: "${RE0_GUI_USER:?run scripts/init_re0_browser.py first}"
+      PASSWORD: "${RE0_GUI_PASSWORD:?run scripts/init_re0_browser.py first}"
+      CHROME_CLI: >-
+        --load-extension=/opt/violentmonkey
+        --remote-debugging-address=0.0.0.0
+        --remote-debugging-port=9222
+        --no-first-run
+        --disable-session-crashed-bubble
+        https://re0.me/
+    ports:
+      - "127.0.0.1:3001:3001"
+      - "127.0.0.1:9222:9222"
+    volumes:
+      - ./config/re0-browser:/config
+    shm_size: "1gb"

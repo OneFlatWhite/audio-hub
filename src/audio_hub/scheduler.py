@@ -12,6 +12,9 @@ v0.6 job 清单（间隔键在 config.SearchConfig / poll_interval_minutes，设
 - site_auth_check     每 search.auth_check_hours 小时     sites.auth_check.run_auth_check_once
 - seeding_check       每 seeding.check_interval_minutes   seeding_monitor.poll_once
 - lackfill_verify     每 lackfill.verify_interval_hours 小时（默认6）  LackfillService.verify_pending（pending 台账核销）
+- re0_browser_health 每 lackfill.re0_browser_health_seconds（默认60）   Re0 主源浏览器与脚本状态检查
+- lackfill_ay         每 lackfill.ay_scan_minutes（默认60）             Re0 失败后 AY 限额补充
+- lackfill_cloud      每 lackfill.cloud_poll_minutes（默认5）           CD2 非空文件确认与 Emby 刷新
 
 旧「search_round → match_candidates → dispatch」轮次已由订阅引擎取代：引擎只把命中建成
 DISCOVERED 任务（不碰 qb），本模块把 created_tasks 交给 Dispatcher.dispatch_tasks 派发。
@@ -317,6 +320,141 @@ class PipelineRunner:
             logger.exception(f"缺集核销轮询异常: {e}")
             return {"error": str(e)}
 
+    async def run_re0_browser_health_once(self) -> dict:
+        """检查 NAS Chromium，并按主源状态变化发送一次通知。"""
+        from datetime import datetime
+
+        from .lackfill import re0_browser, re0_status
+
+        cfg = getattr(self.config, "lackfill", None)
+        if cfg is None or not cfg.enabled or not getattr(cfg, "re0_browser_enabled", False):
+            return {"skipped": True}
+        now = datetime.now().isoformat()
+        try:
+            health = await re0_browser.inspect(
+                getattr(cfg, "re0_browser_cdp_url", "http://127.0.0.1:9222")
+            )
+            worker = await re0_status.worker_status(self.db, now)
+            mode = re0_browser.primary_mode(health, worker)
+            result = {
+                **health,
+                "primary_mode": mode,
+                "worker_status": worker["status"],
+                "worker_online": worker["online"],
+                "checked_at": now,
+            }
+            previous = getattr(getattr(getattr(self, "app", None), "state", None), "re0_browser_health", None)
+            if self.app is not None:
+                self.app.state.re0_browser_health = result
+            if previous and previous.get("primary_mode") != mode:
+                recovered = mode == "available"
+                if recovered:
+                    reason = "Re0 主资源通道已恢复"
+                elif mode == "manual":
+                    reason = "Re0 需要人工登录或完成 Cloudflare 验证"
+                else:
+                    reason = "Re0 浏览器或脚本离线，AY 将按限额补充"
+                await self.notifier.emit(Event(
+                    kind="lackfill_refill",
+                    site="re0.me",
+                    title="Re0 NAS 浏览器",
+                    detail={"status": mode, "reason": reason},
+                    level="info" if recovered else "warning",
+                ))
+            return result
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Re0 浏览器健康检查异常: {type(exc).__name__}")
+            return {"primary_mode": "unavailable", "error": type(exc).__name__}
+
+    async def run_lackfill_ay_once(self) -> dict:
+        """Re0 主源运行时仅补其失败/无资源项；Re0 离线时 AY 限额补充。"""
+        from datetime import datetime
+
+        from .lackfill import LackfillService, ay, ay_state, queue, re0_browser, re0_status
+
+        cfg = getattr(self.config, "lackfill", None)
+        if cfg is None or not cfg.enabled or not getattr(cfg, "ay_api_enabled", False):
+            return {"skipped": True}
+        now = datetime.now().isoformat()
+        source_mode = "unavailable"
+        if getattr(cfg, "re0_browser_enabled", False):
+            worker = await re0_status.worker_status(self.db, now)
+            health = getattr(getattr(getattr(self, "app", None), "state", None), "re0_browser_health", {}) or {}
+            source_mode = re0_browser.primary_mode(health, worker)
+            if source_mode == "manual":
+                return {
+                    "skipped": True,
+                    "source_mode": source_mode,
+                    "reason": "Re0 需要人工接管，暂停 AY 查询",
+                }
+        if ay_state.quota_exhausted(await ay.quota_status(self.db), now):
+            return {
+                "skipped": True,
+                "source_mode": source_mode,
+                "reason": "AY 本月额度已用尽，下月自动恢复",
+            }
+        budget = max(int(getattr(cfg, "ay_round_clicks", 100)), 0)
+        stats = {
+            "checked": 0, "ok": 0, "none": 0, "failed": 0,
+            "inflight": 0, "deferred": 0, "clicks": 0, "budget_left": budget,
+            "source_mode": source_mode,
+        }
+        try:
+            items = await queue.list_pending(self.db)
+            service = LackfillService(cfg)
+            for item in items:
+                if budget < 2:
+                    break
+                if not await ay_state.is_due(self.db, item["tmdb_id"], now):
+                    stats["deferred"] += 1
+                    continue
+                if source_mode == "available" and not await re0_status.eligible_for_ay(
+                    self.db, item["tmdb_id"]
+                ):
+                    continue
+                result = await service.fill_ay(self.db, item, budget, now=now)
+                await ay_state.record_result(self.db, item["tmdb_id"], result, now)
+                stats["checked"] += 1
+                clicks = max(int(result.get("clicks") or 0), 0)
+                budget = max(0, budget - clicks)
+                stats["clicks"] += clicks
+                stats["budget_left"] = budget
+                status = result.get("status")
+                if status in {"ok", "none", "inflight"}:
+                    stats[status] += 1
+                elif status in {"budget", "skipped", "unconfigured", "disabled", "preview"}:
+                    stats["deferred"] += 1
+                else:
+                    stats["failed"] += 1
+                if status == "budget":
+                    break
+                if result.get("quota_left") is not None and ay_state.quota_exhausted(
+                    {"quota_left": result["quota_left"], "updated_at": now}, now
+                ):
+                    stats["reason"] = "AY 本月额度已用尽，停止本轮查询"
+                    break
+            return stats
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"AY 自动补齐轮询异常: {e}")
+            return {**stats, "error": str(e)}
+
+    async def run_lackfill_cloud_once(self) -> dict:
+        """lackfill_cloud job：CD2 文件确认与 Emby 刷新；单轮异常不停摆。"""
+        from datetime import datetime
+
+        from .lackfill import cloud
+
+        cfg = getattr(self.config, "lackfill", None)
+        if cfg is None or not cfg.enabled or not cfg.cloud_verify_enabled:
+            return {"skipped": True}
+        try:
+            return await cloud.poll_cloud_once(
+                self.db, cfg, datetime.now().isoformat()
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"CD2 文件检查异常: {e}")
+            return {"error": str(e)}
+
     # ── 手动触发入口（/run-once、CLI run-once） ──
 
     async def run_once(self) -> dict:
@@ -504,6 +642,36 @@ def build_scheduler(runner: PipelineRunner, config) -> AsyncIOScheduler:
             "lackfill_verify", "缺集补齐核销轮询",
         )
         logger.info(f"缺集核销已配置：每 {verify_hours} 小时")
+
+    # ── re0_browser_health：Re0 主源浏览器健康检查 ──
+    if lackfill is not None and hasattr(runner, "run_re0_browser_health_once"):
+        re0_seconds = max(int(getattr(lackfill, "re0_browser_health_seconds", 60)), 15)
+        _add(
+            scheduler, runner.run_re0_browser_health_once,
+            IntervalTrigger(seconds=re0_seconds),
+            "re0_browser_health", "Re0 浏览器健康检查",
+        )
+        logger.info(f"Re0 浏览器健康检查已配置：每 {re0_seconds} 秒")
+
+    # ── lackfill_ay：AY API 限额补充，间隔可配 ──
+    if lackfill is not None and hasattr(runner, "run_lackfill_ay_once"):
+        ay_minutes = max(int(getattr(lackfill, "ay_scan_minutes", 60)), 1)
+        _add(
+            scheduler, runner.run_lackfill_ay_once,
+            IntervalTrigger(minutes=ay_minutes),
+            "lackfill_ay", "爱影 API 自动补齐",
+        )
+        logger.info(f"AY 自动补齐已配置：每 {ay_minutes} 分钟")
+
+    # ── lackfill_cloud：CD2 文件落地检查，间隔可配 ──
+    if lackfill is not None and hasattr(runner, "run_lackfill_cloud_once"):
+        cloud_minutes = max(int(getattr(lackfill, "cloud_poll_minutes", 5)), 1)
+        _add(
+            scheduler, runner.run_lackfill_cloud_once,
+            IntervalTrigger(minutes=cloud_minutes),
+            "lackfill_cloud", "CD2 文件落地检查",
+        )
+        logger.info(f"CD2 文件检查已配置：每 {cloud_minutes} 分钟")
 
     # ── update_check：每日拉一次 GitHub 最新 release，仅提示不自动升级 ──
     from . import updates as _updates

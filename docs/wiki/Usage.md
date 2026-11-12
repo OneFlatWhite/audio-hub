@@ -52,3 +52,55 @@
 - Free / 2up 徽章是站点促销标记；↑数字是做种人数；
 - 数据来自后台缓存：页面永远秒开，右上「刷新」转后台执行，
   也可在 config.yaml 开 `discover.auto_refresh_minutes` 定时后台刷新。
+
+## 五、缺集补齐：Re0 主资源库、AY 限额补充
+
+这条链路和前面的 PT 订阅是两套，**不需要 MoviePilot，也不使用 Telegram 会话**。
+
+### Re0 主资源库（NAS Chromium）
+
+Re0 在 NAS 的持久化 Chromium 中运行，不要求你的电脑常开。首次部署：
+
+1. 在 NAS 项目目录执行 `python scripts/init_re0_browser.py`，保存首次显示的远程桌面凭据；重复执行不会覆盖或回显密码；
+2. 执行 `docker compose --env-file config/re0-browser.env --profile re0 up -d --build`，启动 audio-hub 与 Re0 浏览器；
+3. 在你的电脑执行 `ssh -L 3001:127.0.0.1:3001 用户名@NAS地址`，再打开 `https://localhost:3001` 并输入远程桌面凭据；
+4. 浏览器已内置 Violentmonkey，打开 `/static/re0_refill.user.js` 对应的 NAS 地址确认安装，登录 Re0；
+5. 在缺集补齐页生成回填令牌，在右下角脚本面板填写 **NAS 的 audio-hub 地址和令牌**，点「开始自动找」。
+
+登录、cookies、脚本配置和当前任务都保存在浏览器卷，不写入 audio-hub，也不进入 Re0 页面 DOM。以后由 NAS 浏览器持续运行；关闭你的电脑或 SSH 隧道不会停止它。Cloudflare 和付费积分仍需通过远程桌面人工处理，**不绕过验证，也不自动消耗非 0 积分**。
+
+页面分别显示浏览器 CDP、脚本心跳、自动开关、当前剧/阶段、失败原因和最近在线时间。浏览器在线但脚本无心跳时，应检查 Violentmonkey、脚本安装和连接配置，不能只看容器启动就当正常。
+
+### AY API 限额补充
+
+1. 在「设置 → 缺集补齐」启用缺集补齐和爱影 API 限额补充，填写 Emby、TMDB、115/SA 与 CD2 配置；
+2. 爱影 API 地址要包含完整的 `/api/user`，再填 API Token 和爱影账号绑定的数字 TG ID；Token 加密保存，页面和状态接口不回显；
+3. 先扫描缺集，在「缺集补齐 → 爱影 API 限额补充」选择一部剧，点「查询并预览选包」。预览只查 AY/TMDB，不提交 115/SA，但会消耗一次 AY 查询额度；
+4. 核对 JSON 里的资源、选包和预计覆盖后，返回页面再点「确认真实转存选中资源」。该操作会再次查询并真实提交，先用一部免费资源实测。
+
+Re0 正常自动运行时，只有明确无结果或连续失败的剧才转 AY；Re0 离线时 AY 可补充到期队列；Cloudflare/积分人工接管时不消耗 AY。`ay_scan_minutes` 控制补充间隔，`ay_round_clicks` 是单轮操作预算（查询一次计 1、提交一个候选包计 1），`ay_max_links` 是单剧候选包上限。无资源或失败按 6 小时起指数退避、上限 7 天；额度为 0 时本月停止自动查询，下月自动恢复。
+
+管理接口：
+- `GET /api/lackfill/ay_api_test?tmdb_id=<ID>&save=0`：管理员预览，不转存；
+- `POST /api/lackfill/ay_api_test?tmdb_id=<ID>&save=1`：管理员 + CSRF 真实执行，页面表单的 `tmdb_id` 也支持；
+- `GET /api/lackfill/re0_browser/health`：管理员实时检查浏览器和脚本状态，不返回调试地址；
+- `GET /api/lackfill/status`：返回 AY 额度及脱敏 Re0 状态，不返回 Token、cookies 或完整调试 URL。
+
+115 分享会先读取真实快照，核对剧名、目标季及包内是否真有目标缺集，再允许转存。单条 ed2k 走 SA 离线 API，CD2 按真实文件名验证。AY 同一资源的多行 ed2k 会作为整包一次提交，CD2 逐文件验证，全部文件稳定后才刷新 Emby；同名不同内容的文件无法可靠归档时会拒绝自动提交，转人工核对。
+
+链接按类型走不同通道：
+- **115 分享**：cookie 转存，失败时走 SA 加密消息通道；
+- **ed2k**：SA JWT 登录后走 `/api/v1/plugin/115/offline`，失败时回退加密消息；
+- 115 分享不会被误投离线下载，ed2k 也不会走 115 `share/receive`。
+
+「保存成功」要继续看 **CD2 文件确认**：程序按真实包名/文件名检查目录或单文件、
+非空内容和两轮稳定性；需要中转的内容从 `云下载` 移到 SA 监控的 `集合爱影`，
+目标已有内容不会覆盖。确认后才刷新 Emby，最后仍按 Emby 实际集数核销。
+
+路径全部填**容器内路径**，不是宿主机路径。默认对应：
+- `/CloudNAS/CloudDrive/115open/云下载`
+- `/CloudNAS/CloudDrive/115open/集合爱影`
+
+页面出现「等待文件」不代表失败，可能只是包未到或仍在写入；「已确认」才表示
+CD2 已看到稳定文件。Emby 没入库时，先检查 CD2/SA 的目录映射、SA 监控与刮削，
+不要只反复点 Emby Refresh。

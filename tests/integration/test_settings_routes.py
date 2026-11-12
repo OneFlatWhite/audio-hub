@@ -846,3 +846,373 @@ class TestLackfillGroup:
                               {"library_music": "/music"})
         assert "err=" in resp.headers["location"]
         assert "library_music" not in asyncio.run(store.load_overrides(app.state.db))
+
+    def test_refill_token_is_encrypted_hot_and_never_rendered(self, client):
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill", {
+            "lackfill_refill_api_key": "REFILL_SECRET_1234567890abcdef1234567890",
+        })
+        assert resp.status_code == 303, resp.text[:200]
+        assert app.state.config.lackfill.refill_api_key == "REFILL_SECRET_1234567890abcdef1234567890"
+        overrides = asyncio.run(store.load_overrides(app.state.db))
+        assert "REFILL_SECRET_1234567890abcdef1234567890" not in overrides["lackfill_refill_api_key"]
+        page = client.get("/settings")
+        assert "REFILL_SECRET_1234567890abcdef1234567890" not in page.text
+        assert 'name="lackfill_refill_api_key"' in page.text
+
+    def test_re0_install_entry_and_static_script(self, client):
+        _setup_admin(client)
+        page = client.get("/lackfill")
+        assert page.status_code == 200
+        assert "/static/re0_refill.user.js" in page.text
+        assert 'action="/lackfill/refill-token"' in page.text
+        script = client.get("/static/re0_refill.user.js")
+        assert script.status_code == 200
+        assert "javascript" in script.headers["content-type"]
+
+    def test_generate_refill_token_once_and_encrypted(self, client):
+        import re
+
+        _setup_admin(client)
+        resp = client.post("/lackfill/refill-token", data={
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+        assert resp.status_code == 200, resp.text[:300]
+        match = re.search(r'name="refill_token"[^>]*value="([^"]+)"', resp.text)
+        assert match, "新令牌只应在本次响应显示"
+        token = match.group(1)
+        assert len(token) >= 32
+        assert app.state.config.lackfill.refill_api_key == token
+        overrides = asyncio.run(store.load_overrides(app.state.db))
+        assert token not in overrides["lackfill_refill_api_key"]
+        assert token not in client.get("/lackfill").text
+        assert token not in client.get("/static/re0_refill.user.js").text
+
+    def test_generate_refill_token_requires_csrf(self, client):
+        _setup_admin(client)
+        resp = client.post("/lackfill/refill-token", follow_redirects=False)
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_generate_refill_token_requires_admin(self, client):
+        import re
+
+        _setup_admin(client)
+        await _make_normal_user()
+        client.post("/logout", data={"csrf_token": _csrf(client)}, follow_redirects=False)
+        resp = client.post("/login", data={
+            "username": "viewer", "password": "strongpass123",
+        }, follow_redirects=False)
+        assert resp.status_code == 303
+        token = re.search(
+            r'name="csrf-token" content="([^"]+)"', client.get("/dashboard").text
+        ).group(1)
+        resp = client.post("/lackfill/refill-token", data={"csrf_token": token})
+        assert resp.status_code == 403
+        assert not app.state.config.lackfill.refill_api_key
+
+    def test_attempted_reservation_is_visible_and_admin_can_clear(self, client):
+        from audio_hub.lackfill import reservations
+
+        _setup_admin(client)
+        async def seed():
+            await reservations.reserve(app.state.db, "tmdb:100", "abc123", "2026-10-25T00:00:00")
+            await reservations.mark_attempted(app.state.db, "tmdb:100", "2026-10-25T00:01:00")
+        asyncio.run(seed())
+        page = client.get("/lackfill")
+        assert page.status_code == 200
+        assert "tmdb:100" in page.text
+        assert "转存状态待核对" in page.text
+
+        resp = client.post("/lackfill/reservation/clear", data={
+            "show_key": "tmdb:100", "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+        assert resp.status_code == 303
+        assert asyncio.run(reservations.get(app.state.db, "tmdb:100")) is None
+
+    def test_sa_callback_config_is_hot_and_secrets_are_encrypted(self, client):
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill", {
+            "lackfill_sa_parent_id": "123456",
+            "lackfill_sa_callback_url": "http://192.168.1.20:8095/callback",
+            "lackfill_sa_callback_token": "CALLBACK_SIGNING_SECRET_123456",
+            "lackfill_sa_callback_aeskey": "AES_SECRET_1234567890abcdef1234567890",
+            "lackfill_sa_callback_corpid": "corp-1",
+            "lackfill_sa_callback_userid": "user-1",
+            "lackfill_sa_callback_agentid": "agent-1",
+        })
+        assert resp.status_code == 303, resp.text[:200]
+        cfg = app.state.config.lackfill
+        assert cfg.sa_parent_id == "123456"
+        assert cfg.sa_callback_token == "CALLBACK_SIGNING_SECRET_123456"
+        assert cfg.sa_callback_aeskey == "AES_SECRET_1234567890abcdef1234567890"
+        overrides = asyncio.run(store.load_overrides(app.state.db))
+        assert "CALLBACK_SIGNING_SECRET_123456" not in str(overrides)
+        assert "AES_SECRET_1234567890abcdef1234567890" not in str(overrides)
+        page = client.get("/settings")
+        assert 'name="lackfill_sa_callback_url"' in page.text
+        assert "CALLBACK_SIGNING_SECRET_123456" not in page.text
+        assert "AES_SECRET_1234567890abcdef1234567890" not in page.text
+
+    def test_cloud_config_is_hot_and_job_is_rescheduled(self, client):
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill", {
+            "lackfill_cloud_verify_enabled": "1",
+            "lackfill_cloud_staging_dir": "/CloudNAS/CloudDrive/115open/云下载",
+            "lackfill_cloud_feed_dir": "/CloudNAS/CloudDrive/115open/集合爱影",
+            "lackfill_cloud_share_move": "1",
+            "lackfill_cloud_stable_minutes": "7",
+            "lackfill_cloud_poll_minutes": "3",
+        })
+        assert resp.status_code == 303, resp.text[:200]
+        cfg = app.state.config.lackfill
+        assert cfg.cloud_verify_enabled is True
+        assert cfg.cloud_share_move is True
+        assert cfg.cloud_stable_minutes == 7
+        assert cfg.cloud_poll_minutes == 3
+        job = app.state.scheduler.get_job("lackfill_cloud")
+        assert job is not None
+        assert job.trigger.interval.seconds == 180
+
+    def test_cloud_status_page_and_manual_check(self, client):
+        from audio_hub.lackfill import cloud, ledger
+
+        _setup_admin(client)
+        async def seed():
+            entry_id = await ledger.insert(
+                app.state.db,
+                show_key="tmdb:100", season="S01", missing=[3], share_code="abc123",
+                package_name="测试剧 S01", now="2026-10-25T00:00:00", emby_id="emby-100",
+            )
+            await cloud.insert(
+                app.state.db, entry_id, "测试剧 S01", "verify", "/missing-source",
+                "/missing-feed", "2026-10-25T00:00:00",
+            )
+        asyncio.run(seed())
+        app.state.config.lackfill.cloud_verify_enabled = True
+        page = client.get("/lackfill")
+        assert page.status_code == 200
+        assert "测试剧 S01" in page.text
+        assert "等待文件" in page.text
+        resp = client.post("/lackfill/cloud/check", data={
+            "csrf_token": _csrf(client),
+        }, follow_redirects=False)
+        assert resp.status_code == 303
+
+    def test_ay_config_is_hot_encrypted_and_job_is_rescheduled(self, client):
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill", {
+            "lackfill_ay_api_enabled": "1",
+            "lackfill_ay_api_url": "https://ay.example.com/api/user",
+            "lackfill_ay_api_token": "AY_SECRET_1234567890",
+            "lackfill_ay_tg_id": "123456789",
+            "lackfill_ay_max_links": "2",
+            "lackfill_ay_round_clicks": "80",
+            "lackfill_ay_scan_minutes": "9",
+        })
+        assert resp.status_code == 303, resp.text[:200]
+        cfg = app.state.config.lackfill
+        assert cfg.ay_api_enabled is True
+        assert cfg.ay_api_url == "https://ay.example.com/api/user"
+        assert cfg.ay_api_token == "AY_SECRET_1234567890"
+        assert cfg.ay_tg_id == "123456789"
+        assert cfg.ay_max_links == 2
+        assert cfg.ay_round_clicks == 80
+        assert cfg.ay_scan_minutes == 9
+        overrides = asyncio.run(store.load_overrides(app.state.db))
+        assert "AY_SECRET_1234567890" not in str(overrides)
+        assert "AY_SECRET_1234567890" not in client.get("/settings").text
+        job = app.state.scheduler.get_job("lackfill_ay")
+        assert job is not None
+        assert job.trigger.interval.seconds == 540
+
+    @respx.mock
+    def test_ay_preview_execute_quota_and_permissions(self, client, monkeypatch):
+        from audio_hub.lackfill import queue
+        from audio_hub.lackfill.models import ShowLack
+
+        _setup_admin(client)
+        _post_settings(client, "/settings/lackfill", {
+            "lackfill_enabled": "1",
+            "lackfill_tmdb_api_key": "TMDB_SECRET_123",
+            "lackfill_ay_api_enabled": "1",
+            "lackfill_ay_api_url": "https://ay.example.com/api/user",
+            "lackfill_ay_api_token": "AY_SECRET_1234567890",
+            "lackfill_ay_tg_id": "123456789",
+        })
+        asyncio.run(queue.upsert(app.state.db, ShowLack(
+            tmdb_id=100, title="测试剧", year=2024, emby_id="emby-100", missing={1: [3]},
+        ), "2026-10-25T00:00:00"))
+        ay_route = respx.post("https://ay.example.com/api/user").mock(
+            return_value=httpx.Response(200, json={
+                "data": [{"name": "测试剧 S01", "notes": "", "link": "https://115.com/s/abc123?password=wd40", "size": 1}],
+                "times": 97, "message": "ok",
+            })
+        )
+        respx.get("https://api.themoviedb.org/3/tv/100/season/1").mock(
+            return_value=httpx.Response(200, json={"episodes": [
+                {"episode_number": number, "air_date": "2024-01-01"} for number in (1, 2, 3)
+            ]})
+        )
+        transfers = []
+
+        async def fake_transfer(*args, **kwargs):
+            transfers.append(kwargs)
+            return {"outcome": "ok", "entry_id": 88}
+
+        monkeypatch.setattr(
+            "audio_hub.lackfill.service.LackfillService.transfer_one", fake_transfer
+        )
+        preview = client.get("/api/lackfill/ay_api_test", params={"tmdb_id": 100, "save": 0})
+        assert preview.status_code == 200, preview.text
+        result = preview.json()
+        assert result["success"] is True
+        assert result["data"]["status"] == "preview"
+        assert result["data"]["resource_count"] == 1
+        assert result["data"]["selected_links"] == ["https://115.com/s/abc123?password=wd40"]
+        assert result["data"]["quota_left"] == 97
+        assert transfers == []
+        assert asyncio.run(queue.get(app.state.db, 100)) is not None
+
+        assert client.get(
+            "/api/lackfill/ay_api_test", params={"tmdb_id": 100, "save": 1}
+        ).status_code == 405
+        forbidden = client.post(
+            "/api/lackfill/ay_api_test", params={"tmdb_id": 100, "save": 1}
+        )
+        assert forbidden.status_code == 403
+        executed = client.post(
+            "/api/lackfill/ay_api_test",
+            params={"save": 1},
+            data={"tmdb_id": "100", "csrf_token": _csrf(client)},
+        )
+        assert executed.status_code == 200, executed.text
+        assert executed.json()["data"]["status"] == "ok"
+        assert executed.json()["data"]["entry_id"] == 88
+        assert len(transfers) == 1
+        assert len(ay_route.calls) == 2
+
+        status = client.get("/api/lackfill/status").json()
+        assert status["ay"]["quota_left"] == 97
+        assert status["ay"]["updated_at"]
+        page = client.get("/lackfill")
+        assert page.status_code == 200
+        assert "爱影 API 限额补充" in page.text
+        assert "本月剩余额度" in page.text
+        assert "97" in page.text
+        assert 'action="/api/lackfill/ay_api_test"' in page.text
+        assert "AY_SECRET_1234567890" not in page.text
+        assert "AY_SECRET_1234567890" not in preview.text + executed.text
+
+    @pytest.mark.asyncio
+    async def test_ay_preview_and_execute_require_admin(self, client):
+        import re
+
+        _setup_admin(client)
+        await _make_normal_user()
+        client.post("/logout", data={"csrf_token": _csrf(client)}, follow_redirects=False)
+        client.post("/login", data={
+            "username": "viewer", "password": "strongpass123",
+        }, follow_redirects=False)
+        assert client.get(
+            "/api/lackfill/ay_api_test", params={"tmdb_id": 100, "save": 0}
+        ).status_code == 403
+        csrf = re.search(
+            r'name="csrf-token" content="([^"]+)"', client.get("/dashboard").text
+        ).group(1)
+        assert client.post(
+            "/api/lackfill/ay_api_test",
+            params={"tmdb_id": 100, "save": 1},
+            data={"csrf_token": csrf},
+        ).status_code == 403
+
+    def test_ay_status_is_not_ready_without_tmdb(self, client):
+        _setup_admin(client)
+        _post_settings(client, "/settings/lackfill", {
+            "lackfill_ay_api_enabled": "1",
+            "lackfill_ay_api_url": "https://ay.example.com/api/user",
+            "lackfill_ay_api_token": "AY_SECRET_1234567890",
+            "lackfill_ay_tg_id": "123456789",
+        })
+        status = client.get("/api/lackfill/status").json()
+        assert status["ay"]["enabled"] is True
+        assert status["ay"]["configured"] is False
+
+    def test_re0_browser_config_is_hot_and_job_is_rescheduled(self, client):
+        _setup_admin(client)
+        resp = _post_settings(client, "/settings/lackfill", {
+            "lackfill_enabled": "1",
+            "lackfill_re0_browser_enabled": "1",
+            "lackfill_re0_browser_cdp_url": "http://127.0.0.1:9222",
+            "lackfill_re0_browser_ui_url": "https://127.0.0.1:3001",
+            "lackfill_re0_browser_health_seconds": "45",
+        })
+        assert resp.status_code == 303, resp.text[:200]
+        cfg = app.state.config.lackfill
+        assert cfg.re0_browser_enabled is True
+        assert cfg.re0_browser_cdp_url == "http://127.0.0.1:9222"
+        assert cfg.re0_browser_ui_url == "https://127.0.0.1:3001"
+        assert cfg.re0_browser_health_seconds == 45
+        job = app.state.scheduler.get_job("re0_browser_health")
+        assert job is not None
+        assert job.trigger.interval.total_seconds() == 45
+
+    def test_re0_health_page_and_status_are_sanitized(self, client, monkeypatch):
+        from datetime import datetime
+
+        from audio_hub.lackfill import re0_status
+
+        _setup_admin(client)
+        _post_settings(client, "/settings/lackfill", {
+            "lackfill_enabled": "1",
+            "lackfill_re0_browser_enabled": "1",
+            "lackfill_re0_browser_cdp_url": "http://127.0.0.1:9222",
+            "lackfill_re0_browser_ui_url": "https://gui:secret-password@127.0.0.1:3001/?token=secret",
+        })
+        asyncio.run(re0_status.report_status(app.state.db, {
+            "status": "running",
+            "tmdb_id": 100,
+            "title": "测试剧",
+            "stage": "resource",
+            "auto_running": True,
+            "script_version": "1.1.0",
+        }, datetime.now().isoformat()))
+        app.state.re0_browser_health = {"cdp_ok": True, "ready": True, "state": "ready"}
+
+        async def healthy(_url):
+            return {"cdp_ok": True, "ready": True, "state": "ready", "browser": "Chromium/test"}
+
+        monkeypatch.setattr("audio_hub.lackfill.re0_browser.inspect", healthy)
+        response = client.get("/api/lackfill/re0_browser/health")
+        assert response.status_code == 200, response.text
+        assert response.json()["primary_mode"] == "available"
+        assert response.json()["ui_url"] == "https://127.0.0.1:3001/"
+        status = client.get("/api/lackfill/status")
+        assert status.json()["re0"]["worker"]["online"] is True
+        assert status.json()["re0"]["worker"]["stage"] == "resource"
+        page = client.get("/lackfill")
+        assert page.status_code == 200
+        assert "Re0 主资源库" in page.text
+        assert "NAS Chromium" in page.text
+        assert "自动运行" in page.text
+        assert "最近在线" in page.text
+        assert "secret-password" not in response.text + status.text + page.text
+        assert "webSocketDebuggerUrl" not in response.text + status.text + page.text
+
+    @pytest.mark.asyncio
+    async def test_re0_health_requires_admin(self, client):
+        _setup_admin(client)
+        await _make_normal_user()
+        client.post("/logout", data={"csrf_token": _csrf(client)}, follow_redirects=False)
+        client.post("/login", data={
+            "username": "viewer", "password": "strongpass123",
+        }, follow_redirects=False)
+        assert client.get("/api/lackfill/re0_browser/health").status_code == 403
+
+    def test_re0_page_warns_when_browser_is_up_but_script_is_offline(self, client):
+        _setup_admin(client)
+        _post_settings(client, "/settings/lackfill", {"lackfill_re0_browser_enabled": "1"})
+        app.state.re0_browser_health = {"cdp_ok": True, "ready": True, "state": "ready"}
+        page = client.get("/lackfill")
+        assert page.status_code == 200
+        assert "检查 Violentmonkey/脚本安装和连接配置" in page.text

@@ -162,6 +162,7 @@ EVENT_KIND_ZH: dict[str, str] = {
     # 连载 / 做种 / 其它
     "series_completed": "连载完结",
     "hr_satisfied": "H&R 达标",
+    "lackfill_refill": "Re0 缺集回填",
     "test": "测试通知",
 }
 

@@ -18,23 +18,26 @@ async def insert(
     *,
     show_key: str,
     season: str | None,
-    missing: list[int],
+    missing: list[int] | dict[int, list[int]],
     share_code: str | None,
     package_name: str | None,
     now: str,
     emby_id: str = "",
+    verify_round: int = 0,
+    commit: bool = True,
 ) -> int:
     cur = await conn.execute(
         """
         INSERT INTO lackfill_ledger
             (show_key, season, missing_json, share_code, package_name,
-             emby_id, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+             emby_id, status, verify_round, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
         """,
         (show_key, season, json.dumps(missing), share_code, package_name,
-         emby_id, now, now),
+         emby_id, verify_round, now, now),
     )
-    await conn.commit()
+    if commit:
+        await conn.commit()
     return int(cur.lastrowid)
 
 
@@ -58,7 +61,10 @@ async def update_status(conn: aiosqlite.Connection, entry_id: int, status: str, 
 
 
 async def update_missing(
-    conn: aiosqlite.Connection, entry_id: int, missing: list[int], now: str
+    conn: aiosqlite.Connection,
+    entry_id: int,
+    missing: list[int] | dict[int, list[int]],
+    now: str,
 ) -> None:
     await conn.execute(
         "UPDATE lackfill_ledger SET missing_json = ?, updated_at = ? WHERE id = ?",
@@ -75,6 +81,23 @@ async def bump_round(conn: aiosqlite.Connection, entry_id: int, now: str) -> Non
     await conn.commit()
 
 
+async def reset_round(conn: aiosqlite.Connection, entry_id: int, now: str) -> None:
+    await conn.execute(
+        "UPDATE lackfill_ledger SET verify_round = 0, updated_at = ? WHERE id = ?",
+        (now, entry_id),
+    )
+    await conn.commit()
+
+
+async def latest_round(conn: aiosqlite.Connection, show_key: str) -> int:
+    cur = await conn.execute(
+        "SELECT COALESCE(MAX(verify_round), 0) FROM lackfill_ledger WHERE show_key = ?",
+        (show_key,),
+    )
+    row = await cur.fetchone()
+    return int(row[0])
+
+
 async def list_by_status(conn: aiosqlite.Connection, *statuses: str) -> list[dict]:
     if not statuses:
         return []
@@ -85,3 +108,18 @@ async def list_by_status(conn: aiosqlite.Connection, *statuses: str) -> list[dic
     )
     rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+async def find_open_by_share(
+    conn: aiosqlite.Connection, show_key: str, share_code: str
+) -> dict | None:
+    cur = await conn.execute(
+        """
+        SELECT * FROM lackfill_ledger
+        WHERE show_key = ? AND share_code = ? AND status IN ('pending', 'partial')
+        ORDER BY id DESC LIMIT 1
+        """,
+        (show_key, share_code),
+    )
+    row = await cur.fetchone()
+    return dict(row) if row is not None else None

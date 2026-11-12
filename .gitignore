@@ -50,3 +50,7 @@ last_test_output.txt
 # curl cookie jar：曾含真实会话令牌（audio_hub_session），等同登录凭据，绝不入库
 cj.txt
 license-keys/
+
+# Re0 浏览器 profile、登录 cookies、扩展存储和远程桌面独立凭据
+config/*.env
+config/re0-browser/

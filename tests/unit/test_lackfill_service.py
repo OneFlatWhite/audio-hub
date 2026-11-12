@@ -28,6 +28,11 @@ class FakeP115:
         self.receive_calls = []
         self.closed = False
 
+    async def inspect_share(self, share_code, receive_code=""):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(package_name="pkg", files=await self.snap(share_code, receive_code))
+
     async def snap(self, share_code, receive_code=""):
         self.snap_calls.append((share_code, receive_code))
         if self.snap_exc is not None:
@@ -35,8 +40,8 @@ class FakeP115:
         if self.snap_files is not None:
             return self.snap_files
         return [
-            {"name": "E03.mkv", "file_id": "f3", "is_dir": False},
-            {"name": "E05.mkv", "file_id": "f5", "is_dir": False},
+            {"name": "E03.mkv", "path": "pkg/S01/E03.mkv", "file_id": "f3", "is_dir": False},
+            {"name": "E05.mkv", "path": "pkg/S01/E05.mkv", "file_id": "f5", "is_dir": False},
         ]
 
     async def receive(self, *args):
@@ -48,7 +53,7 @@ class FakeP115:
 
 
 class FakeSA:
-    def __init__(self, receive_result=True, receive_exc=None):
+    def __init__(self, receive_result=True, receive_exc=None, **_kwargs):
         self.receive_result = receive_result
         self.receive_exc = receive_exc
         self.receive_calls = []
@@ -59,6 +64,12 @@ class FakeSA:
         if self.receive_exc is not None:
             raise self.receive_exc
         return self.receive_result
+
+    async def submit_message(self, links, title):
+        self.receive_calls.append((links, title))
+        if self.receive_exc is not None:
+            raise self.receive_exc
+        return {"ok": self.receive_result}
 
     async def aclose(self):
         self.closed = True
@@ -129,6 +140,26 @@ class TestTransferOne:
         assert sa.receive_calls == []
         assert p115.closed is False and sa.closed is False and emby.closed is False
         assert alerts == []
+
+    async def test_transfer_registers_cd2_watch_and_defers_refresh(self, test_db, alerts):
+        from audio_hub.lackfill import cloud
+
+        p115, sa, emby = FakeP115(), FakeSA(), FakeEmby()
+        cfg = _cfg(
+            cloud_verify_enabled=True,
+            cloud_staging_dir="/staging",
+            cloud_feed_dir="/feed",
+            cloud_share_move=True,
+        )
+        result = await LackfillService(cfg).transfer_one(
+            test_db, "show1", "S01", [3, 5], SHARE_URL, "pkg",
+            now=NOW, emby_id="emby1", p115=p115, sa=sa, emby=emby,
+        )
+        assert result["outcome"] == "ok"
+        row = await cloud.get_by_ledger(test_db, result["entry_id"])
+        assert row["mode"] == "move"
+        assert row["status"] == "waiting"
+        assert emby.refresh_calls == 0
 
     async def test_fallback_to_sa(self, test_db, alerts):
         p115, sa, emby = FakeP115(receive_result=False), FakeSA(), FakeEmby()
@@ -224,12 +255,12 @@ class TestVerifyPending:
         stats = await svc.verify_pending(test_db, now=NOW, emby=emby)
         assert stats["bumped"] == 1
         row = await ledger.get(test_db, 1)
-        assert row["status"] == "pending"
+        assert row["status"] == "timeout"
         assert row["verify_round"] == 1
 
     async def test_timeout_after_max_rounds(self, test_db, alerts):
         await self._insert(test_db, now=LONG_AGO)
-        for _ in range(3):
+        for _ in range(2):
             await ledger.bump_round(test_db, 1, LONG_AGO)
         emby = FakeEmby(have={1: set()})
         svc = LackfillService(_cfg(wecom_webhook="https://hook"))
