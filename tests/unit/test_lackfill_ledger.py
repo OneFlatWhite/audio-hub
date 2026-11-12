@@ -75,9 +75,9 @@ _LEDGER_COLUMNS = {
 
 
 class TestFreshInit:
-    async def test_schema_version_is_10(self, test_db):
-        assert SCHEMA_VERSION == 10
-        assert await _user_version(test_db) == 10
+    async def test_schema_version_is_11(self, test_db):
+        assert SCHEMA_VERSION == 11
+        assert await _user_version(test_db) == 11
 
     async def test_ledger_table_exists(self, test_db):
         assert "lackfill_ledger" in await _tables(test_db)
@@ -97,7 +97,7 @@ class TestIdempotent:
         conn = await init_db(db_path)
         try:
             assert "lackfill_ledger" in await _tables(conn)
-            assert await _user_version(conn) == 10
+            assert await _user_version(conn) == 11
         finally:
             await conn.close()
 
@@ -112,7 +112,7 @@ class TestUpgradeFromV5:
         conn = await init_db(db_path)
         try:
             assert "lackfill_ledger" in await _tables(conn)
-            assert await _user_version(conn) == 10
+            assert await _user_version(conn) == 11
         finally:
             await conn.close()
 

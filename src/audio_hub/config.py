@@ -208,8 +208,10 @@ class LackfillConfig(BaseModel):
     verify_interval_hours: int = 6
     #: 视为「不再更新」的静止天数：超过后降低复检频率
     verify_timeout_days: int = 7
-    #: 新剧每日扫描配额（M2 新剧发现用）
+    #: 新剧自动检索:每日从 TMDB 热门新剧中挑选入库监控的部数;0 = 关闭发现
     new_show_daily_quota: int = 3
+    #: 新剧检索轮询间隔(小时),保存后调度器自动重排 lackfill_newshow
+    new_show_scan_hours: int = 24
     # ---- M2：115 转存链 + 核销状态机 ----
     #: 115 cookie 直连链（主），加密存储（p115_cookie_encrypted）
     p115_cookie: str = ""

@@ -421,10 +421,18 @@ LACKFILL_SPECS = (
         lo=1, hi=365,
     ),
     Spec(
-        "lackfill_new_show_daily_quota", "新剧每日配额", "int", SCOPE_HOT,
+        "lackfill_new_show_daily_quota", "新剧每日发现配额", "int", SCOPE_HOT,
         "lackfill.new_show_daily_quota",
-        hint="热生效。0 表示不限。",
+        hint="每天从 TMDB 本周热门剧里自动挑几部**不在你 Emby 里**的新剧纳入监控,"
+             "已播集自动进缺集队列,由 Re0/爱影链路补齐;进库后自动停止监控。"
+             "0 = 关闭自动发现。",
         lo=0,
+    ),
+    Spec(
+        "lackfill_new_show_scan_hours", "新剧检索间隔（小时）", "int", SCOPE_HOT,
+        "lackfill.new_show_scan_hours",
+        hint="保存后调度器自动重排 lackfill_newshow。",
+        lo=1, hi=720,
     ),
     Spec(
         "lackfill_p115_cookie", "115 Cookie", "secret", SCOPE_HOT,
@@ -517,15 +525,18 @@ LACKFILL_SPECS = (
         hint="Re0 主资源库在 NAS Chromium 中自动运行；AY 只作限额补充。",
     ),
     Spec(
-        "lackfill_re0_browser_cdp_url", "Re0 浏览器 CDP 地址", "str", SCOPE_HOT,
+        "lackfill_re0_browser_cdp_url", "Re0 浏览器自检端口", "str", SCOPE_HOT,
         "lackfill.re0_browser_cdp_url",
-        hint="仅用于本机健康检查，默认 http://127.0.0.1:9222，不要暴露到局域网。",
+        hint="一般不用改。audio-hub 靠它确认 NAS 里那个浏览器还活着、Re0 页还开着"
+             "(只读自检,只在 NAS 本机内部,不暴露局域网)。",
         require_url=True,
     ),
     Spec(
         "lackfill_re0_browser_ui_url", "Re0 远程桌面地址", "str", SCOPE_HOT,
         "lackfill.re0_browser_ui_url",
-        hint="默认 https://127.0.0.1:3001；远程电脑通过 SSH 隧道访问，不保存 Re0 账密。",
+        hint="一般不用改。想亲眼看到/操作 NAS 里那个浏览器时用:先在电脑执行 "
+             "ssh -L 3001:127.0.0.1:3001 用户@NAS,再开 https://127.0.0.1:3001 "
+             "(登录 Re0、过人机验证都在这个桌面里)。",
         require_url=True,
     ),
     Spec(
@@ -886,6 +897,7 @@ _INTERVAL_JOBS: dict[str, tuple[str, str, int]] = {
     "lackfill_verify_hours": ("lackfill_verify", "hours", 1),
     "lackfill_cloud_poll_minutes": ("lackfill_cloud", "minutes", 1),
     "lackfill_ay_scan_minutes": ("lackfill_ay", "minutes", 1),
+    "lackfill_new_show_scan_hours": ("lackfill_newshow", "hours", 1),
     "lackfill_re0_browser_health_seconds": ("re0_browser_health", "seconds", 15),
 }
 

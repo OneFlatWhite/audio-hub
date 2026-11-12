@@ -58,10 +58,10 @@ async def _make_v6_db(path):
 
 
 class TestQueueSchema:
-    async def test_schema_version_is_10(self, test_db):
-        assert SCHEMA_VERSION == 10
+    async def test_schema_version_is_11(self, test_db):
+        assert SCHEMA_VERSION == 11
         cur = await test_db.execute("PRAGMA user_version")
-        assert (await cur.fetchone())[0] == 10
+        assert (await cur.fetchone())[0] == 11
 
     async def test_queue_table_exists(self, test_db):
         assert "lackfill_queue" in await _tables(test_db)

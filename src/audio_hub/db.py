@@ -24,7 +24,7 @@ import aiosqlite
 from loguru import logger
 
 #: 当前 schema 版本，写入 PRAGMA user_version 供诊断脚本读取
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 # Migration v1 SQL
 _MIGRATION_V1 = """
@@ -437,6 +437,16 @@ CREATE TABLE IF NOT EXISTS lackfill_re0_tasks (
     updated_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_lackfill_re0_tasks_status ON lackfill_re0_tasks(status);
+
+-- 新剧自动检索监控表(v11):TMDB 热门新剧冷启动入监控,
+-- 剧进入 Emby 后自动毕业退出;毕业后的续集由常规 Emby 扫描链路接管
+CREATE TABLE IF NOT EXISTS lackfill_newshows (
+    tmdb_id     INTEGER PRIMARY KEY,
+    title       TEXT NOT NULL DEFAULT '',
+    year        INTEGER,
+    added_at    TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS lackfill_ay_tasks (
     tmdb_id        INTEGER PRIMARY KEY,

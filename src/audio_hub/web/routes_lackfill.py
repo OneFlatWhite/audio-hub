@@ -125,6 +125,18 @@ async def _re0_context(request: Request, db, cfg) -> dict:
     }
 
 
+async def _newshow_context(cfg, db) -> dict:
+    from ..lackfill import newshow
+
+    rows = await newshow.list_monitored(db)
+    return {
+        "enabled": int(getattr(cfg, "new_show_daily_quota", 0) or 0) > 0,
+        "quota": int(getattr(cfg, "new_show_daily_quota", 0) or 0),
+        "monitored": rows[:8],
+        "monitored_count": len(rows),
+    }
+
+
 async def _pipeline_rows(db) -> list[dict]:
     """缺集任务流水：待找(Re0 队列)/转存预留/台账(待核销·部分到位)/CD2 落盘
     合并成一屏进度行。只读总览——操作入口留在各通道详情里(FRONTEND-RULES §1.4)。
@@ -205,6 +217,7 @@ async def _render_lackfill(
         "cloud_items": await cloud.list_by_status(db, "waiting", "ready", "failed"),
         "cloud_enabled": cfg.cloud_verify_enabled,
         "pipeline": await _pipeline_rows(db),
+        "newshow": await _newshow_context(cfg, db),
         # 设置抽屉:配置跟使用走(FRONTEND-RULES §1.3),主链展开/通道折叠
         "settings_sections": settings_routes.lackfill_settings_sections(config),
         "new_refill_token": new_refill_token,

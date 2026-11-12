@@ -149,6 +149,28 @@
 {% endif %}
 </div>
 
+{# ── 新剧自动检索:发现→入队→毕业,全自动后台任务 ──────────── #}
+<div class="panel" style="margin-bottom:18px">
+  <div class="section-head">
+    <h2>新剧自动检索</h2>
+    <span class="pill {{ 'high' if newshow.enabled else 'low' }}">
+      {{ '每日发现 ' ~ newshow.quota ~ ' 部' if newshow.enabled else '未启用' }}</span>
+  </div>
+  {% if newshow.enabled %}
+  <p class="hint">每天从 TMDB 本周热门里挑 <b>不在你 Emby 里</b>的新剧纳入监控,已播集自动进上方流水
+    (来源 Re0 / 爱影);一旦进库,自动停止监控——之后的续集归常规扫描管。</p>
+  {% if newshow.monitored %}
+  <p class="hint">监控中 {{ newshow.monitored_count }} 部:
+    {%- for s in newshow.monitored %} {{ s.title }}{% if s.year %}({{ s.year }}){% endif %}{{ '·' if not loop.last }}{% endfor %}
+    {%- if newshow.monitored_count > newshow.monitored|length %} 等{% endif %}</p>
+  {% else %}
+  <p class="hint">还没有监控中的剧——下一轮检索会自动挑选(间隔在设置里,默认 24 小时)。</p>
+  {% endif %}
+  {% else %}
+  <p class="hint">已关闭。在<a href="#lackfill-settings">上方「设置 · 主链」</a>把「新剧每日发现配额」设为大于 0 即可开启。</p>
+  {% endif %}
+</div>
+
 {# ── 通道与工具：技术细节折叠,标题即状态(FRONTEND-RULES §2.2)── #}
 <div class="panel">
   <div class="section-head">
