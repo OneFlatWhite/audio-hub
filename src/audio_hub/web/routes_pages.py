@@ -476,6 +476,7 @@ async def review_batch(
 async def settings_page(
     request: Request,
     ok: str | None = None, detail: str | None = None,
+    sec: str | None = None,
     user: dict = Depends(require_user),
     db=Depends(get_db), config=Depends(get_config),
 ):
@@ -507,6 +508,17 @@ async def settings_page(
         }
 
     templates = request.app.state.templates
+    active_sec = routes_settings.valid_section(sec)
+    all_groups = [
+        g for g in routes_settings.build_settings_groups(config)
+        # 补缺集组按 FRONTEND-RULES §1.3 迁往 /lackfill 页的设置抽屉
+        if g["action"] != "/settings/lackfill"
+    ]
+    group = next(
+        (g for g in all_groups
+         if routes_settings._SECTION_OF_ACTION.get(g["action"]) == active_sec),
+        None,
+    )
     ctx = await _common(request, db, config, user)
     ctx.update({
         "active": "settings",
@@ -514,11 +526,9 @@ async def settings_page(
         # ok/err 经文案表翻译；表里没有的键（如 SettingsError 的原文）原样展示
         "ok": ok, "flash_ok": _flash(request, "ok"),
         "err": _flash(request, "err"),
-        "groups": [
-            g for g in routes_settings.build_settings_groups(config)
-            # 补缺集组按 FRONTEND-RULES §1.3 迁往 /lackfill 页的设置抽屉
-            if g["action"] != "/settings/lackfill"
-        ],
+        "active_sec": active_sec,
+        "sections": routes_settings.settings_nav(active_sec),
+        "group": group,
         "default_downloader": dl_info,
         # 凭据只写不读：仅暴露是否已配置，绝不回显明文或密文。
         # 由 settings_store.credential_status 按站点类型判断所需凭据 ——

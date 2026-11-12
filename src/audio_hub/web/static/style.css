@@ -481,30 +481,38 @@ details.menu[open] > summary { border-color: var(--accent); color: var(--accent)
 .filters label { margin: 0; }
 .filters select { width: auto; }
 
-/* ── 设置页 ───────────────────────────────────────────── */
-/* 页内锚点导航：sticky 置顶 chip 行（rail 材质 + 玻璃），长页面免滚找分区 */
-.setnav {
-  position: sticky; top: 10px; z-index: 20;
-  display: flex; flex-wrap: wrap; gap: 6px;
-  padding: 8px 10px; margin-bottom: 16px;
-  background: var(--rail-bg);
-  border: 1px solid var(--border);
+/* ── 设置页:两栏(左分区导航 + 右单分区聚焦) ──────────────
+   旧 setnav 锚点 chips 是对 6000px 长页的补丁;新形态一屏一分区一保存,
+   保存/出错经 ?sec= 回到原分区。 */
+.settings-layout {
+  display: grid; grid-template-columns: 208px minmax(0, 1fr);
+  gap: 22px; align-items: start;
+}
+.setside {
+  position: sticky; top: 64px;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 10px 8px;
+  background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow), var(--edge);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
 }
-.setnav a {
-  padding: 2px 12px; border-radius: 999px; font-size: 12.5px; line-height: 1.7;
-  border: 1px solid var(--border); color: var(--text-2); background: var(--pill-bg);
-  box-shadow: var(--edge);
+.setside .nav-title {
+  font-size: 11px; font-weight: 700; color: var(--muted);
+  letter-spacing: .08em; padding: 10px 10px 4px;
 }
-.setnav a:hover {
-  text-decoration: none; color: var(--accent);
-  border-color: var(--accent); background: var(--accent-dim);
+.setside a {
+  padding: 7px 10px; border-radius: 7px; font-size: 13px;
+  color: var(--text-2); text-decoration: none;
 }
-/* 锚点跳转落点给 sticky 导航让位 */
-[id^="set-"] { scroll-margin-top: 76px; }
+.setside a:hover { background: var(--panel-2); color: var(--ink); text-decoration: none; }
+.setside a.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+@media (max-width: 820px) {
+  .settings-layout { grid-template-columns: 1fr; }
+  .setside {
+    position: static; flex-direction: row; flex-wrap: wrap;
+    gap: 4px; padding: 8px;
+  }
+  .setside .nav-title { width: 100%; padding: 4px 6px 0; }
+}
 
 .banner-restart {
   background: var(--warn-dim);

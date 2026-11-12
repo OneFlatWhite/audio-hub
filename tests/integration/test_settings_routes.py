@@ -435,12 +435,12 @@ class TestSettingsPageRender:
     def test_readonly_db_path_still_shown(self, client):
         """db_path 不在覆盖层内，但应只读展示（避免使用者以为漏做）。"""
         _setup_admin(client)
-        page = client.get("/settings")
+        page = client.get("/settings?sec=readonly")
         assert "hub.db" in page.text
 
     def test_site_rows_rendered(self, client):
         _setup_admin(client)
-        page = client.get("/settings")
+        page = client.get("/settings?sec=creds")
         assert "hhanclub" in page.text
         assert "hdsky" in page.text
 
@@ -455,15 +455,24 @@ _V4_ACTIONS = (
 
 class TestV4Groups:
     def test_page_renders_new_forms(self, client):
+        """设置页按分区渲染:逐分区断言表单与代表性字段(左导航单分区形态)。"""
         _setup_admin(client)
-        page = client.get("/settings")
-        assert page.status_code == 200
         for action in _V4_ACTIONS:
+            sec = action.rsplit("/", 1)[-1]
+            page = client.get(f"/settings?sec={sec}")
+            assert page.status_code == 200
             assert f'action="{action}"' in page.text, f"缺少表单 {action}"
-        # 各组的代表性字段真的渲染成了控件
-        for name in ("library_music", "allowed_exts", "abs_token",
-                     "default_min_ratio", "notify_kinds"):
-            assert f'name="{name}"' in page.text, f"缺少字段 {name}"
+            assert f'name="sec" value="{sec}"' in page.text, "表单未携带分区上下文"
+        rep = {
+            "paths": "library_music", "validation": "allowed_exts",
+            "scrape": "abs_token", "seeding": "default_min_ratio",
+            "notify": "notify_kinds",
+        }
+        for sec, name in rep.items():
+            page = client.get(f"/settings?sec={sec}")
+            assert f'name="{name}"' in page.text, f"{sec} 缺少字段 {name}"
+        # 站点级 H&R 已迁至站点，设置页不再渲染
+        assert 'name="site_hr_hours:hhanclub"' not in client.get("/settings?sec=seeding").text
         # 站点级 H&R 已迁至站点，设置页不再渲染
         assert 'name="site_hr_hours:hhanclub"' not in page.text
         # list 字段以逗号串回显
@@ -621,11 +630,11 @@ class TestV4Groups:
         assert app.state.config.scrape.abs_token == "ABS_TOKEN_PLAINTEXT_42"
         overrides = asyncio.run(store.load_overrides(app.state.db))
         assert "ABS_TOKEN_PLAINTEXT_42" not in overrides["abs_token"]
-        page = client.get("/settings")
+        page = client.get("/settings?sec=scrape")
         assert "ABS_TOKEN_PLAINTEXT_42" not in page.text
         assert overrides["abs_token"] not in page.text
-        # 凭据状态表显示已配置
-        assert "Audiobookshelf" in page.text
+        # 凭据状态分区显示已配置
+        assert "Audiobookshelf" in client.get("/settings?sec=creds").text
 
     def test_scrape_abs_url_must_be_url(self, client):
         _setup_admin(client)
@@ -686,7 +695,7 @@ _GENERIC = "https://hooks.example.com/audio-hub"
 class TestNotifyPush:
     def test_page_has_test_button_form(self, client):
         _setup_admin(client)
-        page = client.get("/settings").text
+        page = client.get("/settings?sec=notify").text
         assert 'action="/settings/notify/test"' in page
         assert "发送测试通知" in page
 
@@ -719,7 +728,7 @@ class TestNotifyPush:
         _setup_admin(client)
         resp = _post_settings(client, "/settings/notify/test", {})
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/settings?err=notify_none"
+        assert resp.headers["location"].startswith("/settings?sec=notify&err=notify_none")
         page = client.get(resp.headers["location"])
         assert "尚未配置任何推送渠道" in page.text
 
@@ -734,7 +743,7 @@ class TestNotifyPush:
         resp = _post_settings(client, "/settings/notify/test", {})
         assert resp.status_code == 303
         loc = resp.headers["location"]
-        assert loc.startswith("/settings?ok=notify_test&detail=")
+        assert loc.startswith("/settings?sec=notify&ok=notify_test&detail=")
         assert wecom.called and generic.called
 
         page = client.get(loc).text
@@ -753,7 +762,7 @@ class TestNotifyPush:
 
         resp = _post_settings(client, "/settings/notify/test", {})
         loc = resp.headers["location"]
-        assert loc.startswith("/settings?err=notify_test_failed&detail=")
+        assert loc.startswith("/settings?sec=notify&err=notify_test_failed&detail=")
 
         page = client.get(loc).text
         assert "测试通知未全部成功" in page

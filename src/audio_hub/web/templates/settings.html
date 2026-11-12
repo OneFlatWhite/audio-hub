@@ -26,193 +26,189 @@
   {{ err }}{% if detail %} —— {{ detail }}{% endif %}
 </div>{% endif %}
 
-{# ── 页内锚点导航：sticky 置顶 chip 行，长页面免滚找分区 ───────── #}
-<nav class="setnav" aria-label="设置分区">
-  {% for g in groups %}<a href="#set-g{{ loop.index0 }}">{{ g.title }}</a>{% endfor %}
-  <a href="#set-qb">qBittorrent</a>
-  <a href="#set-readonly">只读项</a>
-  <a href="#set-creds">凭据状态</a>
-  <a href="#set-password">修改密码</a>
-  <a href="#set-session">会话</a>
-</nav>
+{# ── 两栏：左侧分区导航 + 右侧一次只渲染一个分区 ─────────────
+   旧形态是 12 个分区竖堆 + 顶部锚点 chips + 每组一个保存——
+   「一堆孤岛」即割裂感的来源。新形态一屏一分区一保存；
+   保存/出错经 sec 参数回到原分区(routes_settings._save)。 #}
+<div class="settings-layout">
+  <nav class="setside" aria-label="设置分区">
+    {% for s in sections %}
+      {% if s.kind == 'title' %}<div class="nav-title">{{ s.title }}</div>
+      {% else %}<a href="{{ s.href }}" class="{{ 'active' if s.active }}">{{ s.title }}</a>{% endif %}
+    {% endfor %}
+    <div class="nav-title">外部</div>
+    <a href="/lackfill">补缺集 →</a>
+  </nav>
 
-{# ── 可编辑设置（由 settings_store 的 SPEC 驱动，模板不写死字段名）──
-   补缺集组已按 FRONTEND-RULES §1.3「配置跟着使用走」迁往 /lackfill 页，
-   路由层已从 groups 里滤掉,页面只剩指引卡。 #}
-{% for g in groups %}
-{% set gi = loop.index0 %}
-<div class="panel" id="set-g{{ gi }}">
-  <h2>{{ g.title }}</h2>
-  {% if g.note %}<p class="hint">{{ g.note }}</p>{% endif %}
+  <div class="setbody">
+  {% if group %}
+  {# ── 可编辑分组(SPEC 驱动,模板不写死字段名) ── #}
+  <div class="panel">
+    <h2>{{ group.title }}</h2>
+    {% if group.note %}<p class="hint">{{ group.note }}</p>{% endif %}
+    {% if group.fields %}
+    <form method="post" action="{{ group.action }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="sec" value="{{ active_sec }}">
+      {% set fields = group.fields %}
+      {% set gid = 'fld-0' %}
+      {% include "_settings_fields.html" %}
+      <button class="btn-primary" type="submit"
+              {% if group.action == '/settings/general' %}
+              data-confirm="保存运行参数。注意：切到「实跑」会在重启后真实下载并占用 PT 站配额。确认继续？"
+              {% endif %}>保存{{ group.title }}</button>
+    </form>
+    {% else %}
+    <p class="empty">本组暂无可编辑项</p>
+    {% endif %}
 
-  {% if g.fields %}
-  <form method="post" action="{{ g.action }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    {% set fields = g.fields %}
-    {% set gid = 'fld-' ~ gi %}
-    {% include "_settings_fields.html" %}
-    <button class="btn-primary" type="submit"
-            {% if g.action == '/settings/general' %}
-            data-confirm="保存运行参数。注意：切到「实跑」会在重启后真实下载并占用 PT 站配额。确认继续？"
-            {% endif %}>保存</button>
-  </form>
-  {% else %}
-  <p class="empty">本组暂无可编辑项</p>
-  {% endif %}
+    {% if group.action == '/settings/notify' %}
+    {# 独立表单：按当前**已生效**配置发一条测试事件，
+       不读上方输入框 —— 凭据只写不读，输入框永远为空，先保存再测。 #}
+    <form method="post" action="/settings/notify/test">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="sec" value="notify">
+      <button type="submit">发送测试通知</button>
+      <span class="hint">按当前已保存的渠道逐个发送，结果逐渠道显示在顶部提示；不受「推送的事件种类」过滤。</span>
+    </form>
+    {% endif %}
+  </div>
 
-  {% if g.action == '/settings/notify' %}
-  {# 独立表单（不嵌在保存表单内）：按当前**已生效**配置发一条测试事件，
-     不读上方输入框 —— 凭据只写不读，输入框永远为空，先保存再测。 #}
-  <form method="post" action="/settings/notify/test">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <button type="submit">发送测试通知</button>
-    <span class="hint">按当前已保存的渠道逐个发送，结果逐渠道显示在顶部提示；不受「推送的事件种类」过滤。</span>
-  </form>
-  {% endif %}
-</div>
-{% endfor %}
-
-<div class="panel" id="set-lackfill-pointer">
-  <h2>补缺集(Emby / TMDB / 115 / 爱影 / Re0)</h2>
-  <p class="hint">这组配置已搬到它被使用的地方 —— 在<a href="/lackfill"><b>补缺集页的「设置」</b></a>填写,
-    主链凭据默认展开,爱影 / SA 备链 / Re0 浏览器细节折叠,不用时完全不占注意力。</p>
-</div>
-
-{# ── qBittorrent 指引卡（v0.6.0：可编辑表单已撤下）─────────────
-   旧表单把改动写进 config.qbittorrent + app_settings，而运行时的权威源是
-   downloaders 表 —— 首启后改这里永远不生效，「保存成功」是假象。
-   故只读展示当前默认实例，编辑入口指向下载器中心。 #}
-<div class="panel" id="set-qb">
-  <h2>qBittorrent</h2>
-  <p class="hint">连接参数已迁移到<a href="/downloaders"><b>下载器中心</b></a>管理：
-    支持多实例、测试连接、默认切换，保存即热生效。本页不再提供编辑。</p>
-  {% if default_downloader %}
-  <table>
-    <tbody>
-      <tr><td>默认实例</td>
+  {% elif active_sec == 'qb' %}
+  {# ── qBittorrent 只读指引:可编辑表单已迁下载器 ── #}
+  <div class="panel">
+    <h2>qBittorrent</h2>
+    <p class="hint">连接参数在<a href="/downloaders">下载器</a>管理：
+      支持多实例、测试连接、默认切换，保存即热生效。本页不再提供编辑。</p>
+    {% if default_downloader %}
+    <table>
+      <tbody>
+        <tr><td>默认实例</td>
         <td class="mono">{{ default_downloader.name }}（{{ default_downloader.id }}）</td></tr>
-      <tr><td>地址</td>
+        <tr><td>地址</td>
         <td class="mono">{{ default_downloader.host }}:{{ default_downloader.port }}</td></tr>
-      <tr><td>保存路径 / 分类 / 标签</td>
+        <tr><td>保存路径 / 分类 / 标签</td>
         <td class="mono">{{ default_downloader.save_path }} ・ {{ default_downloader.category }}
            ・ {{ default_downloader.tag }}</td></tr>
-      <tr><td>凭据形态</td><td>{{ default_downloader.auth_label }}</td></tr>
-    </tbody>
-  </table>
-  {% else %}
-  <p class="empty">尚未配置下载器 —— 到<a href="/downloaders">下载器中心</a>添加。</p>
-  {% endif %}
-</div>
+        <tr><td>凭据形态</td><td>{{ default_downloader.auth_label }}</td></tr>
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">尚未配置下载器 —— 到<a href="/downloaders">下载器</a>添加。</p>
+    {% endif %}
+  </div>
 
-{# ── 只读展示：刻意不放进覆盖层的项 ─────────────────────── #}
-<div class="panel" id="set-readonly">
-  <h2>只读项（需改 config.yaml）</h2>
-  <table>
-    <tbody>
-      <tr><td>数据库路径</td><td class="mono">{{ config.db_path }}</td>
+  {% elif active_sec == 'readonly' %}
+  <div class="panel">
+    <h2>只读项（需改 config.yaml）</h2>
+    <table>
+      <tbody>
+        <tr><td>数据库路径</td><td class="mono">{{ config.db_path }}</td>
         <td class="hint">刻意不放进覆盖层：覆盖层自身就存在这个库里，
           让被管理者管理自己会导致改完路径后读不到设置。</td></tr>
-      <tr><td>当前生效模式</td>
+        <tr><td>当前生效模式</td>
         <td>{{ 'DRY-RUN 空跑（不实际下载）' if config.dry_run else '实跑（会真实派发到 qb）' }}</td>
-        <td class="hint">{% if restart_pending %}<b>可能落后于上方表单值，以重启后为准</b>
+        <td class="hint">{% if restart_pending %}<b>可能落后于表单值，以重启后为准</b>
           {% else %}与表单一致{% endif %}</td></tr>
-      <tr><td>已启用站点</td>
+        <tr><td>已启用站点</td>
         <td class="mono">{% for s in config.sites if s.enabled %}{{ s.name }} {% else %}（无）{% endfor %}</td>
         <td class="hint">界面改动存数据库覆盖层，不回写 config.yaml ——
           回写会丢失其中的注释（含实测结论），且写入中断会损坏配置。</td></tr>
-    </tbody>
-  </table>
-</div>
+      </tbody>
+    </table>
+  </div>
 
-{# ── 凭据状态（只写不读）────────────────────────────────
-   按站点类型列出各自需要的凭据，并明确指出「缺什么」。
-   原实现对所有站一律显示 passkey 状态，实际测的是 rss_url 有无，
-   对 mteam（必需 api_key）更是判断错了必需项 —— 会误导使用者
-   以为凭据齐了、启用后却每轮失败触发熔断。 #}
-<div class="panel" id="set-creds">
-  <h2>凭据状态（只写不读）</h2>
-  <table>
-    <thead><tr><th>对象</th><th>所需凭据</th><th>状态</th><th>说明</th></tr></thead>
-    <tbody>
-      <tr>
-        <td>qBittorrent</td>
-        <td>账密或 API Key</td>
-        <td>{{ '✓ 已配置' if secrets_status.qb_api_key else '✗ 未配置' }}</td>
-        <td class="hint">在<a href="/downloaders">下载器中心</a>的默认实例上填写。<b>实跑派发前必填</b>，
-          否则采纳待审项会因下载器不可用而失败。</td>
-      </tr>
-      <tr>
-        <td>Audiobookshelf</td>
-        <td>API Token</td>
-        <td>{{ '✓ 已配置' if secrets_status.abs_token else '✗ 未配置' }}</td>
-        <td class="hint">在上方「刮削联动」表单填写。可选：未配置则有声书归档后不触发 ABS 扫描。</td>
-      </tr>
-      <tr>
-        <td>通知推送</td>
-        <td>企微 Webhook / Telegram Bot Token</td>
-        <td>{{ '✓' if secrets_status.wecom_webhook else '✗' }} 企微　
-            {{ '✓' if secrets_status.telegram_bot_token else '✗' }} Telegram</td>
-        <td class="hint">在上方「通知推送」表单填写。可选：都未配置时事件仅写本地事件流。</td>
-      </tr>
-      {% for s in secrets_status.sites %}
-      <tr>
-        <td>{{ s.name }}{% if s.enabled %} <span class="pill high">已启用</span>{% endif %}</td>
-        <td>
-          {% if s.unknown %}（未注册站点，无法判断）
-          {% else %}{% for it in s.creds %}
-            {{ it.label }}{% if not it.required %}（可选）{% endif %}{% if not loop.last %}<br>{% endif %}
-          {% endfor %}{% endif %}
-        </td>
-        <td>
-          {% if s.unknown %}—
-          {% elif s.ready %}<span class="dot ok"></span>就绪
-          {% else %}<span class="dot err"></span>缺凭据{% endif %}
-        </td>
-        <td class="hint">
-          {% if s.unknown %}
-            该站点名未在适配器注册表中，启用也会被跳过。
-          {% elif not s.ready %}
-            {#- 用 s.ready 显式二选一。不用 for-else：Jinja2 的 for-else
-                仅在序列为空时执行 else，凭据列表非空时「齐全」分支永不触发。 -#}
-            {% for it in s.creds %}{% if it.required and not it.configured %}
-              <b>缺 {{ it.label }}</b>：启用后每轮搜索都会失败并触发熔断。
-            {% endif %}{% endfor %}
-            在上方「站点」表单填写，保存后 Fernet 加密入库，界面永不回显。
-          {% else %}
-            凭据齐全，可在上方「站点」表单启用。
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <p class="hint">也可用 <span class="mono">python scripts/init_secrets.py</span>
-    批量生成密文写入 config.yaml。两条路径等价：YAML 是基线，界面改动存数据库覆盖层，
-    后者优先级更高。</p>
-</div>
+  {% elif active_sec == 'creds' %}
+  {# ── 凭据状态（只写不读）──────────────────────────── #}
+  <div class="panel">
+    <h2>凭据状态（只写不读）</h2>
+    <table>
+      <thead><tr><th>对象</th><th>所需凭据</th><th>状态</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>qBittorrent</td>
+          <td>账密或 API Key</td>
+          <td>{{ '✓ 已配置' if secrets_status.qb_api_key else '✗ 未配置' }}</td>
+          <td class="hint">在<a href="/downloaders">下载器</a>的默认实例上填写。<b>实跑派发前必填</b>，
+            否则采纳待审项会因下载器不可用而失败。</td>
+        </tr>
+        <tr>
+          <td>Audiobookshelf</td>
+          <td>API Token</td>
+          <td>{{ '✓ 已配置' if secrets_status.abs_token else '✗ 未配置' }}</td>
+          <td class="hint">在「刮削联动」分区填写。可选：未配置则有声书归档后不触发 ABS 扫描。</td>
+        </tr>
+        <tr>
+          <td>通知推送</td>
+          <td>企微 Webhook / Telegram Bot Token</td>
+          <td>{{ '✓' if secrets_status.wecom_webhook else '✗' }} 企微　
+              {{ '✓' if secrets_status.telegram_bot_token else '✗' }} Telegram</td>
+          <td class="hint">在「通知推送」分区填写。可选：都未配置时事件仅写本地事件流。</td>
+        </tr>
+        {% for s in secrets_status.sites %}
+        <tr>
+          <td>{{ s.name }}{% if s.enabled %} <span class="pill high">已启用</span>{% endif %}</td>
+          <td>
+            {% if s.unknown %}（未注册站点，无法判断）
+            {% else %}{% for it in s.creds %}
+              {{ it.label }}{% if not it.required %}（可选）{% endif %}{% if not loop.last %}<br>{% endif %}
+            {% endfor %}{% endif %}
+          </td>
+          <td>
+            {% if s.unknown %}—
+            {% elif s.ready %}<span class="dot ok"></span>就绪
+            {% else %}<span class="dot err"></span>缺凭据{% endif %}
+          </td>
+          <td class="hint">
+            {% if s.unknown %}
+              该站点名未在适配器注册表中，启用也会被跳过。
+            {% elif not s.ready %}
+              {#- 用 s.ready 显式二选一。不用 for-else：Jinja2 的 for-else
+                  仅在序列为空时执行 else，凭据列表非空时「齐全」分支永不触发。 -#}
+              {% for it in s.creds %}{% if it.required and not it.configured %}
+                <b>缺 {{ it.label }}</b>：启用后每轮搜索都会失败并触发熔断。
+              {% endif %}{% endfor %}
+              在「站点」页填写，保存后 Fernet 加密入库，界面永不回显。
+            {% else %}
+              凭据齐全，可在「站点」页启用。
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="hint">也可用 <span class="mono">python scripts/init_secrets.py</span>
+      批量生成密文写入 config.yaml。两条路径等价：YAML 是基线，界面改动存数据库覆盖层，
+      后者优先级更高。</p>
+  </div>
 
-<div class="panel" id="set-password">
-  <h2>修改密码</h2>
-  <form method="post" action="/account/password">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <div class="row">
-      <div><label>当前密码</label>
-        <input name="current_password" type="password" required autocomplete="current-password"></div>
-      <div><label>新密码（≥8 位）</label>
-        <input name="new_password" type="password" required minlength="8" autocomplete="new-password"></div>
-    </div>
-    <button class="btn-primary" type="submit">修改密码</button>
-    <p class="hint">改密后会吊销所有会话（含其他设备），当前会话自动重签。</p>
-  </form>
-</div>
+  {% elif active_sec == 'password' %}
+  <div class="panel">
+    <h2>修改密码</h2>
+    <form method="post" action="/account/password">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="row">
+        <div><label for="pwd-cur">当前密码</label>
+          <input id="pwd-cur" name="current_password" type="password" required autocomplete="current-password"></div>
+        <div><label for="pwd-new">新密码（≥8 位）</label>
+          <input id="pwd-new" name="new_password" type="password" required minlength="8" autocomplete="new-password"></div>
+      </div>
+      <button class="btn-primary" type="submit">修改密码</button>
+      <p class="hint">改密后会吊销所有会话（含其他设备），当前会话自动重签。</p>
+    </form>
+  </div>
 
-<div class="panel" id="set-session">
-  <h2>会话</h2>
-  <form method="post" action="/account/revoke-all">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <button class="btn-err" type="submit"
-            data-confirm="登出所有设备（含当前）？之后需重新登录。">登出所有设备</button>
-  </form>
-  <p class="hint">密码用 Argon2id 哈希存储；会话为服务端 DB 存储，可随时吊销。</p>
+  {% elif active_sec == 'session' %}
+  <div class="panel">
+    <h2>会话</h2>
+    <form method="post" action="/account/revoke-all">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <button class="btn-err" type="submit"
+              data-confirm="登出所有设备（含当前）？之后需重新登录。">登出所有设备</button>
+    </form>
+    <p class="hint">密码用 Argon2id 哈希存储；会话为服务端 DB 存储，可随时吊销。</p>
+  </div>
+  {% endif %}
+  </div>
 </div>
 {% endblock %}

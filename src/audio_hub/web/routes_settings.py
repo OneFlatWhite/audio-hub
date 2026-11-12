@@ -92,6 +92,42 @@ _GROUPS: tuple[tuple[str, str, str, frozenset[str], str], ...] = (
 #: 保存成功后的 flash key（对应 routes_pages._FLASH_OK 的条目）
 _OK_KEY = {action: ok for action, _, _, _, ok in _GROUPS}
 
+# ── 设置页分区:左侧导航 + 右侧一次只渲染一个分区 ──────────────
+# 旧形态是 12 个分区竖堆 6000px、每组一个保存,顶部锚点 chips 只是补丁。
+# 新形态:一屏一分区一保存;sec 跟随表单提交,保存/出错都回到原分区。
+SECTION_TITLES = {
+    "general": "运行参数", "paths": "归档路径", "validation": "完成校验",
+    "scrape": "刮削联动", "seeding": "做种与 H&R", "notify": "通知推送",
+    "qb": "qBittorrent", "readonly": "只读项", "creds": "凭据状态",
+    "password": "修改密码", "session": "会话",
+}
+_SECTION_OF_ACTION = {
+    action: action.rsplit("/", 1)[-1] for action, _, _, _, _ in _GROUPS
+}
+
+
+def valid_section(sec) -> str:
+    sec = str(sec or "").strip()
+    return sec if sec in SECTION_TITLES else "general"
+
+
+def settings_nav(active: str) -> list[dict]:
+    """左侧导航:按「参数 / 账号 / 状态」三段排布。"""
+    bands = [
+        ("参数", ("general", "paths", "validation", "scrape", "seeding", "notify")),
+        ("账号", ("password", "session")),
+        ("状态", ("creds", "readonly", "qb")),
+    ]
+    items: list[dict] = []
+    for band_title, secs in bands:
+        items.append({"kind": "title", "title": band_title})
+        for sec in secs:
+            items.append({
+                "kind": "link", "sec": sec, "title": SECTION_TITLES[sec],
+                "href": f"/settings?sec={sec}", "active": sec == active,
+            })
+    return items
+
 #: 密钥文件不可用时的 flash 文案。对应 routes_pages._FLASH_ERR 的 secrets_key。
 _ERR_SECRETS_KEY = "secrets_key"
 
@@ -151,6 +187,8 @@ async def _save(request: Request, action: str, form, *, on_hot=None) -> Redirect
     specs = _specs_for(config, action)
 
     flat = _flatten(form)
+    # 分区上下文:保存/出错都回到发起分区,不再坠回第一屏
+    back = f"{SETTINGS_PATH}?sec={valid_section(form.get('sec'))}"
 
     # ── 校验（全部通过才写库；未提交的键视为不修改）──
     try:
@@ -158,7 +196,7 @@ async def _save(request: Request, action: str, form, *, on_hot=None) -> Redirect
     except store.SettingsError as e:
         logger.warning(f"设置保存被拒（{action}）: {e}")
         return RedirectResponse(
-            f"{SETTINGS_PATH}?err={quote(str(e))}", status_code=303,
+            f"{back}&err={quote(str(e))}", status_code=303,
         )
     except (OSError, RuntimeError) as e:
         # secret 的加密在 validate_form 内完成；密钥文件缺失 / 不可读时
@@ -166,12 +204,12 @@ async def _save(request: Request, action: str, form, *, on_hot=None) -> Redirect
         # 问题而非输入问题，要给出可操作的提示，不能让使用者吃一个 500。
         logger.error(f"设置保存失败（{action}）：密钥文件不可用: {e}")
         return RedirectResponse(
-            f"{SETTINGS_PATH}?err={_ERR_SECRETS_KEY}", status_code=303,
+            f"{back}&err={_ERR_SECRETS_KEY}", status_code=303,
         )
 
     if not resolved:
         return RedirectResponse(
-            f"{SETTINGS_PATH}?err={quote('没有需要保存的改动')}", status_code=303,
+            f"{back}&err={quote('没有需要保存的改动')}", status_code=303,
         )
 
     # ── 落库（覆盖层）──
@@ -205,7 +243,7 @@ async def _save(request: Request, action: str, form, *, on_hot=None) -> Redirect
     msg = "，".join(parts) or "已保存"
     ok_key = _OK_KEY.get(action, "saved")
     return RedirectResponse(
-        f"{SETTINGS_PATH}?ok={ok_key}&detail={quote(msg)}", status_code=303,
+        f"{back}&ok={ok_key}&detail={quote(msg)}", status_code=303,
     )
 
 
@@ -290,9 +328,11 @@ async def test_notify(
     结果文案由 send_test 保证不含 URL（含 key / token），再经 quote 进查询串。
     """
     config = request.app.state.config
+    form = await request.form()
+    back = f"{SETTINGS_PATH}?sec={valid_section(form.get('sec') or 'notify')}"
     sinks = build_push_sinks(config.notify)
     if not sinks:
-        return RedirectResponse(f"{SETTINGS_PATH}?err={_ERR_NOTIFY_NONE}", status_code=303)
+        return RedirectResponse(f"{back}&err={_ERR_NOTIFY_NONE}", status_code=303)
 
     results = [await s.send_test() for s in sinks]
     detail = "；".join(msg for _, msg in results)
@@ -303,7 +343,7 @@ async def test_notify(
     )
     key = f"ok={_OK_NOTIFY_TEST}" if ok else f"err={_ERR_NOTIFY_TEST_FAILED}"
     return RedirectResponse(
-        f"{SETTINGS_PATH}?{key}&detail={quote(detail)}", status_code=303,
+        f"{back}&{key}&detail={quote(detail)}", status_code=303,
     )
 
 
