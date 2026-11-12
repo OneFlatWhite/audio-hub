@@ -799,6 +799,10 @@ class TestLackfillGroup:
         # 主链区块默认展开,通道区块默认折叠(details)
         assert "主链（必配）" in page.text
         assert page.text.count("<details") >= 2
+        # 任务流水主视图 + 空状态引导(四态任一,默认未启用走「还没开始」)
+        assert "缺集任务流水" in page.text
+        assert any(s in page.text for s in ("还没开始", "差一步", "第一步", "没有待处理"))
+        assert "通道与工具" in page.text
 
     def test_save_lackfill_applies_without_restart(self, client):
         """lackfill 组全量 SCOPE_HOT：保存即热生效，无重启标记。"""

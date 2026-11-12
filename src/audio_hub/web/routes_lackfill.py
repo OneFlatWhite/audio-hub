@@ -122,6 +122,56 @@ async def _re0_context(request: Request, db, cfg) -> dict:
     }
 
 
+async def _pipeline_rows(db) -> list[dict]:
+    """缺集任务流水：待找(Re0 队列)/转存预留/台账(待核销·部分到位)/CD2 落盘
+    合并成一屏进度行。只读总览——操作入口留在各通道详情里(FRONTEND-RULES §1.4)。
+    """
+    rows: list[dict] = []
+    for item in await queue.list_pending(db):
+        rows.append({
+            "title": item["title"],
+            "sub": f"tmdb:{item['tmdb_id']}",
+            "missing": item.get("missing"),
+            "stage": "待找资源", "kind": "warn",
+            "source": "Re0 / 爱影",
+            "updated": (item.get("updated_at") or item.get("created_at") or "")[:19],
+        })
+    for r in await reservations.list_active(db):
+        attempted = r.get("stage") == "attempted"
+        rows.append({
+            "title": r["show_key"], "sub": "",
+            "missing": "",
+            "stage": "转存待核对" if attempted else "等待转存",
+            "kind": "err" if attempted else "warn",
+            "source": "115 / SA",
+            "updated": (r.get("updated_at") or "")[:19],
+        })
+    for entry in await ledger.list_by_status(db, "pending", "partial"):
+        rows.append({
+            "title": entry.get("package_name") or entry["show_key"],
+            "sub": entry.get("show_key") or "",
+            "missing": "",
+            "stage": "待核销" if entry["status"] == "pending" else "部分到位",
+            "kind": "warn", "source": "115 转存",
+            "updated": (entry.get("updated_at") or "")[:19],
+        })
+    cloud_stage = {
+        "waiting": ("CD2 确认中", "warn"),
+        "ready": ("CD2 已确认", "ok"),
+        "failed": ("CD2 失败", "err"),
+    }
+    for c in await cloud.list_by_status(db, "waiting", "ready", "failed"):
+        stage, kind = cloud_stage.get(c.get("status"), (str(c.get("status")), "warn"))
+        rows.append({
+            "title": c.get("package_name") or "（未命名包）",
+            "sub": "", "missing": "",
+            "stage": stage, "kind": kind, "source": "CD2",
+            "updated": (c.get("updated_at") or "")[:19],
+        })
+    rows.sort(key=lambda r: r["updated"], reverse=True)
+    return rows
+
+
 async def _render_lackfill(
     request: Request,
     user: dict,
@@ -151,6 +201,7 @@ async def _render_lackfill(
         "ay_status": await ay.quota_status(db),
         "cloud_items": await cloud.list_by_status(db, "waiting", "ready", "failed"),
         "cloud_enabled": cfg.cloud_verify_enabled,
+        "pipeline": await _pipeline_rows(db),
         # 设置抽屉:配置跟使用走(FRONTEND-RULES §1.3),主链展开/通道折叠
         "settings_sections": settings_routes.lackfill_settings_sections(config),
         "new_refill_token": new_refill_token,
