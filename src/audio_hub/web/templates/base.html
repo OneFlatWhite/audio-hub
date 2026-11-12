@@ -15,7 +15,7 @@
 </head>
 <body {% block body_attr %}{% endblock %}>
 <div class="wrap">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar" aria-label="主导航">
     <div class="brand">
       <div class="brand-row">
         <img class="logo" src="{{ url_for('static', path='/logo.svg') }}" alt="">
@@ -65,10 +65,13 @@
     </div>
   </aside>
 
+  <div class="nav-backdrop" data-nav-close></div>
+
   <main class="main">
     <div class="topbar">
+      <button class="nav-toggle" type="button" data-nav-toggle aria-label="打开导航菜单" aria-controls="sidebar">☰</button>
       <h1>{% block h1 %}{% endblock %}</h1>
-      {% if dry_run %}<span class="pill low">DRY-RUN 空跑中</span>{% endif %}
+      {% if dry_run %}<span class="pill low"><abbr title="空跑模式:只搜索/记录,不真实派发下载;切换在 设置 → 运行参数">DRY-RUN</abbr> 空跑中</span>{% endif %}
     </div>
 
     {% if flash_ok %}<div class="flash ok" data-autohide>{{ flash_ok }}</div>{% endif %}

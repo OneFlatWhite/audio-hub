@@ -665,16 +665,38 @@ details.newsub > .panel { margin-top: 12px; }
 .logbox .log-debug { color: var(--muted); }
 
 /* ── 响应式 ───────────────────────────────────────────── */
+.nav-toggle { display: none; }
+.nav-backdrop { display: none; }
+
+/* 旧移动端实现是横向滚动条式导航:16 个入口挤一条,找页面靠划。
+   现改为 汉堡按钮 + 左侧抽屉 + 遮罩,点链接/遮罩自动收起(app.js),
+   FRONTEND-RULES §2.7。 */
 @media (max-width: 820px) {
-  .wrap { flex-direction: column; }
-  .sidebar { width: 100%; height: auto; position: static; padding: 10px 0; overflow: visible; }
-  .nav { flex-direction: row; overflow-x: auto; padding: 0 8px; }
-  .nav-title { display: none; }
-  .nav a { white-space: nowrap; margin: 0; }
+  .nav-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex-shrink: 0; width: 34px; height: 34px; margin-right: 10px;
+    font-size: 15px; color: var(--ink); cursor: pointer;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .topbar { position: sticky; top: 0; z-index: 50; }
+  .sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0; width: 264px;
+    z-index: 60; transform: translateX(-102%); transition: transform .18s ease;
+    overflow-y: auto; box-shadow: var(--shadow-lg);
+  }
+  body.nav-open .sidebar { transform: none; }
+  body.nav-open .nav-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 55;
+    background: rgba(8, 12, 14, .45);
+  }
   .main { padding: 16px; }
   .trunc { max-width: 200px; }
   .setrow { flex-direction: column; gap: 6px; }
   .setctl { width: 100%; }
   .topbar h1 { font-size: 18px; }
   .card .n { font-size: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
 }

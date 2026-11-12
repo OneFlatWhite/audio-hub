@@ -116,6 +116,8 @@ class TestSetup:
         assert "第一个订阅" in page and "/discover" in page
         # DRY-RUN 语义在引导卡里明说,不让人猜
         assert "DRY-RUN" in page
+        # 移动端抽屉导航:汉堡按钮 + 遮罩(FRONTEND-RULES §2.7)
+        assert "data-nav-toggle" in page and "data-nav-close" in page
 
     def test_setup_blocked_after_user_exists(self, client):
         _setup_admin(client)
@@ -387,8 +389,10 @@ class TestDashboardCards:
         resp = client.get("/dashboard")
         assert resp.status_code == 200
         html = resp.text
-        for kw in ("隔离区待处理", "H&amp;R 未达标", "活跃连载", "最近事件"):
+        for kw in ("隔离区待处理", 'H&amp;R</abbr> 未达标', "活跃连载", "最近事件"):
             assert kw in html, f"总览缺少卡片 {kw!r}"
+        # 行话带悬停解释(FRONTEND-RULES §5.4)
+        assert "<abbr" in html and "Hit and Run" in html
         assert "尚无完结连载" in html
         assert "最近没有事件" in html
         # 卡片链接到对应页面

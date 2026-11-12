@@ -51,7 +51,8 @@
         <td class="mono" title="{{ t.updated_at or '' }}">{{ t.updated_at|dtfmt }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="9" class="empty">无记录</td></tr>
+      <tr><td colspan="9" class="empty">还没有任务记录 —— 到<a href="/discover">发现墙</a>一键订阅,
+        或在<a href="/dashboard">总览</a>点「立即执行一轮」先跑一次搜索;命中后这里会出现候选。</td></tr>
     {% endfor %}
     </tbody>
   </table>

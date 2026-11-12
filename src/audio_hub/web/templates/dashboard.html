@@ -62,7 +62,7 @@
   <div class="card"><div class="n">{{ by_state.get('completed', 0) }}</div><div class="l"><a href="/records?state=completed">已完成</a></div></div>
   <div class="card {{ 'err' if failed_count }}"><div class="n">{{ failed_count }}</div><div class="l"><a href="/records?state=failed">失败</a></div></div>
   <div class="card {{ 'warn' if quarantine_held }}"><div class="n">{{ quarantine_held }}</div><div class="l"><a href="/quarantine">隔离区待处理</a></div></div>
-  <div class="card"><div class="n">{{ hr_pending }}</div><div class="l"><a href="/seeding">H&amp;R 未达标</a></div></div>
+  <div class="card"><div class="n">{{ hr_pending }}</div><div class="l"><a href="/seeding"><abbr title="Hit and Run:多数 PT 站要求下载后做种满规定时长或分享率,不达标会被处罚;达标前本工具绝不删文件">H&amp;R</abbr> 未达标</a></div></div>
 </div>
 
 <div class="panel">
