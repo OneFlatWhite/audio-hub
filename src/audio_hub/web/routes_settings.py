@@ -10,10 +10,10 @@
     POST /settings/scrape       刮削联动（MTW / ABS）
     POST /settings/seeding      做种 / H&R 全局默认
     POST /settings/notify       外部推送渠道
-    POST /settings/lackfill     缺集补齐（Emby 核销 / 115 转存 / TMDB 匹配）
+    POST /settings/lackfill     补缺集（Emby 核销 / 115 转存 / TMDB 匹配）
     POST /settings/notify/test  用当前生效的推送配置发一条测试通知
 
-站点开关 / 凭据 / 站点 H&R 规则（原 POST /settings/sites）已于 v0.6 迁到站点中心
+站点开关 / 凭据 / 站点 H&R 规则（原 POST /settings/sites）已于 v0.6 迁到站点
 （sites 表 + /sites 页），设置页不再承载。
 
 qBittorrent 组（原 POST /settings/qbittorrent）于 v0.6.0 撤下：v0.6 起运行时
@@ -79,18 +79,54 @@ _GROUPS: tuple[tuple[str, str, str, frozenset[str], str], ...] = (
      "归档完成后通知 MusicTag Web 与 Audiobookshelf 。地址留空则不联动。",
      SCRAPE_KEYS, "saved_scrape"),
     ("/settings/seeding", "做种与 H&R",
-     "全局默认规则；站点中心（/sites）可逐站覆盖。达标前不会对种子做任何动作。",
+     "全局默认规则；站点（/sites）可逐站覆盖。达标前不会对种子做任何动作。",
      SEEDING_KEYS, "saved_seeding"),
     ("/settings/notify", "通知推送",
      "事件始终写入本地事件流；这里配置的是额外的外部推送渠道。",
      NOTIFY_KEYS, "saved_notify"),
-    ("/settings/lackfill", "缺集补齐",
+    ("/settings/lackfill", "补缺集",
      "Emby 核销 / 115 转存 / TMDB 匹配。全部保存即生效；启用开关关闭时核销轮询空跑。",
      LACKFILL_KEYS, "saved_lackfill"),
 )
 
 #: 保存成功后的 flash key（对应 routes_pages._FLASH_OK 的条目）
 _OK_KEY = {action: ok for action, _, _, _, ok in _GROUPS}
+
+# ── 设置页分区:左侧导航 + 右侧一次只渲染一个分区 ──────────────
+# 旧形态是 12 个分区竖堆 6000px、每组一个保存,顶部锚点 chips 只是补丁。
+# 新形态:一屏一分区一保存;sec 跟随表单提交,保存/出错都回到原分区。
+SECTION_TITLES = {
+    "general": "运行参数", "paths": "归档路径", "validation": "完成校验",
+    "scrape": "刮削联动", "seeding": "做种与 H&R", "notify": "通知推送",
+    "qb": "qBittorrent", "readonly": "只读项", "creds": "凭据状态",
+    "password": "修改密码", "session": "会话",
+}
+_SECTION_OF_ACTION = {
+    action: action.rsplit("/", 1)[-1] for action, _, _, _, _ in _GROUPS
+}
+
+
+def valid_section(sec) -> str:
+    sec = str(sec or "").strip()
+    return sec if sec in SECTION_TITLES else "general"
+
+
+def settings_nav(active: str) -> list[dict]:
+    """左侧导航:按「参数 / 账号 / 状态」三段排布。"""
+    bands = [
+        ("参数", ("general", "paths", "validation", "scrape", "seeding", "notify")),
+        ("账号", ("password", "session")),
+        ("状态", ("creds", "readonly", "qb")),
+    ]
+    items: list[dict] = []
+    for band_title, secs in bands:
+        items.append({"kind": "title", "title": band_title})
+        for sec in secs:
+            items.append({
+                "kind": "link", "sec": sec, "title": SECTION_TITLES[sec],
+                "href": f"/settings?sec={sec}", "active": sec == active,
+            })
+    return items
 
 #: 密钥文件不可用时的 flash 文案。对应 routes_pages._FLASH_ERR 的 secrets_key。
 _ERR_SECRETS_KEY = "secrets_key"
@@ -151,6 +187,8 @@ async def _save(request: Request, action: str, form, *, on_hot=None) -> Redirect
     specs = _specs_for(config, action)
 
     flat = _flatten(form)
+    # 分区上下文:保存/出错都回到发起分区,不再坠回第一屏
+    back = f"{SETTINGS_PATH}?sec={valid_section(form.get('sec'))}"
 
     # ── 校验（全部通过才写库；未提交的键视为不修改）──
     try:
@@ -158,7 +196,7 @@ async def _save(request: Request, action: str, form, *, on_hot=None) -> Redirect
     except store.SettingsError as e:
         logger.warning(f"设置保存被拒（{action}）: {e}")
         return RedirectResponse(
-            f"{SETTINGS_PATH}?err={quote(str(e))}", status_code=303,
+            f"{back}&err={quote(str(e))}", status_code=303,
         )
     except (OSError, RuntimeError) as e:
         # secret 的加密在 validate_form 内完成；密钥文件缺失 / 不可读时
@@ -166,12 +204,12 @@ async def _save(request: Request, action: str, form, *, on_hot=None) -> Redirect
         # 问题而非输入问题，要给出可操作的提示，不能让使用者吃一个 500。
         logger.error(f"设置保存失败（{action}）：密钥文件不可用: {e}")
         return RedirectResponse(
-            f"{SETTINGS_PATH}?err={_ERR_SECRETS_KEY}", status_code=303,
+            f"{back}&err={_ERR_SECRETS_KEY}", status_code=303,
         )
 
     if not resolved:
         return RedirectResponse(
-            f"{SETTINGS_PATH}?err={quote('没有需要保存的改动')}", status_code=303,
+            f"{back}&err={quote('没有需要保存的改动')}", status_code=303,
         )
 
     # ── 落库（覆盖层）──
@@ -205,7 +243,7 @@ async def _save(request: Request, action: str, form, *, on_hot=None) -> Redirect
     msg = "，".join(parts) or "已保存"
     ok_key = _OK_KEY.get(action, "saved")
     return RedirectResponse(
-        f"{SETTINGS_PATH}?ok={ok_key}&detail={quote(msg)}", status_code=303,
+        f"{back}&ok={ok_key}&detail={quote(msg)}", status_code=303,
     )
 
 
@@ -290,9 +328,11 @@ async def test_notify(
     结果文案由 send_test 保证不含 URL（含 key / token），再经 quote 进查询串。
     """
     config = request.app.state.config
+    form = await request.form()
+    back = f"{SETTINGS_PATH}?sec={valid_section(form.get('sec') or 'notify')}"
     sinks = build_push_sinks(config.notify)
     if not sinks:
-        return RedirectResponse(f"{SETTINGS_PATH}?err={_ERR_NOTIFY_NONE}", status_code=303)
+        return RedirectResponse(f"{back}&err={_ERR_NOTIFY_NONE}", status_code=303)
 
     results = [await s.send_test() for s in sinks]
     detail = "；".join(msg for _, msg in results)
@@ -303,7 +343,7 @@ async def test_notify(
     )
     key = f"ok={_OK_NOTIFY_TEST}" if ok else f"err={_ERR_NOTIFY_TEST_FAILED}"
     return RedirectResponse(
-        f"{SETTINGS_PATH}?{key}&detail={quote(detail)}", status_code=303,
+        f"{back}&{key}&detail={quote(detail)}", status_code=303,
     )
 
 
@@ -380,4 +420,54 @@ def build_settings_groups(config) -> list[dict]:
             "fields": [_field(config, s) for s in _group_specs(specs, keys)],
         }
         for action, title, note, keys, _ in _GROUPS
+    ]
+
+
+def lackfill_settings_sections(config) -> list[dict]:
+    """补缺集页设置抽屉的渲染数据：主链展开，通道细节折叠 + 状态摘要。
+
+    FRONTEND-RULES §1.3（配置跟着使用走）+ §2.2（低频/高级配置默认折叠）。
+    字段仍由 LACKFILL_SPECS 驱动、保存仍走 POST /settings/lackfill 单端点，
+    这里只按 key 前缀分桶，不复制 spec。
+    """
+    group = next(
+        (g for g in build_settings_groups(config) if g["action"] == "/settings/lackfill"),
+        None,
+    )
+    if group is None:
+        return []
+    lf = config.lackfill
+
+    def bucket(*prefixes: str) -> list[dict]:
+        keys = tuple(prefixes)
+        return [f for f in group["fields"] if f["key"].startswith(keys)]
+
+    # ui_url 可能带 userinfo(gui:password@host)——旧布局该字段在设置页,
+    # 迁到 /lackfill 后直接回显会把凭据写进 DOM。渲染前统一脱敏。
+    from ..lackfill import re0_browser as _re0_browser
+    for f in group["fields"]:
+        if f["key"] == "lackfill_re0_browser_ui_url" and f.get("text"):
+            f["text"] = _re0_browser.public_ui_url(f["text"])
+
+    main = [
+        f for f in group["fields"]
+        if not f["key"].startswith(("lackfill_ay_", "lackfill_sa_", "lackfill_wecom",
+                                    "lackfill_re0_", "lackfill_refill_"))
+    ]
+    return [
+        {"id": "main", "title": "主链（必配）", "open": True,
+         "status": "Emby/115 就绪" if (lf.emby_url and lf.p115_cookie) else "待配置",
+         "fields": main},
+        {"id": "ay", "title": "爱影 API · 限额补充", "open": False,
+         "status": "已配置" if lf.ay_api_token else "未配置（可选）",
+         "fields": bucket("lackfill_ay_")},
+        {"id": "sa", "title": "SA 备链（高级）", "open": False,
+         "status": "已配置" if lf.sa_base_url else "未配置（仅主链失败时需要）",
+         "fields": bucket("lackfill_sa_", "lackfill_wecom")},
+        {"id": "re0", "title": "Re0 主源 · NAS 浏览器",
+         # 令牌未配置时展开:回填令牌有 minlength=32 的浏览器必填,
+         # 折叠态下校验失败会指向不可见输入框,违反 §2.2 折叠不藏必填
+         "open": not lf.refill_api_key,
+         "status": "已启用" if lf.re0_browser_enabled else "未启用",
+         "fields": bucket("lackfill_re0_", "lackfill_refill_")},
     ]

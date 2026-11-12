@@ -366,6 +366,36 @@ class PipelineRunner:
             logger.warning(f"Re0 浏览器健康检查异常: {type(exc).__name__}")
             return {"primary_mode": "unavailable", "error": type(exc).__name__}
 
+    async def run_lackfill_newshow_once(self) -> dict:
+        """新剧自动检索:发现 → 入队 → 毕业;凭据未配/功能关闭时跳过。"""
+        from datetime import datetime
+
+        from .lackfill import newshow
+        from .lackfill.emby import EmbyClient
+        from .lackfill.tmdb import TmdbClient
+
+        cfg = getattr(self.config, "lackfill", None)
+        if (
+            cfg is None
+            or not cfg.enabled
+            or not (cfg.emby_url and cfg.emby_api_key and cfg.tmdb_api_key)
+        ):
+            return {"skipped": True, "reason": "凭据未配齐"}
+        if int(cfg.new_show_daily_quota or 0) <= 0:
+            return {"skipped": True, "reason": "新剧发现已关闭(配额 0)"}
+        emby = EmbyClient(cfg.emby_url, cfg.emby_api_key)
+        tmdb = TmdbClient(cfg.tmdb_api_key, getattr(cfg, "tmdb_language", "zh-CN") or "zh-CN")
+        try:
+            return await newshow.run_once(
+                self.db, cfg, emby, tmdb, now=datetime.now().isoformat()
+            )
+        except Exception as exc:  # noqa: BLE001 —— 单轮失败不挡调度器
+            logger.error(f"新剧自动检索失败: {exc}")
+            return {"error": type(exc).__name__}
+        finally:
+            await emby.aclose()
+            await tmdb.aclose()
+
     async def run_lackfill_ay_once(self) -> dict:
         """Re0 主源运行时仅补其失败/无资源项；Re0 离线时 AY 限额补充。"""
         from datetime import datetime
@@ -633,13 +663,13 @@ def build_scheduler(runner: PipelineRunner, config) -> AsyncIOScheduler:
         )
         logger.info(f"授权复核已配置：每 {_license.REVALIDATE_INTERVAL_HOURS} 小时")
 
-    # ── lackfill_verify：缺集补齐核销（pending → complete/timeout），间隔可配 ──
+    # ── lackfill_verify：补缺集核销（pending → complete/timeout），间隔可配 ──
     lackfill = getattr(config, "lackfill", None)
     if lackfill is not None and hasattr(runner, "run_lackfill_verify_once"):
         verify_hours = max(int(getattr(lackfill, "verify_interval_hours", 6)), 1)
         _add(
             scheduler, runner.run_lackfill_verify_once, IntervalTrigger(hours=verify_hours),
-            "lackfill_verify", "缺集补齐核销轮询",
+            "lackfill_verify", "补缺集核销轮询",
         )
         logger.info(f"缺集核销已配置：每 {verify_hours} 小时")
 
@@ -672,6 +702,16 @@ def build_scheduler(runner: PipelineRunner, config) -> AsyncIOScheduler:
             "lackfill_cloud", "CD2 文件落地检查",
         )
         logger.info(f"CD2 文件检查已配置：每 {cloud_minutes} 分钟")
+
+    # ── lackfill_newshow：新剧自动检索(TMDB 热门冷启动)，间隔可配 ──
+    if lackfill is not None and hasattr(runner, "run_lackfill_newshow_once"):
+        newshow_hours = max(int(getattr(lackfill, "new_show_scan_hours", 24)), 1)
+        _add(
+            scheduler, runner.run_lackfill_newshow_once,
+            IntervalTrigger(hours=newshow_hours),
+            "lackfill_newshow", "新剧自动检索",
+        )
+        logger.info(f"新剧自动检索已配置：每 {newshow_hours} 小时")
 
     # ── update_check：每日拉一次 GitHub 最新 release，仅提示不自动升级 ──
     from . import updates as _updates

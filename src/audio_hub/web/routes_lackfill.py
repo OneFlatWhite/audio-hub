@@ -28,6 +28,7 @@ from ..lackfill import (
 )
 from ..lackfill.refill import ed2k_package_name, normalize_resource_links, resource_identity
 from ..notify.base import Event
+from . import routes_settings as settings_routes
 from .deps import get_config, get_db, require_admin, require_admin_csrf, require_user, verify_csrf
 from .routes_pages import _common
 
@@ -79,7 +80,7 @@ async def _require_refill_key(
 
 
 _FLASH_ERR = {
-    "disabled": "缺集补齐未启用：请先在设置页的缺集补齐分组启用。",
+    "disabled": "补缺集未启用：请先在设置页的补缺集分组启用。",
     "not_configured": "凭据未配齐：还需要 emby_url / emby_api_key / tmdb_api_key 三项才能扫描。",
     "secrets_key": "密钥文件不可用，无法保存回填令牌；请先检查部署的 secrets.key。",
 }
@@ -99,6 +100,9 @@ def _flash(request: Request, kind: str) -> str | None:
         waiting = request.query_params.get("waiting", "0")
         failed = request.query_params.get("failed", "0")
         return f"CD2 检查完成：新确认 {ready}，等待文件 {waiting}，失败 {failed}。"
+    if key == "probe":
+        detail = request.query_params.get("detail", "")
+        return f"连通性自检：{detail or key}"
     if kind == "err":
         return _FLASH_ERR.get(key, key)
     return key
@@ -119,6 +123,68 @@ async def _re0_context(request: Request, db, cfg) -> dict:
             getattr(cfg, "re0_browser_ui_url", "https://127.0.0.1:3001")
         ),
     }
+
+
+async def _newshow_context(cfg, db) -> dict:
+    from ..lackfill import newshow
+
+    rows = await newshow.list_monitored(db)
+    return {
+        "enabled": int(getattr(cfg, "new_show_daily_quota", 0) or 0) > 0,
+        "quota": int(getattr(cfg, "new_show_daily_quota", 0) or 0),
+        "monitored": rows[:8],
+        "monitored_count": len(rows),
+    }
+
+
+async def _pipeline_rows(db) -> list[dict]:
+    """缺集任务流水：待找(Re0 队列)/转存预留/台账(待核销·部分到位)/CD2 落盘
+    合并成一屏进度行。只读总览——操作入口留在各通道详情里(FRONTEND-RULES §1.4)。
+    """
+    rows: list[dict] = []
+    for item in await queue.list_pending(db):
+        rows.append({
+            "title": item["title"],
+            "sub": f"tmdb:{item['tmdb_id']}",
+            "missing": item.get("missing"),
+            "stage": "待找资源", "kind": "warn",
+            "source": "Re0 / 爱影",
+            "updated": (item.get("updated_at") or item.get("created_at") or "")[:19],
+        })
+    for r in await reservations.list_active(db):
+        attempted = r.get("stage") == "attempted"
+        rows.append({
+            "title": r["show_key"], "sub": "",
+            "missing": "",
+            "stage": "转存待核对" if attempted else "等待转存",
+            "kind": "err" if attempted else "warn",
+            "source": "115 / SA",
+            "updated": (r.get("updated_at") or "")[:19],
+        })
+    for entry in await ledger.list_by_status(db, "pending", "partial"):
+        rows.append({
+            "title": entry.get("package_name") or entry["show_key"],
+            "sub": entry.get("show_key") or "",
+            "missing": "",
+            "stage": "待核销" if entry["status"] == "pending" else "部分到位",
+            "kind": "warn", "source": "115 转存",
+            "updated": (entry.get("updated_at") or "")[:19],
+        })
+    cloud_stage = {
+        "waiting": ("CD2 确认中", "warn"),
+        "ready": ("CD2 已确认", "ok"),
+        "failed": ("CD2 失败", "err"),
+    }
+    for c in await cloud.list_by_status(db, "waiting", "ready", "failed"):
+        stage, kind = cloud_stage.get(c.get("status"), (str(c.get("status")), "warn"))
+        rows.append({
+            "title": c.get("package_name") or "（未命名包）",
+            "sub": "", "missing": "",
+            "stage": stage, "kind": kind, "source": "CD2",
+            "updated": (c.get("updated_at") or "")[:19],
+        })
+    rows.sort(key=lambda r: r["updated"], reverse=True)
+    return rows
 
 
 async def _render_lackfill(
@@ -150,6 +216,10 @@ async def _render_lackfill(
         "ay_status": await ay.quota_status(db),
         "cloud_items": await cloud.list_by_status(db, "waiting", "ready", "failed"),
         "cloud_enabled": cfg.cloud_verify_enabled,
+        "pipeline": await _pipeline_rows(db),
+        "newshow": await _newshow_context(cfg, db),
+        # 设置抽屉:配置跟使用走(FRONTEND-RULES §1.3),主链展开/通道折叠
+        "settings_sections": settings_routes.lackfill_settings_sections(config),
         "new_refill_token": new_refill_token,
         "flash_ok": _flash(request, "ok"),
         "flash_err": _flash(request, "err"),
@@ -536,6 +606,28 @@ def _hours_between(start_iso: str, end_iso: str) -> float:
     except (TypeError, ValueError):
         return 0.0
     return delta.total_seconds() / 3600
+
+
+@router.post("/api/lackfill/probe")
+async def lackfill_probe(
+    request: Request,
+    target: str = Form(...),
+    _admin: None = Depends(require_admin_csrf),
+    config=Depends(get_config),
+):
+    """连通性自检:凡与外部程序打通的通道必须可一键验证(FRONTEND-RULES §2)。"""
+    from urllib.parse import quote
+
+    from ..lackfill import probe as probe_mod
+
+    try:
+        result = await probe_mod.probe(target.strip(), config.lackfill)
+    except ValueError as exc:
+        return RedirectResponse(f"/lackfill?err=probe&detail={quote(str(exc)[:120])}", 303)
+    flag = "ok" if result["ok"] else "err"
+    return RedirectResponse(
+        f"/lackfill?{flag}=probe&detail={quote(result['detail'])}", 303
+    )
 
 
 @router.post("/api/lackfill/re0_points")

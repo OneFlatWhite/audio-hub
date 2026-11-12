@@ -12,7 +12,7 @@
   </div>
   <form method="get" action="/discover" class="discover-search">
     <input type="hidden" name="kind" value="{{ kind }}">
-    <input type="search" name="q" value="{{ q }}"
+    <input type="search" name="q" value="{{ q }}" aria-label="搜索"
            placeholder="{{ '搜索歌手 / 专辑名…' if kind == 'music' else '搜索作者 / 书名…' }}">
     <button class="btn-sm" type="submit">搜索</button>
     {% if q %}<a class="btn-sm" href="/discover?kind={{ kind }}" title="清除搜索，回到最新上架">清除</a>{% endif %}
@@ -41,8 +41,8 @@
 {% if no_sites %}
 <div class="panel empty-state">
   <p><b>还没有可用的站点。</b></p>
-  <p class="muted">发现墙展示的是你订阅的 PT 站上真实存在的最新上架。先去站点中心启用一个站点并通过认证。</p>
-  <a class="btn btn-primary" href="/sites">去 /sites 启用站点</a>
+  <p class="muted">发现墙展示的是你订阅的 PT 站上真实存在的最新上架。先去站点启用一个并通过认证。</p>
+  <a class="btn btn-primary" href="/sites">去站点启用</a>
 </div>
 {% else %}
 
@@ -81,16 +81,18 @@
         {{ card.sites|join('、') }} · {{ card.pub_date|reltime }}
         {% if card.size_bytes %} · {{ card.size_bytes|filesize }}{% endif %}
       </div>
+      {# 订阅按钮:音乐/有声书仅文案不同,合并为一个块按 kind 取词(§5.1 DRY) #}
+      {% set who = '歌手' if kind == 'music' else '作者' %}
+      {% set thing = '这张专辑' if kind == 'music' else '这本书' %}
       <div class="d-actions">
-        {% if kind == 'music' %}
         <form method="post" action="/discover/subscribe">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
           <input type="hidden" name="kind" value="{{ kind }}">
           <input type="hidden" name="sub_type" value="artist">
           <input type="hidden" name="artist" value="{{ card.artist }}">
           <button class="btn-sm" type="submit" {{ 'disabled' if (st.artist_subbed or not card.artist) }}
-                  title="{{ '已在订阅中' if st.artist_subbed else ('解析不出歌手名' if not card.artist else '持续追踪该歌手的新专辑') }}">
-            {{ '已订阅 ✓' if st.artist_subbed else '追踪歌手' }}</button>
+                  title="{{ '已在订阅中' if st.artist_subbed else ('解析不出' ~ who ~ '名' if not card.artist else '持续追踪该' ~ who ~ '的新作品') }}">
+            {{ '已订阅 ✓' if st.artist_subbed else '追踪' ~ who }}</button>
         </form>
         <form method="post" action="/discover/subscribe">
           <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -99,30 +101,9 @@
           <input type="hidden" name="artist" value="{{ card.artist }}">
           <input type="hidden" name="album" value="{{ card.title }}">
           <button class="btn-sm" type="submit" {{ 'disabled' if st.album_subbed }}
-                  title="{{ '已在订阅中' if st.album_subbed else '仅此专辑，拿到即完成' }}">
-            {{ '已订阅 ✓' if st.album_subbed else '只追这张专辑' }}</button>
+                  title="{{ '已在订阅中' if st.album_subbed else '仅此' ~ thing ~ '，拿到即完成' }}">
+            {{ '已订阅 ✓' if st.album_subbed else '只追' ~ thing }}</button>
         </form>
-        {% else %}
-        <form method="post" action="/discover/subscribe">
-          <input type="hidden" name="csrf_token" value="{{ csrf }}">
-          <input type="hidden" name="kind" value="{{ kind }}">
-          <input type="hidden" name="sub_type" value="artist">
-          <input type="hidden" name="artist" value="{{ card.artist }}">
-          <button class="btn-sm" type="submit" {{ 'disabled' if (st.artist_subbed or not card.artist) }}
-                  title="{{ '已在订阅中' if st.artist_subbed else ('解析不出作者名' if not card.artist else '持续追踪该作者的作品') }}">
-            {{ '已订阅 ✓' if st.artist_subbed else '追踪作者' }}</button>
-        </form>
-        <form method="post" action="/discover/subscribe">
-          <input type="hidden" name="csrf_token" value="{{ csrf }}">
-          <input type="hidden" name="kind" value="{{ kind }}">
-          <input type="hidden" name="sub_type" value="album">
-          <input type="hidden" name="artist" value="{{ card.artist }}">
-          <input type="hidden" name="album" value="{{ card.title }}">
-          <button class="btn-sm" type="submit" {{ 'disabled' if st.album_subbed }}
-                  title="{{ '已在订阅中' if st.album_subbed else '仅此书，拿到即完成' }}">
-            {{ '已订阅 ✓' if st.album_subbed else '只追这本书' }}</button>
-        </form>
-        {% endif %}
       </div>
     </div>
   </div>

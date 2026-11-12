@@ -334,6 +334,21 @@
     }
   });
 
+  /* ── 移动端抽屉导航(body 级开合;点链接/遮罩自动收起) ─────── */
+  document.addEventListener("click", function (e) {
+    var opener = e.target.closest("[data-nav-toggle]");
+    var closer = e.target.closest("[data-nav-close]");
+    if (!opener && !closer) {
+      if (document.body.classList.contains("nav-open")
+          && e.target.closest(".sidebar .nav a")) {
+        document.body.classList.remove("nav-open");
+      }
+      return;
+    }
+    if (opener) document.body.classList.add("nav-open");
+    else document.body.classList.remove("nav-open");
+  });
+
   /* ── 日志页实时跟随：每 3s 拉 /api/logs/tail，按级别着色重绘 ──
      同样只起一份定时器；logbox 随局部刷新换新，tick 时重新查找。
      行内容用 textContent 写入，日志里若有 HTML 字样也不被执行。 */

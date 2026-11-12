@@ -311,7 +311,7 @@ class BaseAdapter(ABC):
             headers=headers, proxy=proxy,
         )
 
-    # ── v0.6 站点中心契约 ────────────────────────────────────
+    # ── v0.6 站点契约 ────────────────────────────────────
 
     async def check_auth(self) -> SiteUserInfo:
         """验证凭据并返回用户信息。失败抛 AdapterAuthError（凭据失效）或 AdapterError。"""

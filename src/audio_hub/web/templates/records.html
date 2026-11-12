@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block body_attr %}data-autorefresh="30"{% endblock %}
-{% block title %}命中记录 · audio-hub{% endblock %}
-{% block h1 %}命中记录{% endblock %}
+{% block title %}任务记录 · audio-hub{% endblock %}
+{% block h1 %}任务记录{% endblock %}
 
 {% block content %}
 {% if flash_ok %}<div class="flash ok" data-autohide>{{ flash_ok }}</div>{% endif %}
@@ -32,7 +32,10 @@
     <tbody>
     {% for t in tasks %}
       <tr>
-        <td class="trunc" title="{{ t.title }}">{{ t.title }}</td>
+        <td class="trunc" title="{{ t.title }}">{{ t.title }}
+          {# 同一实体一处主视图:从这里可跳回它的订阅详情(§1.4) #}
+          {% if t.watch_id %}<a class="hint" href="/watchlist/{{ t.watch_id }}">订阅 ↗</a>{% endif %}
+        </td>
         <td class="mono">{{ t.site }}</td>
         <td class="nowrap"><span class="pill {{ 'low' if t.state == 'failed' else ('high' if t.state in ['completed','notified','routed'] else '') }}">{{ t.state|state_zh }}</span>
           {% if t.state in ('dispatched', 'downloading') %}
@@ -51,7 +54,8 @@
         <td class="mono" title="{{ t.updated_at or '' }}">{{ t.updated_at|dtfmt }}</td>
       </tr>
     {% else %}
-      <tr><td colspan="9" class="empty">无记录</td></tr>
+      <tr><td colspan="9" class="empty">还没有任务记录 —— 到<a href="/discover">发现墙</a>一键订阅,
+        或在<a href="/dashboard">总览</a>点「立即执行一轮」先跑一次搜索;命中后这里会出现候选。</td></tr>
     {% endfor %}
     </tbody>
   </table>

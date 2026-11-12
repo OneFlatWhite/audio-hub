@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}缺集补齐 · audio-hub{% endblock %}
-{% block h1 %}缺集补齐{% endblock %}
+{% block title %}补缺集 · audio-hub{% endblock %}
+{% block h1 %}补缺集{% endblock %}
 
 {% block content %}
 {% if flash_ok %}<div class="flash ok">{{ flash_ok }}</div>{% endif %}
@@ -12,180 +12,107 @@
 </div>
 {% endif %}
 {% if not enabled %}
-<div class="flash err">缺集补齐未启用：请在<a href="/settings">设置页</a>的「缺集补齐」分组启用并填写 Emby / TMDB 凭据，保存后立即生效。</div>
+<div class="flash err">补缺集未启用：在<a href="#lackfill-settings">下方「设置」</a>里启用并填写 Emby / TMDB 凭据，保存后立即生效。</div>
 {% elif not configured %}
-<div class="flash err">凭据未配齐：请在设置页填写 <code>emby_url</code> / <code>emby_api_key</code> / <code>tmdb_api_key</code> 三项。</div>
+<div class="flash err">凭据未配齐：在<a href="#lackfill-settings">下方「设置 · 主链」</a>填写 Emby 地址/Key 与 TMDB Key 三项。</div>
 {% endif %}
 
 <div class="cards" style="margin-bottom:18px">
   <div class="card {{ 'ok' if enabled else 'err' }}"><div class="n">{{ '已启用' if enabled else '未启用' }}</div><div class="l">功能状态</div></div>
   <div class="card"><div class="n">{{ last_report.shows_scanned if last_report else '—' }}</div><div class="l">本次扫描剧数</div></div>
-  <div class="card {{ 'warn' if refill_items|length }}"><div class="n">{{ refill_items|length }}</div><div class="l">Re0 待找剧数</div></div>
+  <div class="card {{ 'warn' if pipeline|length }}"><div class="n">{{ pipeline|length }}</div><div class="l">进行中任务</div></div>
   <div class="card {{ 'warn' if last_report and last_report.lack_episode_count }}"><div class="n">{{ last_report.lack_episode_count if last_report else '—' }}</div><div class="l">本次缺集总集数</div></div>
 </div>
 
 <div class="filters">
-  <span class="muted">对照 TMDB 播出进度，找出 Emby 媒体库里缺的剧集；成功扫描的缺集会持久化到 Re0 队列。</span>
+  <span class="muted">对照 TMDB 播出进度，找出 Emby 媒体库里缺的剧集；找到 → 转存 → 落盘 → 核销，全程在下方流水可见。</span>
   <form method="post" action="/lackfill/scan" style="margin-left:auto">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <button class="btn-sm" type="submit" title="扫描一轮（预算 {{ max_round_shows }} 部，逐季对照 TMDB）" {{ 'disabled' if not enabled or not configured }}>立即扫描</button>
   </form>
 </div>
 
-<div class="panel" style="margin-bottom:18px">
+{# ── 设置抽屉：配置跟着使用走（FRONTEND-RULES §1.3/§2.2）────────
+   主链默认展开；爱影/SA/Re0 折叠并带状态摘要。仍提交到
+   POST /settings/lackfill 单端点——折叠的 <details> 里的控件
+   照常随表单提交，保存语义与旧设置页完全一致。 #}
+<div class="panel" id="lackfill-settings" style="margin-bottom:18px">
   <div class="section-head">
-    <h2>爱影 API 限额补充</h2>
-    <span class="pill {{ 'high' if ay_enabled and ay_configured else 'low' }}">
-      {{ '已启用' if ay_enabled and ay_configured else '未启用或凭据未齐' }}
-    </span>
+    <h2>设置</h2>
+    <span class="pill low">全部热生效 · 保存即用</span>
   </div>
-  <p class="hint">
-    本月剩余额度：<strong>{{ ay_status.quota_left if ay_status.quota_left is not none else '—' }}</strong>
-    · 最近查询：{{ ay_status.updated_at[:19].replace('T', ' ') if ay_status.updated_at else '—' }}
-  </p>
-  <p class="hint">Re0 主资源库优先，AY 在 Re0 离线、明确无结果或连续失败时按额度补充；不使用 Telegram 会话。查询预览只读取 AY/TMDB 并选包，会消耗 1 次查询额度，但不会提交 115/SA；无资源或失败会保留 Re0 队列。</p>
-  {% if refill_items %}
-  <form method="get" action="/api/lackfill/ay_api_test" style="margin-bottom:12px">
-    <input type="hidden" name="save" value="0">
-    <label for="ay-preview-show">选择要预览的缺集剧</label>
-    <select id="ay-preview-show" name="tmdb_id" required>
-      {% for item in refill_items %}<option value="{{ item.tmdb_id }}">{{ item.title }}（缺 {{ item.missing }} 集）</option>{% endfor %}
-    </select>
-    <button class="btn-sm" type="submit" {{ 'disabled' if not ay_enabled or not ay_configured }}>查询并预览选包</button>
-  </form>
-  {% if user.is_admin %}
-  <form method="post" action="/api/lackfill/ay_api_test?save=1">
+  {% if settings_sections %}
+  <form method="post" action="/settings/lackfill">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <label for="ay-execute-show">选择要真实转存的缺集剧</label>
-    <select id="ay-execute-show" name="tmdb_id" required>
-      {% for item in refill_items %}<option value="{{ item.tmdb_id }}">{{ item.title }}（缺 {{ item.missing }} 集）</option>{% endfor %}
-    </select>
-    <button class="btn-sm" type="submit" title="会再次查询 AY 并真实提交选中的资源，请先在预览中核对" {{ 'disabled' if not ay_enabled or not ay_configured }}>确认真实转存选中资源</button>
+    {% for sec in settings_sections %}
+    {% if sec.open %}
+    <div style="margin:6px 0 14px">
+      <div class="section-head"><h3 style="margin:0">{{ sec.title }}</h3>
+        <span class="muted">{{ sec.status }}</span></div>
+      {% set fields = sec.fields %}{% set gid = 'lf-' ~ sec.id %}
+      {% include "_settings_fields.html" %}
+    </div>
+    {% else %}
+    <details style="margin:6px 0">
+      <summary style="cursor:pointer;padding:6px 0"><b>{{ sec.title }}</b>
+        <span class="muted"> — {{ sec.status }}</span></summary>
+      <div style="padding-top:6px">
+        {% set fields = sec.fields %}{% set gid = 'lf-' ~ sec.id %}
+        {% include "_settings_fields.html" %}
+      </div>
+    </details>
+    {% endif %}
+    {% endfor %}
+    <button class="btn-primary" type="submit">保存补缺集设置</button>
   </form>
   {% endif %}
+</div>
+
+{# ── 缺集任务流水：主视图,一部剧一行,四源合并 ────────────────
+   待找(Re0 队列) / 转存预留 / 台账待核销 / CD2 落盘确认
+   统一成一屏进度;操作入口保留在各通道详情里(FRONTEND-RULES §1.4
+   同一实体只有一处主视图)。 #}
+<div class="panel" style="margin-bottom:18px">
+  <div class="section-head">
+    <h2>缺集任务流水</h2>
+    <span class="muted">从找到资源到<abbr title="核销:转存落盘后与 Emby 实际集数对账,确认缺集真的到手才销账">核销</abbr>入库 · 共 {{ pipeline|length }} 项</span>
+  </div>
+  {% if pipeline %}
+  <table>
+    <thead><tr>
+      <th>剧 / 资源包</th><th class="num">缺集</th><th>阶段</th><th>来源</th><th>更新时间</th>
+    </tr></thead>
+    <tbody>
+    {% for r in pipeline %}
+    <tr>
+      <td>{{ r.title }}{% if r.sub %} <span class="muted mono">{{ r.sub }}</span>{% endif %}</td>
+      <td class="num">{{ r.missing if r.missing else '—' }}</td>
+      <td><span class="pill {{ 'high' if r.kind == 'ok' else 'low' }}">{{ '⚠ ' if r.kind == 'err' }}{{ r.stage }}</span></td>
+      <td>{{ r.source }}</td>
+      <td class="mono">{{ r.updated if r.updated else '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
   {% else %}
-  <p class="muted">先扫描缺集，再在这里预览或执行。预览/执行结果以 JSON 显示，浏览器返回本页可继续操作。</p>
+    {# 空状态 = 引导卡,不是占位(FRONTEND-RULES §2.5) #}
+    {% if not enabled %}
+    <p class="empty">还没开始 —— 打开<a href="#lackfill-settings">上方「设置」</a>，启用功能并填好 Emby / TMDB 凭据。</p>
+    {% elif not configured %}
+    <p class="empty">差一步 —— 在<a href="#lackfill-settings">设置 · 主链</a>补齐 Emby 地址/Key 和 TMDB Key。</p>
+    {% elif not last_report %}
+    <p class="empty">第一步 —— 点右上「立即扫描」跑一轮，缺的剧会出现在这里。</p>
+    {% else %}
+    <p class="empty">🎉 没有待处理的缺集，新剧播出后自动进入监控。</p>
+    {% endif %}
   {% endif %}
 </div>
 
 <div class="panel" style="margin-bottom:18px">
   <div class="section-head">
-    <h2>Re0 主资源库 · NAS Chromium</h2>
-    <span class="pill {{ 'high' if re0.enabled and re0.worker.online and re0.worker.auto_running else 'low' }}">
-      {{ '自动运行' if re0.enabled and re0.worker.online and re0.worker.auto_running else '未自动运行' }}
-    </span>
+    <h2>最近一轮扫描</h2>
+    {% if last_report %}<span class="muted">共 {{ last_report.shows_scanned }}/{{ last_report.shows_total }} 部</span>{% endif %}
   </div>
-  <p class="hint">
-    浏览器：{{ re0.browser.state or '未检查' }} · 脚本：{{ re0.worker.status }}
-    · 最近在线：{{ re0.worker.last_seen[:19].replace('T', ' ') if re0.worker.last_seen else '—' }}
-  </p>
-  {% if re0.worker.title or re0.worker.stage %}
-  <p class="hint">当前任务：{{ re0.worker.title or '—' }} · 阶段：{{ re0.worker.stage or '—' }} · 失败次数：{{ re0.worker.attempts }}</p>
-  {% endif %}
-  {% if re0.worker.reason %}<p class="hint">最近原因：{{ re0.worker.reason }}</p>{% endif %}
-  {% if re0.enabled and re0.browser.cdp_ok and not re0.worker.online %}
-  <div class="flash err">浏览器已在线，请检查 Violentmonkey/脚本安装和连接配置。</div>
-  {% endif %}
-  <p class="hint">Re0 是主资源库。脚本在 NAS Chromium 内运行并上报心跳，不保存 Re0 账密到 audio-hub；AY 只在需要时按额度补充。</p>
-  <div class="filters" style="padding:0;border:0">
-    <a class="btn-sm" href="/static/re0_refill.user.js">下载 / 安装油猴脚本</a>
-    {% if user.is_admin and re0.ui_url %}
-    <a class="btn-sm" href="{{ re0.ui_url }}" target="_blank" rel="noopener noreferrer">打开 Re0 远程桌面</a>
-    {% endif %}
-    {% if user.is_admin %}
-    <form method="post" action="/lackfill/refill-token">
-      <input type="hidden" name="csrf_token" value="{{ csrf }}">
-      <button class="btn-sm" type="submit">{{ '重置回填令牌' if refill_configured else '生成回填令牌' }}</button>
-    </form>
-    {% endif %}
-  </div>
-  {% if not re0.enabled %}<p class="hint">尚未启用 NAS 浏览器主通道，请在「设置 → 缺集补齐」开启并完成下面的首次部署。</p>{% endif %}
-  <ol class="hint">
-    <li>NAS 执行 <code>python scripts/init_re0_browser.py</code>，再用 <code>docker compose --env-file config/re0-browser.env --profile re0 up -d --build</code> 启动。</li>
-    <li>通过 SSH 隧道 <code>ssh -L 3001:127.0.0.1:3001 用户名@NAS地址</code> 打开远程桌面；Violentmonkey 已内置，打开上面的脚本地址确认安装。</li>
-    <li>登录 Re0，生成回填令牌并在右下角脚本面板填写 NAS 的 audio-hub 地址和令牌，点「开始自动找」。</li>
-    <li>以后由 NAS 浏览器持续运行；Cloudflare 和付费积分仍需远程人工处理，关闭你的电脑不会停止 NAS 任务。</li>
-  </ol>
-
-  {% if refill_reservations %}
-  <div class="flash err">有转存状态待核对。请先检查 115 是否已转存；确认结果前不要清除预留或重复提交。</div>
-  <table>
-    <thead><tr><th>剧集</th><th>阶段</th><th>时间</th><th>操作</th></tr></thead>
-    <tbody>
-    {% for item in refill_reservations %}
-      <tr>
-        <td class="mono">{{ item.show_key }}</td>
-        <td>{{ '已发起外部调用，结果待核对' if item.stage == 'attempted' else '等待外部调用' }}</td>
-        <td>{{ item.updated_at[:19].replace('T', ' ') }}</td>
-        <td>
-          {% if user.is_admin and item.stage == 'attempted' %}
-          <form method="post" action="/lackfill/reservation/clear">
-            <input type="hidden" name="csrf_token" value="{{ csrf }}">
-            <input type="hidden" name="show_key" value="{{ item.show_key }}">
-            <button class="btn-sm" type="submit">确认已核对并清除预留</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% endif %}
-
-  {% if refill_items %}
-  <table>
-    <thead><tr><th>待找剧名</th><th>各季缺集</th><th class="num">缺集数</th><th>入队时间</th></tr></thead>
-    <tbody>
-    {% for item in refill_items %}
-      <tr>
-        <td>{{ item.title }}{% if item.year %}（{{ item.year }}）{% endif %}</td>
-        <td class="mono">
-          {% for season, eps in item.seasons.items() %}S{{ season }}: {{ eps|length }} 集{% if not loop.last %} · {% endif %}{% endfor %}
-        </td>
-        <td class="num">{{ item.missing }}</td>
-        <td>{{ item.created_at[:19].replace('T', ' ') }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-    <p class="muted">当前没有等待 Re0 查找的剧。已有未完成转存的剧不会重复出现在这里。</p>
-  {% endif %}
-</div>
-
-<div class="panel" style="margin-bottom:18px">
-  <div class="section-head">
-    <h2>CD2 文件确认</h2>
-    <span class="pill {{ 'high' if cloud_enabled else 'low' }}">{{ '已启用' if cloud_enabled else '未启用' }}</span>
-  </div>
-  <p class="hint">保存成功不是看 115/SA 回执，而是看 CD2 里的真实包目录或单文件。非空文件稳定后，需要中转的内容会移到 SA 监控目录，确认成功才刷新 Emby；最后仍按 Emby 实际集数核销。</p>
-  {% if user.is_admin %}
-  <form method="post" action="/lackfill/cloud/check" style="margin-bottom:12px">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <button class="btn-sm" type="submit" {{ 'disabled' if not cloud_enabled }}>立即检查 CD2 文件</button>
-  </form>
-  {% endif %}
-  {% if cloud_items %}
-  <table>
-    <thead><tr><th>真实包名 / 文件名</th><th>方式</th><th>状态</th><th>错误 / 说明</th><th>更新时间</th></tr></thead>
-    <tbody>
-    {% for item in cloud_items %}
-      <tr>
-        <td>{{ item.package_name }}</td>
-        <td>{{ {'move': '整包中转', 'verify': '仅验证', 'move_file': '单文件中转', 'move_files': '多文件整包'}.get(item.mode, item.mode) }}</td>
-        <td>{{ {'waiting': '等待文件', 'ready': '已确认', 'failed': '失败'}.get(item.status, item.status) }}</td>
-        <td>{{ item.error or '—' }}</td>
-        <td>{{ item.updated_at[:19].replace('T', ' ') if item.updated_at else '—' }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-    <p class="muted">暂无 CD2 待确认包。新的 115/ed2k 提交会在这里显示真实文件状态。</p>
-  {% endif %}
-</div>
-
-<div class="panel">
 {% if not last_report %}
   <p class="muted">尚未扫描。配置好凭据后点「立即扫描」，结果会显示在这里。</p>
 {% elif last_report.errors %}
@@ -220,8 +147,180 @@
     </tbody>
   </table>
 {% endif %}
-{% if last_report %}
-  <p class="hint" style="margin:12px 0 0">扫描时间：{{ last_report.started_at[:19].replace('T', ' ') }}</p>
-{% endif %}
+</div>
+
+{# ── 新剧自动检索:发现→入队→毕业,全自动后台任务 ──────────── #}
+<div class="panel" style="margin-bottom:18px">
+  <div class="section-head">
+    <h2>新剧自动检索</h2>
+    <span class="pill {{ 'high' if newshow.enabled else 'low' }}">
+      {{ '每日发现 ' ~ newshow.quota ~ ' 部' if newshow.enabled else '未启用' }}</span>
+  </div>
+  {% if newshow.enabled %}
+  <p class="hint">每天从 TMDB 本周热门里挑 <b>不在你 Emby 里</b>的新剧纳入监控,已播集自动进上方流水
+    (来源 Re0 / 爱影);一旦进库,自动停止监控——之后的续集归常规扫描管。</p>
+  {% if newshow.monitored %}
+  <p class="hint">监控中 {{ newshow.monitored_count }} 部:
+    {%- for s in newshow.monitored %} {{ s.title }}{% if s.year %}({{ s.year }}){% endif %}{{ '·' if not loop.last }}{% endfor %}
+    {%- if newshow.monitored_count > newshow.monitored|length %} 等{% endif %}</p>
+  {% else %}
+  <p class="hint">还没有监控中的剧——下一轮检索会自动挑选(间隔在设置里,默认 24 小时)。</p>
+  {% endif %}
+  {% else %}
+  <p class="hint">已关闭。在<a href="#lackfill-settings">上方「设置 · 主链」</a>把「新剧每日发现配额」设为大于 0 即可开启。</p>
+  {% endif %}
+</div>
+
+{# ── 通道与工具：技术细节折叠,标题即状态(FRONTEND-RULES §2.2)── #}
+<div class="panel">
+  <div class="section-head">
+    <h2>通道与工具</h2>
+    <span class="muted">主源 Re0 · 限额补充爱影 · 落盘确认 CD2 · 出问题才需要展开</span>
+  </div>
+
+  {# ── 连通性自检:凡打通必可测(FRONTEND-RULES)────────────── #}
+  <div class="filters" style="padding:6px 0 10px;border:0">
+    <span class="muted">连通性自检(只读,不产生转存/解锁):</span>
+    {% if user.is_admin %}
+    {% for t, label in [("emby", "Emby"), ("tmdb", "TMDB"), ("p115", "115 接口"), ("sa", "SA 登录"), ("cd2", "CD2 目录")] %}
+    <form method="post" action="/api/lackfill/probe">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <input type="hidden" name="target" value="{{ t }}">
+      <button class="btn-sm" type="submit" title="只读探测,结果提示在本页顶部">{{ label }}</button>
+    </form>
+    {% endfor %}
+    {% else %}
+    <span class="muted">管理员登录后可用</span>
+    {% endif %}
+  </div>
+
+  <details open>
+    <summary style="cursor:pointer;padding:8px 0"><b>Re0 主资源库 · NAS Chromium</b>
+      <span class="pill {{ 'high' if re0.enabled and re0.worker.online and re0.worker.auto_running else 'low' }}">
+        {{ '自动运行' if re0.enabled and re0.worker.online and re0.worker.auto_running else '未自动运行' }}
+      </span>
+      <span class="muted"> — 浏览器 {{ re0.browser.state or '未检查' }} · 最近在线
+        {{ re0.worker.last_seen[:19].replace('T', ' ') if re0.worker.last_seen else '—' }}</span>
+    </summary>
+    <div style="padding:4px 0 8px">
+      <p class="hint">
+        脚本：{{ re0.worker.status }}{% if re0.worker.title or re0.worker.stage %} · 当前任务：{{ re0.worker.title or '—' }}（{{ re0.worker.stage or '—' }}）· 失败 {{ re0.worker.attempts }} 次{% endif %}
+        {% if re0.worker.reason %}<br>最近原因：{{ re0.worker.reason }}{% endif %}
+      </p>
+      {% if re0.enabled and re0.browser.cdp_ok and not re0.worker.online %}
+      <div class="flash err">浏览器已在线，请检查 Violentmonkey/脚本安装和连接配置。</div>
+      {% endif %}
+      <div class="filters" style="padding:0;border:0">
+        <a class="btn-sm" href="/static/re0_refill.user.js">下载 / 安装油猴脚本</a>
+        {% if user.is_admin and re0.ui_url %}
+        <a class="btn-sm" href="{{ re0.ui_url }}" target="_blank" rel="noopener noreferrer">打开 Re0 远程桌面</a>
+        {% endif %}
+        {% if user.is_admin %}
+        <form method="post" action="/lackfill/refill-token">
+          <input type="hidden" name="csrf_token" value="{{ csrf }}">
+          <button class="btn-sm" type="submit">{{ '重置回填令牌' if refill_configured else '生成回填令牌' }}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% if not re0.enabled %}<p class="hint">尚未启用 NAS 浏览器主通道，在上方「设置」里开启并完成下面的首次部署。</p>{% endif %}
+      <details style="margin:6px 0">
+        <summary class="hint" style="cursor:pointer">首次部署四步（点开查看）</summary>
+        <ol class="hint" style="margin:8px 0 4px 18px">
+          <li>NAS 执行 <code>python scripts/init_re0_browser.py</code>，再用 <code>docker compose --env-file config/re0-browser.env --profile re0 up -d --build</code> 启动。</li>
+          <li>通过 SSH 隧道 <code>ssh -L 3001:127.0.0.1:3001 用户名@NAS地址</code> 打开远程桌面；Violentmonkey 已内置，打开上面的脚本地址确认安装。</li>
+          <li>登录 Re0，生成回填令牌并在右下角脚本面板填写 NAS 的 audio-hub 地址和令牌，点「开始自动找」。</li>
+          <li>以后由 NAS 浏览器持续运行；Cloudflare 和付费积分仍需远程人工处理，关闭你的电脑不会停止 NAS 任务。</li>
+        </ol>
+      </details>
+
+      {% if refill_reservations %}
+      <div class="flash err">有转存状态待核对。请先检查 115 是否已转存；确认结果前不要清除预留或重复提交。</div>
+      <table>
+        <thead><tr><th>剧集</th><th>阶段</th><th>时间</th><th>操作</th></tr></thead>
+        <tbody>
+        {% for item in refill_reservations %}
+          <tr>
+            <td class="mono">{{ item.show_key }}</td>
+            <td>{{ '已发起外部调用，结果待核对' if item.stage == 'attempted' else '等待外部调用' }}</td>
+            <td>{{ item.updated_at[:19].replace('T', ' ') }}</td>
+            <td>
+              {% if user.is_admin and item.stage == 'attempted' %}
+              <form method="post" action="/lackfill/reservation/clear">
+                <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                <input type="hidden" name="show_key" value="{{ item.show_key }}">
+                <button class="btn-sm" type="submit">确认已核对并清除预留</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </div>
+  </details>
+
+  <details>
+    <summary style="cursor:pointer;padding:8px 0"><b>爱影 API 限额补充</b>
+      <span class="muted"> — 本月剩余额度 <strong>{{ ay_status.quota_left if ay_status.quota_left is not none else '—' }}</strong> 次</span></summary>
+    <div style="padding:4px 0 8px">
+      <p class="hint">Re0 主资源库优先，AY 在 Re0 离线、明确无结果或连续失败时按额度补充；不使用 Telegram 会话。查询预览只读取 AY/TMDB 并选包，会消耗 1 次查询额度，但不会提交 115/SA；无资源或失败会保留 Re0 队列。</p>
+      {% if refill_items %}
+      <form method="get" action="/api/lackfill/ay_api_test" style="margin-bottom:12px">
+        <input type="hidden" name="save" value="0">
+        <label for="ay-preview-show">选择要预览的缺集剧</label>
+        <select id="ay-preview-show" name="tmdb_id" required>
+          {% for item in refill_items %}<option value="{{ item.tmdb_id }}">{{ item.title }}（缺 {{ item.missing }} 集）</option>{% endfor %}
+        </select>
+        <button class="btn-sm" type="submit" {{ 'disabled' if not ay_enabled or not ay_configured }}>查询并预览选包</button>
+      </form>
+      {% if user.is_admin %}
+      <form method="post" action="/api/lackfill/ay_api_test?save=1">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <label for="ay-execute-show">选择要真实转存的缺集剧</label>
+        <select id="ay-execute-show" name="tmdb_id" required>
+          {% for item in refill_items %}<option value="{{ item.tmdb_id }}">{{ item.title }}（缺 {{ item.missing }} 集）</option>{% endfor %}
+        </select>
+        <button class="btn-sm" type="submit" title="会再次查询 AY 并真实提交选中的资源，请先在预览中核对" {{ 'disabled' if not ay_enabled or not ay_configured }}>确认真实转存选中资源</button>
+      </form>
+      {% endif %}
+      {% else %}
+      <p class="muted">先扫描缺集，再在这里预览或执行。预览/执行结果以 JSON 显示，浏览器返回本页可继续操作。</p>
+      {% endif %}
+    </div>
+  </details>
+
+  <details>
+    <summary style="cursor:pointer;padding:8px 0"><b>CD2 文件确认</b>
+      <span class="pill {{ 'high' if cloud_enabled else 'low' }}">{{ '已启用' if cloud_enabled else '未启用' }}</span>
+      <span class="muted"> — 待处理 {{ cloud_items|length }} 项</span></summary>
+    <div style="padding:4px 0 8px">
+      <p class="hint">保存成功不是看 115/SA 回执，而是看 CD2 里的真实包目录或单文件。非空文件稳定后，需要中转的内容会移到 SA 监控目录，确认成功才刷新 Emby；最后仍按 Emby 实际集数核销。</p>
+      {% if user.is_admin %}
+      <form method="post" action="/lackfill/cloud/check" style="margin-bottom:12px">
+        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+        <button class="btn-sm" type="submit" {{ 'disabled' if not cloud_enabled }}>立即检查 CD2 文件</button>
+      </form>
+      {% endif %}
+      {% if cloud_items %}
+      <table>
+        <thead><tr><th>真实包名 / 文件名</th><th>方式</th><th>状态</th><th>错误 / 说明</th><th>更新时间</th></tr></thead>
+        <tbody>
+        {% for item in cloud_items %}
+          <tr>
+            <td>{{ item.package_name }}</td>
+            <td>{{ {'move': '整包中转', 'verify': '仅验证', 'move_file': '单文件中转', 'move_files': '多文件整包'}.get(item.mode, item.mode) }}</td>
+            <td>{{ {'waiting': '等待文件', 'ready': '已确认', 'failed': '失败'}.get(item.status, item.status) }}</td>
+            <td>{{ item.error or '—' }}</td>
+            <td>{{ item.updated_at[:19].replace('T', ' ') if item.updated_at else '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+        <p class="muted">暂无 CD2 待确认包。新的 115/ed2k 提交会在这里显示真实文件状态。</p>
+      {% endif %}
+    </div>
+  </details>
 </div>
 {% endblock %}

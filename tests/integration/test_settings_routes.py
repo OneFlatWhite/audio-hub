@@ -114,10 +114,10 @@ def _post_settings(client, action, data, token=None):
 
 
 def _set_site_enabled(site_id: str, enabled: bool) -> None:
-    """v0.6：站点开关在 sites 表（站点中心页），保存后经 rebuild_adapters 热生效。
+    """v0.6：站点开关在 sites 表（站点页），保存后经 rebuild_adapters 热生效。
 
     认证门禁（2A）：auth_status != valid 的站点不会被 build_adapters 构造，故启用前
-    先标记为 valid（等于站点中心「测试认证」通过），本文件关心的是开关热生效本身。
+    先标记为 valid（等于站点「测试认证」通过），本文件关心的是开关热生效本身。
     """
     async def _go():
         if enabled:
@@ -435,12 +435,12 @@ class TestSettingsPageRender:
     def test_readonly_db_path_still_shown(self, client):
         """db_path 不在覆盖层内，但应只读展示（避免使用者以为漏做）。"""
         _setup_admin(client)
-        page = client.get("/settings")
+        page = client.get("/settings?sec=readonly")
         assert "hub.db" in page.text
 
     def test_site_rows_rendered(self, client):
         _setup_admin(client)
-        page = client.get("/settings")
+        page = client.get("/settings?sec=creds")
         assert "hhanclub" in page.text
         assert "hdsky" in page.text
 
@@ -455,16 +455,25 @@ _V4_ACTIONS = (
 
 class TestV4Groups:
     def test_page_renders_new_forms(self, client):
+        """设置页按分区渲染:逐分区断言表单与代表性字段(左导航单分区形态)。"""
         _setup_admin(client)
-        page = client.get("/settings")
-        assert page.status_code == 200
         for action in _V4_ACTIONS:
+            sec = action.rsplit("/", 1)[-1]
+            page = client.get(f"/settings?sec={sec}")
+            assert page.status_code == 200
             assert f'action="{action}"' in page.text, f"缺少表单 {action}"
-        # 各组的代表性字段真的渲染成了控件
-        for name in ("library_music", "allowed_exts", "abs_token",
-                     "default_min_ratio", "notify_kinds"):
-            assert f'name="{name}"' in page.text, f"缺少字段 {name}"
-        # 站点级 H&R 已迁至站点中心，设置页不再渲染
+            assert f'name="sec" value="{sec}"' in page.text, "表单未携带分区上下文"
+        rep = {
+            "paths": "library_music", "validation": "allowed_exts",
+            "scrape": "abs_token", "seeding": "default_min_ratio",
+            "notify": "notify_kinds",
+        }
+        for sec, name in rep.items():
+            page = client.get(f"/settings?sec={sec}")
+            assert f'name="{name}"' in page.text, f"{sec} 缺少字段 {name}"
+        # 站点级 H&R 已迁至站点，设置页不再渲染
+        assert 'name="site_hr_hours:hhanclub"' not in client.get("/settings?sec=seeding").text
+        # 站点级 H&R 已迁至站点，设置页不再渲染
         assert 'name="site_hr_hours:hhanclub"' not in page.text
         # list 字段以逗号串回显
         assert "dispatched, completed" in page.text
@@ -621,11 +630,11 @@ class TestV4Groups:
         assert app.state.config.scrape.abs_token == "ABS_TOKEN_PLAINTEXT_42"
         overrides = asyncio.run(store.load_overrides(app.state.db))
         assert "ABS_TOKEN_PLAINTEXT_42" not in overrides["abs_token"]
-        page = client.get("/settings")
+        page = client.get("/settings?sec=scrape")
         assert "ABS_TOKEN_PLAINTEXT_42" not in page.text
         assert overrides["abs_token"] not in page.text
-        # 凭据状态表显示已配置
-        assert "Audiobookshelf" in page.text
+        # 凭据状态分区显示已配置
+        assert "Audiobookshelf" in client.get("/settings?sec=creds").text
 
     def test_scrape_abs_url_must_be_url(self, client):
         _setup_admin(client)
@@ -686,7 +695,7 @@ _GENERIC = "https://hooks.example.com/audio-hub"
 class TestNotifyPush:
     def test_page_has_test_button_form(self, client):
         _setup_admin(client)
-        page = client.get("/settings").text
+        page = client.get("/settings?sec=notify").text
         assert 'action="/settings/notify/test"' in page
         assert "发送测试通知" in page
 
@@ -719,7 +728,7 @@ class TestNotifyPush:
         _setup_admin(client)
         resp = _post_settings(client, "/settings/notify/test", {})
         assert resp.status_code == 303
-        assert resp.headers["location"] == "/settings?err=notify_none"
+        assert resp.headers["location"].startswith("/settings?sec=notify&err=notify_none")
         page = client.get(resp.headers["location"])
         assert "尚未配置任何推送渠道" in page.text
 
@@ -734,7 +743,7 @@ class TestNotifyPush:
         resp = _post_settings(client, "/settings/notify/test", {})
         assert resp.status_code == 303
         loc = resp.headers["location"]
-        assert loc.startswith("/settings?ok=notify_test&detail=")
+        assert loc.startswith("/settings?sec=notify&ok=notify_test&detail=")
         assert wecom.called and generic.called
 
         page = client.get(loc).text
@@ -753,7 +762,7 @@ class TestNotifyPush:
 
         resp = _post_settings(client, "/settings/notify/test", {})
         loc = resp.headers["location"]
-        assert loc.startswith("/settings?err=notify_test_failed&detail=")
+        assert loc.startswith("/settings?sec=notify&err=notify_test_failed&detail=")
 
         page = client.get(loc).text
         assert "测试通知未全部成功" in page
@@ -774,15 +783,35 @@ class TestNotifyPush:
 
 
 
-# ── lackfill（缺集补齐）设置组 ──────────────────────────────
+# ── lackfill（补缺集）设置组 ──────────────────────────────
 class TestLackfillGroup:
-    def test_page_renders_lackfill_group(self, client):
+    def test_settings_page_points_to_lackfill_drawer(self, client):
+        """FRONTEND-RULES §1.3:配置跟着使用走——设置页不再渲染该组,只留指引卡。"""
         _setup_admin(client)
         page = client.get("/settings")
+        assert page.status_code == 200
+        assert 'action="/settings/lackfill"' not in page.text
+        assert 'name="lackfill_emby_url"' not in page.text
+        assert "/lackfill" in page.text and "补缺集" in page.text
+
+    def test_lackfill_page_renders_settings_drawer(self, client):
+        """补缺集页设置抽屉:主链展开,爱影/SA/Re0 折叠,保存仍走原端点。"""
+        _setup_admin(client)
+        page = client.get("/lackfill")
         assert page.status_code == 200
         assert 'action="/settings/lackfill"' in page.text
         assert 'name="lackfill_enabled"' in page.text
         assert 'name="lackfill_emby_url"' in page.text
+        assert 'name="lackfill_sa_base_url"' in page.text
+        assert 'name="lackfill_ay_api_url"' in page.text
+        assert 'name="lackfill_re0_browser_enabled"' in page.text
+        # 主链区块默认展开,通道区块默认折叠(details)
+        assert "主链（必配）" in page.text
+        assert page.text.count("<details") >= 2
+        # 任务流水主视图 + 空状态引导(四态任一,默认未启用走「还没开始」)
+        assert "缺集任务流水" in page.text
+        assert any(s in page.text for s in ("还没开始", "差一步", "第一步", "没有待处理"))
+        assert "通道与工具" in page.text
 
     def test_save_lackfill_applies_without_restart(self, client):
         """lackfill 组全量 SCOPE_HOT：保存即热生效，无重启标记。"""
@@ -814,7 +843,7 @@ class TestLackfillGroup:
         assert app.state.config.lackfill.emby_api_key == "EMBY_SECRET_123"
         overrides = asyncio.run(store.load_overrides(app.state.db))
         assert "EMBY_SECRET_123" not in str(overrides)
-        page = client.get("/settings")
+        page = client.get("/lackfill")   # 字段已迁往补缺集页设置抽屉
         assert "EMBY_SECRET_123" not in page.text
         # 留空提交不覆盖已保存的凭据（带上另一字段避免「无变更」短路）
         resp2 = _post_settings(client, "/settings/lackfill", {
@@ -858,7 +887,7 @@ class TestLackfillGroup:
         assert "REFILL_SECRET_1234567890abcdef1234567890" not in overrides["lackfill_refill_api_key"]
         page = client.get("/settings")
         assert "REFILL_SECRET_1234567890abcdef1234567890" not in page.text
-        assert 'name="lackfill_refill_api_key"' in page.text
+        assert 'name="lackfill_refill_api_key"' in client.get("/lackfill").text
 
     def test_re0_install_entry_and_static_script(self, client):
         _setup_admin(client)
@@ -949,7 +978,7 @@ class TestLackfillGroup:
         overrides = asyncio.run(store.load_overrides(app.state.db))
         assert "CALLBACK_SIGNING_SECRET_123456" not in str(overrides)
         assert "AES_SECRET_1234567890abcdef1234567890" not in str(overrides)
-        page = client.get("/settings")
+        page = client.get("/lackfill")   # SA 字段已迁往补缺集页设置抽屉
         assert 'name="lackfill_sa_callback_url"' in page.text
         assert "CALLBACK_SIGNING_SECRET_123456" not in page.text
         assert "AES_SECRET_1234567890abcdef1234567890" not in page.text

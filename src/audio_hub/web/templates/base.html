@@ -15,7 +15,7 @@
 </head>
 <body {% block body_attr %}{% endblock %}>
 <div class="wrap">
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar" aria-label="主导航">
     <div class="brand">
       <div class="brand-row">
         <img class="logo" src="{{ url_for('static', path='/logo.svg') }}" alt="">
@@ -24,28 +24,31 @@
       <small>v{{ version }} · 获取中枢</small>
     </div>
     <nav class="nav">
-      <div class="nav-title">内容</div>
       <a href="/dashboard" class="{{ 'active' if active == 'dashboard' }}">总览</a>
-      <a href="/discover" class="{{ 'active' if active == 'discover' }}">发现</a>
-      <a href="/watchlist" class="{{ 'active' if active == 'watchlist' }}">订阅项</a>
-      <a href="/library" class="{{ 'active' if active == 'library' }}">资料库</a>
-      <a href="/series" class="{{ 'active' if active == 'series' }}">连载</a>
-      <a href="/lackfill" class="{{ 'active' if active == 'lackfill' }}">缺集补齐</a>
 
-      <div class="nav-title">流转</div>
-      <a href="/records" class="{{ 'active' if active == 'records' }}">命中记录</a>
+      <div class="nav-title">找内容</div>
+      <a href="/discover" class="{{ 'active' if active == 'discover' }}">发现墙</a>
+      <a href="/watchlist" class="{{ 'active' if active == 'watchlist' }}">我的订阅</a>
+      <a href="/series" class="{{ 'active' if active == 'series' }}">连载追踪</a>
+
+      <div class="nav-title">下载与入库</div>
+      <a href="/records" class="{{ 'active' if active == 'records' }}">任务记录</a>
       <a href="/review" class="{{ 'active' if active == 'review' }}">
-        待审队列{% if review_count %}<span class="badge">{{ review_count }}</span>{% endif %}
+        待我确认{% if review_count %}<span class="badge">{{ review_count }}</span>{% endif %}
       </a>
-      <a href="/seeding" class="{{ 'active' if active == 'seeding' }}">做种</a>
+      <a href="/seeding" class="{{ 'active' if active == 'seeding' }}">做种与 H&amp;R</a>
       <a href="/quarantine" class="{{ 'active' if active == 'quarantine' }}">
         隔离区{% if quarantine_badge %}<span class="badge">{{ quarantine_badge }}</span>{% endif %}
       </a>
-      <a href="/events" class="{{ 'active' if active == 'events' }}">事件</a>
+
+      <div class="nav-title">资料库</div>
+      <a href="/library" class="{{ 'active' if active == 'library' }}">已入库</a>
+      <a href="/lackfill" class="{{ 'active' if active == 'lackfill' }}">补缺集</a>
 
       <div class="nav-title">系统</div>
       <a href="/sites" class="{{ 'active' if active == 'sites' }}">站点</a>
       <a href="/downloaders" class="{{ 'active' if active == 'downloaders' }}">下载器</a>
+      <a href="/events" class="{{ 'active' if active == 'events' }}">事件</a>
       <a href="/logs" class="{{ 'active' if active == 'logs' }}">日志</a>
       <a href="/settings" class="{{ 'active' if active == 'settings' }}">设置</a>
     </nav>
@@ -62,10 +65,13 @@
     </div>
   </aside>
 
+  <div class="nav-backdrop" data-nav-close></div>
+
   <main class="main">
     <div class="topbar">
+      <button class="nav-toggle" type="button" data-nav-toggle aria-label="打开导航菜单" aria-controls="sidebar">☰</button>
       <h1>{% block h1 %}{% endblock %}</h1>
-      {% if dry_run %}<span class="pill low">DRY-RUN 空跑中</span>{% endif %}
+      {% if dry_run %}<span class="pill low"><abbr title="空跑模式:只搜索/记录,不真实派发下载;切换在 设置 → 运行参数">DRY-RUN</abbr> 空跑中</span>{% endif %}
     </div>
 
     {% if flash_ok %}<div class="flash ok" data-autohide>{{ flash_ok }}</div>{% endif %}

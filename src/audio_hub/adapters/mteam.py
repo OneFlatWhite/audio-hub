@@ -44,7 +44,7 @@ _DEFAULT_BASE_URLS = ("https://api.m-team.cc", "https://api.m-team.io")
 # 下载直链换取端点：搜索结果里的 download_url 是此占位 URL，派发前需 POST 换取真正的直链
 _GEN_DL_TOKEN_PATH = "/api/torrent/genDlToken"
 
-# v0.6 站点中心：认证检查与分类发现端点
+# v0.6 站点：认证检查与分类发现端点
 _PROFILE_PATH = "/api/member/profile"
 _CATEGORY_LIST_PATH = "/api/torrent/categoryList"
 

@@ -55,8 +55,8 @@
       </tr>
     {% else %}
       <tr><td colspan="7" class="empty">
-        {% if current_status == 'held' %}没有待处理的隔离内容。{% else %}该状态下无记录。{% endif %}<br>
-        校验失败策略：<span class="mono">{{ validation_on_fail }}</span> · 隔离目录 <span class="mono">{{ quarantine_dir }}</span>
+        {% if current_status == 'held' %}没有待处理的隔离内容——一切正常。{% else %}该状态下无记录。{% endif %}<br>
+        校验失败策略：<span class="mono">{{ validation_on_fail }}</span>（可在<a href="/settings">设置 → 完成校验</a>调整）· 隔离目录 <span class="mono">{{ quarantine_dir }}</span>
       </td></tr>
     {% endfor %}
     </tbody>

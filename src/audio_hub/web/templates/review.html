@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}待审队列 · audio-hub{% endblock %}
-{% block h1 %}待审队列{% endblock %}
+{% block title %}待我确认 · audio-hub{% endblock %}
+{% block h1 %}待我确认{% endblock %}
 
 {% block content %}
 {% if items %}
@@ -51,7 +51,7 @@
     <div class="ri-title">{{ t.title }}</div>
     <div class="ri-meta">
       <span>站点 <b>{{ t.site }}</b></span>
-      <span>置信度 <span class="pill {{ t.confidence }}">{{ t.confidence|conf_zh }}</span></span>
+      <span><abbr title="置信度:标题与关键词的匹配强度判定。high=直接派发,medium/low=进本页等人工确认">置信度</abbr> <span class="pill {{ t.confidence }}">{{ t.confidence|conf_zh }}</span></span>
       <span>音质 <b>{{ t.quality or '—' }}</b></span>
       <span>分数 <b>{{ '%.2f'|format(t.score or 0) }}</b></span>
       <span>体积 <b>{{ '%.0f'|format((t.size_bytes or 0) / 1048576) }} MB</b></span>
@@ -84,7 +84,7 @@
 {% else %}
 {# 空队列是常态（全自动派发时不经过本页），说明文字收进折叠，只留一行结论 #}
 <div class="panel">
-  <p class="empty">待审队列为空 🎉</p>
+  <p class="empty">待我确认为空 🎉</p>
   <p class="hint" style="text-align:center">
     只有 medium / low 置信、或订阅关闭了自动下载的命中才会进这里；全自动派发时本页长期为空，属正常现象。
   </p>

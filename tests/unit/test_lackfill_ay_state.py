@@ -75,6 +75,6 @@ async def test_schema_v10_preserves_existing_queue(tmp_path):
         cur = await conn.execute("SELECT title FROM lackfill_queue WHERE tmdb_id = 100")
         assert (await cur.fetchone())[0] == "测试剧"
         cur = await conn.execute("PRAGMA user_version")
-        assert (await cur.fetchone())[0] == 10
+        assert (await cur.fetchone())[0] == 11
     finally:
         await conn.close()

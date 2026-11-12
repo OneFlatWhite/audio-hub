@@ -88,7 +88,8 @@
       </tr>
     {% else %}
       <tr><td colspan="8" class="empty">
-        暂无做种记录。实跑模式下派发的任务会在这里跟踪做种时长与分享率。<br>
+        暂无做种记录。实跑模式下派发的任务会在这里跟踪做种时长与分享率
+        （派发情况先看<a href="/records?state=dispatched">任务记录</a>）。<br>
         默认要求：{{ default_min_seed_hours }} 小时 / 分享率 {{ '%.2f'|format(default_min_ratio) }}，
         每 {{ check_interval_minutes }} 分钟检查一次，达标后 <span class="mono">{{ on_satisfied }}</span>。
       </td></tr>

@@ -127,40 +127,45 @@
 </div>
 {% endif %}
 
-<div class="panel">
-  <h2>建立连载</h2>
-  <form method="post" action="/series">
-    <input type="hidden" name="csrf_token" value="{{ csrf }}">
-    <div class="row">
-      <div>
-        <label>有声书订阅项</label>
-        <select name="watch_id" required>
-          <option value="">— 选择订阅 —</option>
-          {% for e in book_entries %}
-          <option value="{{ e.id }}" {{ 'selected' if prefill_watch and prefill_watch.id == e.id }}>
-            {{ e.query }}{% if e.series_id is not none %}（已绑定连载 #{{ e.series_id }}）{% endif %}
-          </option>
-          {% endfor %}
-        </select>
-        {% if not book_entries %}<p class="hint">还没有有声书订阅，请先到 <a href="/watchlist">订阅项</a> 添加。</p>{% endif %}
+{# 与「我的订阅」的新建表单同款折叠形态(§2.2):默认收起,
+   无连载或带预填(从订阅详情跳来)时自动展开。 #}
+{% set series_open = (not series_rows) or prefill_watch %}
+<details class="newsub" {{ 'open' if series_open }}>
+  <summary>＋ 建立连载</summary>
+  <div class="panel">
+    <form method="post" action="/series">
+      <input type="hidden" name="csrf_token" value="{{ csrf }}">
+      <div class="row">
+        <div>
+          <label>有声书订阅项</label>
+          <select name="watch_id" required>
+            <option value="">— 选择订阅 —</option>
+            {% for e in book_entries %}
+            <option value="{{ e.id }}" {{ 'selected' if prefill_watch and prefill_watch.id == e.id }}>
+              {{ e.query }}{% if e.series_id is not none %}（已绑定连载 #{{ e.series_id }}）{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+          {% if not book_entries %}<p class="hint">还没有有声书订阅，请先到 <a href="/watchlist">订阅项</a> 添加。</p>{% endif %}
+        </div>
+        <div>
+          <label>连载名称（留空=用订阅词）</label>
+          <input name="name" value="{{ prefill_watch.query if prefill_watch else '' }}" placeholder="如：三体">
+        </div>
+        <div style="max-width:140px">
+          <label>总部数（留空=未知）</label>
+          <input name="total_parts" type="number" min="1" placeholder="?">
+        </div>
       </div>
-      <div>
-        <label>连载名称（留空=用订阅词）</label>
-        <input name="name" value="{{ prefill_watch.query if prefill_watch else '' }}" placeholder="如：三体">
+      <div class="field" style="margin-top:12px">
+        <label>分集规则（正则，留空用默认）</label>
+        <input name="part_pattern" class="mono" placeholder="{{ default_pattern }}">
+        <p class="hint">默认识别「第N集/部/卷/章/回/期」「Part N」「EP05 / E12」「(03)」。</p>
       </div>
-      <div style="max-width:140px">
-        <label>总部数（留空=未知）</label>
-        <input name="total_parts" type="number" min="1" placeholder="?">
-      </div>
-    </div>
-    <div class="field" style="margin-top:12px">
-      <label>分集规则（正则，留空用默认）</label>
-      <input name="part_pattern" class="mono" placeholder="{{ default_pattern }}">
-      <p class="hint">默认识别「第N集/部/卷/章/回/期」「Part N」「EP05 / E12」「(03)」。</p>
-    </div>
-    <button class="btn-primary" type="submit" {{ 'disabled' if not book_entries }}>建立</button>
-  </form>
-</div>
+      <button class="btn-primary" type="submit" {{ 'disabled' if not book_entries }}>建立</button>
+    </form>
+  </div>
+</details>
 
 <div class="filters">
   <a href="/series" class="{{ 'active' if not current_status }}">全部</a>

@@ -33,17 +33,17 @@ router = APIRouter(tags=["subscriptions"])
 
 _FLASH_OK = {
     "added": "订阅已添加",
-    "added_bg": "订阅已添加，首次搜索已转入后台执行，结果稍后见「命中记录」（不用守着页面）",
-    "added_searched": "订阅已添加，并已完成首次搜索（结果见命中记录）",
-    "added_no_sites": "订阅已添加，但当前没有可用站点，首次搜索未执行 —— 请到「站点中心」启用并通过认证",
+    "added_bg": "订阅已添加，首次搜索已转入后台执行，结果稍后见「任务记录」（不用守着页面）",
+    "added_searched": "订阅已添加，并已完成首次搜索（结果见任务记录）",
+    "added_no_sites": "订阅已添加，但当前没有可用站点，首次搜索未执行 —— 请到「站点」启用并通过认证",
     "added_deferred": "订阅已添加，本轮站点请求预算已用完，稍后自动搜索",
     "updated": "订阅已更新",
     "deleted": "订阅已删除",
     "paused": "订阅已暂停",
     "resumed": "订阅已恢复",
-    "searched": "已完成一次搜索（结果见命中记录）",
-    "searched_dispatched": "搜索完成，命中内容已立即派发下载器（见命中记录）",
-    "search_no_sites": "没有可用站点，未发出任何请求 —— 请到「站点中心」启用并通过认证",
+    "searched": "已完成一次搜索（结果见任务记录）",
+    "searched_dispatched": "搜索完成，命中内容已立即派发下载器（见任务记录）",
+    "search_no_sites": "没有可用站点，未发出任何请求 —— 请到「站点」启用并通过认证",
     "search_deferred": "本轮站点请求预算已用完，该订阅已顺延到下一轮",
 }
 _FLASH_ERR = {
@@ -312,7 +312,7 @@ async def _search_one(request: Request, db, config, watch_id: str) -> str:
 def kick_first_search(request: Request, watch_id: str) -> None:
     """首次搜索转后台执行：跨站搜索是网络操作，同步等会让 POST 转圈数秒。
 
-    结果照常落命中记录 / 待审队列（dry_run 下为 SCORED 任务），
+    结果照常落任务记录 / 待我确认（dry_run 下为 SCORED 任务），
     周期性的 subscription_scan 也会兜底再扫，丢不了。
     """
     async def _job() -> None:

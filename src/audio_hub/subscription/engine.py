@@ -64,7 +64,7 @@ REASON_NO_BETTER_QUALITY = "already_owned_no_better_quality"
 REASON_AUTO_DOWNLOAD_DISABLED = "auto_download_disabled"
 
 #: dry_run 下「本该派发」的任务与待审任务同为 scored，靠这个 reject_reason 区分；
-#: 它不在 repo.PENDING_REVIEW_REASONS 里，不会混进待审队列。
+#: 它不在 repo.PENDING_REVIEW_REASONS 里，不会混进待我确认。
 DRY_RUN_REASON = "subscription_dry_run"
 
 

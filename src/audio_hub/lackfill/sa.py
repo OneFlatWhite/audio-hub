@@ -234,7 +234,7 @@ class SAClient:
         url = f"https://115.com/s/{share_code}"
         if receive_code:
             url += f"?password={receive_code}"
-        await self.submit_message([url], "audio-hub 缺集补齐")
+        await self.submit_message([url], "audio-hub 补缺集")
         return True
 
     async def aclose(self) -> None:

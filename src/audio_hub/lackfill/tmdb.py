@@ -70,6 +70,22 @@ class TmdbClient:
         """
         return await self._request("GET", f"/tv/{tmdb_id}", params={"language": self.language})
 
+    async def trending_tv_week(self) -> list[dict]:
+        """本周热门剧集,按 TMDB 排序取前 20。
+
+        新剧自动检索的发现源;返回 [{id, name, first_air_date}]。
+        """
+        data = await self._request("GET", "/trending/tv/week", params={"language": self.language})
+        return [
+            {
+                "id": item.get("id"),
+                "name": item.get("name") or "",
+                "first_air_date": item.get("first_air_date") or "",
+            }
+            for item in (data.get("results") or [])[:20]
+            if item.get("id")
+        ]
+
     async def season_aired_episode_numbers(self, tmdb_id: int, season: int, today: date) -> list[int]:
         """取某季「截至 today 已播出」的集号列表。
 

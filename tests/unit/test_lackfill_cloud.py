@@ -78,7 +78,7 @@ def _package(root: Path, name="测试剧 S01", content=b"video"):
 
 
 async def test_schema_v10_has_cloud_table(test_db):
-    assert SCHEMA_VERSION == 10
+    assert SCHEMA_VERSION == 11
     cur = await test_db.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='lackfill_cloud'"
     )

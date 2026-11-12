@@ -102,7 +102,7 @@ def _kind_match(t: NormalizedTorrent, kind: str) -> bool:
     """该条种子是否属于目标类型。
 
     优先用适配器判别好的 category；UNKNOWN 时用站点原始分类名 + 标题关键词兜底
-    （与站点中心「分类建议」同一套 suggest_category_kind）；判别为其他类型则排除。
+    （与站点「分类建议」同一套 suggest_category_kind）；判别为其他类型则排除。
     """
     target = MediaCategory.MUSIC if kind == "music" else MediaCategory.AUDIOBOOK
     if t.category == target:

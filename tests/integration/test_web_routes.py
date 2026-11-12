@@ -106,6 +106,19 @@ class TestSetup:
         # 已登录：能访问 dashboard
         assert client.get("/dashboard").status_code == 200
 
+    def test_dashboard_onboarding_shown_until_steps_done(self, client):
+        """全新实例:三步引导卡显示(站点/下载器/订阅,带跳转)。"""
+        _setup_admin(client)
+        page = client.get("/dashboard").text
+        assert "从这里开始" in page
+        assert "站点凭据" in page and "/sites" in page
+        assert "下载器" in page and "/downloaders" in page
+        assert "第一个订阅" in page and "/discover" in page
+        # DRY-RUN 语义在引导卡里明说,不让人猜
+        assert "DRY-RUN" in page
+        # 移动端抽屉导航:汉堡按钮 + 遮罩(FRONTEND-RULES §2.7)
+        assert "data-nav-toggle" in page and "data-nav-close" in page
+
     def test_setup_blocked_after_user_exists(self, client):
         _setup_admin(client)
         resp = client.get("/setup", follow_redirects=False)
@@ -260,7 +273,8 @@ class TestPagesRender:
         assert "熔断中" in html
         assert "熔断至" in html
         assert "HTTP 503" in html
-        assert "熔断中" in client.get("/dashboard").text
+        # 总览的「熔断」带 abbr 悬停解释,锚点按渲染后的结构断言
+        assert '熔断</abbr>中' in client.get("/dashboard").text
 
         # 成功一次即恢复：文案消失
         asyncio.run(repo.record_site_success(app.state.db, site_cfg.name, rows=3))
@@ -376,8 +390,10 @@ class TestDashboardCards:
         resp = client.get("/dashboard")
         assert resp.status_code == 200
         html = resp.text
-        for kw in ("隔离区待处理", "H&amp;R 未达标", "活跃连载", "最近事件"):
+        for kw in ("隔离区待处理", 'H&amp;R</abbr> 未达标', "活跃连载", "最近事件"):
             assert kw in html, f"总览缺少卡片 {kw!r}"
+        # 行话带悬停解释(FRONTEND-RULES §5.4)
+        assert "<abbr" in html and "Hit and Run" in html
         assert "尚无完结连载" in html
         assert "最近没有事件" in html
         # 卡片链接到对应页面
@@ -455,7 +471,7 @@ class TestWatchlistCRUD:
         assert not any(e.query == "临时" for e in entries2)
 
 
-# ── 待审队列：采纳 / 拒绝 ───────────────────────────────────
+# ── 待我确认：采纳 / 拒绝 ───────────────────────────────────
 
 def _seed_review_task(title="待审 FLAC 专辑", reason="pending_review") -> str:
     import asyncio
@@ -526,7 +542,7 @@ class TestReviewQueue:
         assert resp.status_code == 403
 
 
-# ── 待审队列：批量裁决 ──────────────────────────────────────
+# ── 待我确认：批量裁决 ──────────────────────────────────────
 
 class TestReviewBatch:
     def _batch_post(self, client, action, ids, reason="", note=""):

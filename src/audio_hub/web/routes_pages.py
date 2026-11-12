@@ -43,7 +43,7 @@ async def _common(request: Request, db, config, user: dict) -> dict:
         "csrf": getattr(request.state, "csrf", ""),
         "dry_run": config.dry_run,
         "review_count": await repo.count_pending_review(db),
-        # 隔离区待处理数（held）：与待审队列同理，是需要人工介入的积压量
+        # 隔离区待处理数（held）：与待我确认同理，是需要人工介入的积压量
         "quarantine_badge": await repo.count_quarantine_items(db, status="held"),
         # 有待重启改动时全页面挂横幅。放在 _common 而非只在 settings 页，
         # 是因为「界面显示实跑但运行时仍空跑」这种不一致，在任何页面
@@ -62,7 +62,7 @@ _FLASH_OK = {
     "rejected": "已拒绝",
     "batch_accepted": "批量采纳完成",
     "batch_rejected": "批量拒绝完成",
-    "run_once": "已手动触发一轮，结果见总览与命中记录",
+    "run_once": "已手动触发一轮，结果见总览与任务记录",
     "synced": "已同步下载器状态，完成的任务已推进归档",
     "password": "密码已修改",
     "revoke": "已登出所有设备",
@@ -74,7 +74,7 @@ _FLASH_OK = {
     "saved_scrape": "刮削设置已保存",
     "saved_seeding": "做种设置已保存",
     "saved_notify": "通知设置已保存，推送渠道已重建",
-    "saved_lackfill": "缺集补齐设置已保存",
+    "saved_lackfill": "补缺集设置已保存",
     "notify_test": "测试通知已发送，请到对应渠道查收",
     "events_cleared": "已清理 30 天前的事件",
 }
@@ -84,9 +84,9 @@ _FLASH_ERR = {
     "bad_reason": "请选择有效的拒绝原因",
     "batch_empty": "请先勾选要处理的条目",
     "batch_bad_action": "无效的批量动作",
-    "dispatch_failed": "派发失败，详见命中记录的错误信息",
+    "dispatch_failed": "派发失败，详见任务记录的错误信息",
     # 采纳时经站点适配器换取下载直链（馒头 genDlToken）失败，任务已标记 failed
-    "resolve_failed": "换取下载直链失败（站点适配器报错），详见命中记录的错误信息",
+    "resolve_failed": "换取下载直链失败（站点适配器报错），详见任务记录的错误信息",
     "need_admin": "该页面仅管理员可访问",
     "old_password": "当前密码不正确",
     "weak_password": "新密码至少 8 位",
@@ -234,7 +234,7 @@ async def _subscription_overview(db, config) -> dict:
 # ── /watchlist 订阅：v0.6 起在 routes_subscriptions（列表 / 新建 / 详情 / 立即搜索 / 暂停恢复）──
 
 
-# ── /records 命中记录 ───────────────────────────────────────
+# ── /records 任务记录 ───────────────────────────────────────
 
 @router.get("/records", response_class=HTMLResponse)
 async def records_page(
@@ -273,7 +273,7 @@ async def records_sync_now(
 ):
     """手动触发一次完成监听轮询（不等 poll_interval_minutes 的下一轮）。
 
-    把「下载器里已完成」立即推进到命中记录 / 归档链路；页面 30s 自动刷新，
+    把「下载器里已完成」立即推进到任务记录 / 归档链路；页面 30s 自动刷新，
     配合本按钮，状态不需要用户手动刷新页面。
     """
     runner = getattr(request.app.state, "runner", None)
@@ -284,9 +284,9 @@ async def records_sync_now(
     return RedirectResponse("/records?ok=synced", status_code=303)
 
 
-# ── 下载进度（命中记录页进度条数据源）────────────────────────
+# ── 下载进度（任务记录页进度条数据源）────────────────────────
 
-#: 进度聚合缓存：命中记录页 5s 轮询，但下载器 API 查询节流到 8s
+#: 进度聚合缓存：任务记录页 5s 轮询，但下载器 API 查询节流到 8s
 _DLPROG: dict[str, Any] = {"at": 0.0, "data": {}}
 _DLPROG_TTL = 8.0
 
@@ -329,7 +329,7 @@ async def download_progress(request: Request, user: dict = Depends(require_user)
     return data
 
 
-# ── /review 待审队列（最高频页面，PRD §12.2）──────────────────
+# ── /review 待我确认（最高频页面，PRD §12.2）──────────────────
 
 @router.get("/review", response_class=HTMLResponse)
 async def review_page(
@@ -463,11 +463,11 @@ async def review_batch(
 
     from urllib.parse import quote
     key = "batch_accepted" if action == "accept" else "batch_rejected"
-    detail = f"{ok_n} 项成功" + (f"，{fail_n} 项失败（详见命中记录）" if fail_n else "")
+    detail = f"{ok_n} 项成功" + (f"，{fail_n} 项失败（详见任务记录）" if fail_n else "")
     return RedirectResponse(f"/review?ok={key}&detail={quote(detail)}", status_code=303)
 
 
-# ── /sites 站点中心：v0.6 起在 routes_sites（列表 / 向导 / 测试 / 门禁）──
+# ── /sites 站点：v0.6 起在 routes_sites（列表 / 向导 / 测试 / 门禁）──
 
 
 # ── /settings 设置 ──────────────────────────────────────────
@@ -476,6 +476,7 @@ async def review_batch(
 async def settings_page(
     request: Request,
     ok: str | None = None, detail: str | None = None,
+    sec: str | None = None,
     user: dict = Depends(require_user),
     db=Depends(get_db), config=Depends(get_config),
 ):
@@ -507,6 +508,17 @@ async def settings_page(
         }
 
     templates = request.app.state.templates
+    active_sec = routes_settings.valid_section(sec)
+    all_groups = [
+        g for g in routes_settings.build_settings_groups(config)
+        # 补缺集组按 FRONTEND-RULES §1.3 迁往 /lackfill 页的设置抽屉
+        if g["action"] != "/settings/lackfill"
+    ]
+    group = next(
+        (g for g in all_groups
+         if routes_settings._SECTION_OF_ACTION.get(g["action"]) == active_sec),
+        None,
+    )
     ctx = await _common(request, db, config, user)
     ctx.update({
         "active": "settings",
@@ -514,7 +526,9 @@ async def settings_page(
         # ok/err 经文案表翻译；表里没有的键（如 SettingsError 的原文）原样展示
         "ok": ok, "flash_ok": _flash(request, "ok"),
         "err": _flash(request, "err"),
-        "groups": routes_settings.build_settings_groups(config),
+        "active_sec": active_sec,
+        "sections": routes_settings.settings_nav(active_sec),
+        "group": group,
         "default_downloader": dl_info,
         # 凭据只写不读：仅暴露是否已配置，绝不回显明文或密文。
         # 由 settings_store.credential_status 按站点类型判断所需凭据 ——
@@ -573,7 +587,7 @@ async def _query_tasks(db, *, state: str | None, limit: int,
 
 
 async def _count_tasks(db, *, state: str | None) -> int:
-    """命中记录分页用的总数（与 _query_tasks 同过滤条件）。"""
+    """任务记录分页用的总数（与 _query_tasks 同过滤条件）。"""
     sql = "SELECT COUNT(*) FROM tasks"
     params: list = []
     if state:
