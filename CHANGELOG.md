@@ -2,6 +2,37 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.19.0] - 2026-11-12
+
+lackfill（缺集补齐）子包完整落地：M1~M4 + Re0 主源 + 积分每周巡检。
+**测试 1183 → 1396**，ruff 0 error。
+
+### 新增
+
+- **M1 缺集扫描**：Emby/TMDB 直连扫描缺集（/lackfill 页 + 扫描 API，侧边栏入口）；
+  lackfill 配置（TMDB/Emby Key、115 Cookie、企微 Webhook 等）迁移设置页，保存即热生效
+- **M2 补齐链路**：115 转存（cookie 直连主、SA 备）；补齐台账入库；
+  Emby 核销状态机（6h 轮询 / 7 天超时 / 3 轮熔断告警）；转存后主动刷新 Emby 库
+- **M3 Re0 回填桥**：油猴脚本 + 回填令牌鉴权；缺集队列/预留/并发防护；
+  115 与 ed2k 双协议；NAS 常驻浏览器（linuxserver/chromium + Violentmonkey，
+  构建期校验，仅绑回环端口，`--profile re0` 按需启用）
+- **M4 AY 主通道**：爱影 API 查询/贪心选包/预算控制/预览与执行；
+  Re0 明确无结果或连续失败才 AY 限额补充，AY 指数退避、月度额度耗尽转下月
+- **CD2 落盘验证**：转存后按真实包名核对 CD2 目录、文件非空与两轮稳定快照，
+  确认后才刷新 Emby；支持多文件 ed2k 整包与冲突恢复
+- **Re0 积分每周巡检**：油猴 v1.2.0 每周空闲期自动巡检 /manager/account
+  （在途任务绝不打断），解析积分/结转/每周额度并回传；服务端落库留痕
+  （上限 104 条）并按 ≥20h 节流发 lackfill_refill 周报通知；
+  `POST/GET /api/lackfill/re0_points`
+- **Re0 浏览器健康检查**：CDP 只读探测 + 脚本心跳（180s 判离线），
+  管理页区分浏览器在线与脚本状态
+
+### 变更
+
+- **license 强制门禁改为「仅配置验签公钥时生效」**：未配置
+  `AUDIO_HUB_LICENSE_PUBLIC_KEY` 的部署无法验签，强制会把实例锁死在
+  /activate，现视为未启用；显式 `AUDIO_HUB_LICENSE_REQUIRED=0` 恒可关闭
+
 ## [0.18.1] - 2026-10-15
 
 待审队列批量裁决 + 订阅首次搜索转后台。**测试 1176 → 1183**，ruff 0 error。

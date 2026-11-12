@@ -83,15 +83,24 @@ def test_verify_without_public_key_returns_none(keypair, monkeypatch):
     assert lic.verify_license(_issue(pem)) is None
 
 
-def test_required_flag_parsing(monkeypatch):
-    """显式 =0/false/no/off 关闭；其他值（含未设置）= 默认强制开启。"""
+def test_required_flag_parsing(monkeypatch, keypair):
+    """显式 =0/false/no/off 恒关闭；无公钥时即使 =1 也不强制（防锁死）；有公钥默认强制。"""
+    monkeypatch.delenv("AUDIO_HUB_LICENSE_PUBLIC_KEY", raising=False)
     for v in ("0", "false", "no", "off"):
         monkeypatch.setenv("AUDIO_HUB_LICENSE_REQUIRED", v)
         assert lic.license_required() is False
+    # 无公钥：无法验签，强制视为未启用
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_REQUIRED", "1")
+    assert lic.license_required() is False
+    monkeypatch.delenv("AUDIO_HUB_LICENSE_REQUIRED")
+    assert lic.license_required() is False
+    # 有公钥：默认强制；=1 强制；=0 仍关闭
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_PUBLIC_KEY", keypair[1])
+    assert lic.license_required() is True
     monkeypatch.setenv("AUDIO_HUB_LICENSE_REQUIRED", "1")
     assert lic.license_required() is True
-    monkeypatch.delenv("AUDIO_HUB_LICENSE_REQUIRED")
-    assert lic.license_required() is True   # v0.17 起默认强制
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_REQUIRED", "0")
+    assert lic.license_required() is False
 
 
 # ── 集成：激活页与强制门禁 ──────────────────────────────────
@@ -153,7 +162,8 @@ def test_activate_rejects_bad_key_when_pubkey_set(client, keypair, monkeypatch):
     assert "err=invalid" in resp.headers["location"]
 
 
-def test_gate_redirects_when_required_and_invalid(client, monkeypatch):
+def test_gate_redirects_when_required_and_invalid(client, monkeypatch, keypair):
+    monkeypatch.setenv("AUDIO_HUB_LICENSE_PUBLIC_KEY", keypair[1])
     monkeypatch.setenv("AUDIO_HUB_LICENSE_REQUIRED", "1")
     # 依赖在请求时读取环境：直接访问受保护页
     resp = client.get("/dashboard", follow_redirects=False)

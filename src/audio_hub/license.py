@@ -8,8 +8,10 @@ payload（JSON，键序固定）::
 - 签发：scripts/issue_license.py（Ed25519 私钥只保存在作者手里，不入仓库）
 - 验证：公钥经环境变量 AUDIO_HUB_LICENSE_PUBLIC_KEY 注入（32 字节 raw 的 base64）
 - 存储：app_settings 表 license_key 键（明文即可——它本身是签名产物，不含秘密）
-- 强制模式：AUDIO_HUB_LICENSE_REQUIRED=1 时，无有效授权码则除激活 / 登录 /
-  初始化 / 静态资源 / 健康检查外的所有页面跳转 /activate
+- 强制模式：默认开启（仅在已配置验签公钥时生效；未配置公钥的部署无法验签，
+  强制会把实例锁死，故视为未启用）。显式关闭：AUDIO_HUB_LICENSE_REQUIRED=0。
+  启用后，无有效授权码则除激活 / 登录 / 初始化 / 静态资源 / 健康检查外的
+  所有页面跳转 /activate
 
 公钥未配置时视为「未启用授权校验」：verify 一律返回 None，但 key 仍可保存
 （作者以后配置了公钥即可生效）。
@@ -48,11 +50,14 @@ def public_key_b64() -> str:
 
 
 def license_required() -> bool:
-    """是否启用强制门禁。**v0.17 起默认开启**：未激活授权码前只放行
-    激活 / 登录 / 初始化页。开发或特殊场景可显式关闭：
-    AUDIO_HUB_LICENSE_REQUIRED=0（false/no/off 同义）。"""
+    """是否启用强制门禁。默认开启，但仅在已配置验签公钥时生效：
+    未配置 AUDIO_HUB_LICENSE_PUBLIC_KEY 的部署（如作者本地开发）无法验签，
+    强制门禁会把实例永久锁死在 /activate，故视为未启用。
+    显式关闭：AUDIO_HUB_LICENSE_REQUIRED=0（false/no/off 同义）。"""
     raw = os.environ.get("AUDIO_HUB_LICENSE_REQUIRED", "").strip().lower()
-    return raw not in ("0", "false", "no", "off")
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return bool(public_key_b64())
 
 
 def verify_url() -> str:

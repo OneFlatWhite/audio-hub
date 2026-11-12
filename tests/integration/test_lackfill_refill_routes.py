@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 from datetime import date
 from types import SimpleNamespace
+from typing import ClassVar
 
 import httpx
 import pytest
 from fastapi import FastAPI
 
 from audio_hub.config import LackfillConfig
-from audio_hub.lackfill import ledger, queue
+from audio_hub.lackfill import ledger, queue, re0_status
 from audio_hub.lackfill.models import ShowLack
 from audio_hub.notify.base import MultiNotifier
 from audio_hub.web.routes_lackfill import router
@@ -317,3 +318,90 @@ class TestRefillStatus:
         assert resp.status_code == 200, resp.text
         assert await re0_status.eligible_for_ay(bridge_app.state.db, 200) is True
         assert len(bridge_app.state.test_sink.events) == 3
+
+
+class TestRe0Points:
+    POINTS_BODY: ClassVar[dict] = {
+        "balance": 2944,
+        "rollover": 1000,
+        "weekly_used_percent": 0,
+        "weekly_quota_raw": "1400 / 1400",
+        "vip": "长期VIP",
+    }
+
+    async def test_points_requires_refill_token(self, bridge_app):
+        async with _client(bridge_app) as client:
+            resp = await client.post("/api/lackfill/re0_points", json=self.POINTS_BODY)
+        assert resp.status_code == 401
+
+    async def test_first_report_stores_baseline_and_emits_info_event(self, bridge_app):
+        async with _client(bridge_app) as client:
+            resp = await client.post(
+                "/api/lackfill/re0_points", headers=HEADERS, json=self.POINTS_BODY
+            )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+        assert data["delta"] is None
+        assert data["notified"] is True
+
+        events = bridge_app.state.test_sink.events
+        assert len(events) == 1
+        assert events[0].kind == "lackfill_refill"
+        assert events[0].level == "info"
+        assert events[0].title == "Re0 积分基线"
+        assert events[0].detail["balance"] == 2944
+        assert "1400 / 1400" in events[0].detail["summary"]
+
+        history = await re0_status.points_history(bridge_app.state.db)
+        assert history["latest"]["balance"] == 2944
+        assert len(history["history"]) == 1
+
+    async def test_repeat_report_within_throttle_is_silent_with_delta(self, bridge_app):
+        async with _client(bridge_app) as client:
+            first = await client.post(
+                "/api/lackfill/re0_points", headers=HEADERS, json=self.POINTS_BODY
+            )
+            second = await client.post(
+                "/api/lackfill/re0_points",
+                headers=HEADERS,
+                json={**self.POINTS_BODY, "balance": 2900},
+            )
+        assert first.json()["data"]["notified"] is True
+        assert second.json()["data"]["notified"] is False
+        assert second.json()["data"]["delta"] == 2900 - 2944
+        assert len(bridge_app.state.test_sink.events) == 1  # 节流：不刷屏
+        history = await re0_status.points_history(bridge_app.state.db)
+        assert len(history["history"]) == 2
+        assert history["latest"]["balance"] == 2900
+
+    async def test_weekly_report_after_old_baseline_emits_digest_with_delta(self, bridge_app):
+        from datetime import datetime, timedelta
+
+        week_ago = (datetime.now() - timedelta(days=8)).isoformat()
+        await re0_status.save_points(
+            bridge_app.state.db, {"balance": 3000, "rollover": 900}, week_ago
+        )
+        async with _client(bridge_app) as client:
+            resp = await client.post(
+                "/api/lackfill/re0_points",
+                headers=HEADERS,
+                json={**self.POINTS_BODY, "balance": 2944},
+            )
+        assert resp.json()["data"]["delta"] == 2944 - 3000
+        assert resp.json()["data"]["notified"] is True
+        events = bridge_app.state.test_sink.events
+        assert len(events) == 1
+        assert events[0].title == "Re0 积分周报"
+        assert "-56" in events[0].detail["summary"]
+
+    async def test_unparseable_fields_are_stored_as_null(self, bridge_app):
+        async with _client(bridge_app) as client:
+            resp = await client.post(
+                "/api/lackfill/re0_points",
+                headers=HEADERS,
+                json={"balance": None, "weekly_quota_raw": ""},
+            )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["notified"] is True
+        history = await re0_status.points_history(bridge_app.state.db)
+        assert history["latest"]["balance"] is None

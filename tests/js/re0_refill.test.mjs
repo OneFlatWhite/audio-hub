@@ -9,7 +9,7 @@ function loadScript({ html = '', text = '', values = {}, responses = [], href = 
   const source = readFileSync(sourcePath, 'utf8');
   const instrumented = source.replace(
     /\}\)\(\);\s*$/,
-    'globalThis.__re0Test = { harvest115, isChallenge, request, submitLinks, pause, requiredPoints, searchUrl, normalizeBaseUrl, onPageLoad, buildPanel };})();',
+    'globalThis.__re0Test = { harvest115, isChallenge, request, submitLinks, pause, requiredPoints, searchUrl, normalizeBaseUrl, onPageLoad, buildPanel, readPointsPage, pointsDue, maybeStartPointsCheck, maybeReportPoints };})();',
   );
   assert.notEqual(instrumented, source, '测试应能注入到油猴 IIFE 末尾');
   const calls = [];
@@ -192,4 +192,102 @@ test('手动单找在自动开关关闭时仍会完成资源页回填', async ()
   assert.equal(calls[1].url, 'http://localhost:8000/api/lackfill/refill_status');
   assert.equal(JSON.parse(calls[1].data).status, 'success');
   assert.equal(storage.get('cur'), null);
+});
+
+const ACCOUNT_TEXT = '个人中心coldbrewliu积分2944可用积分分享0分享次数注册315天'
+  + '2025.12.31会员状态∞长期 VIP0%每周免费额度长期 VIP1400/ 1400'
+  + '未使用完累积额度： 1000详细信息用户名yushixin1993@163.com邮箱';
+
+test('积分页解析：余额、结转、每周额度与已用百分比', () => {
+  const { api } = loadScript({ href: 'https://re0.me/manager/account', text: ACCOUNT_TEXT });
+  const points = JSON.parse(JSON.stringify(api.readPointsPage()));
+  assert.deepEqual(points, {
+    balance: 2944,
+    rollover: 1000,
+    weekly_used_percent: 0,
+    weekly_quota_raw: '1400 / 1400',
+    vip: '长期VIP',
+  });
+});
+
+test('积分页结构变化时余额解析为 null 而不是猜数', () => {
+  const { api } = loadScript({ href: 'https://re0.me/manager/account', text: '页面改版了' });
+  const points = api.readPointsPage();
+  assert.equal(points.balance, null);
+  assert.equal(points.weekly_quota_raw, '');
+});
+
+test('每周积分巡检到期且空闲时置 pending 并跳账户页，在途任务绝不打断', () => {
+  const weekAgo = Date.now() - 8 * 24 * 3600 * 1000;
+  const idle = loadScript({
+    href: 'https://re0.me/',
+    values: { ah_points_last_at: weekAgo },
+  });
+  idle.api.maybeStartPointsCheck();
+  assert.equal(idle.storage.get('ah_points_pending'), true);
+
+  const busyWithTask = loadScript({
+    href: 'https://re0.me/',
+    values: { ah_points_last_at: weekAgo, cur: { tmdb_id: 1, stage: 'search', steps: 0 } },
+  });
+  busyWithTask.api.maybeStartPointsCheck();
+  assert.notEqual(busyWithTask.storage.get('ah_points_pending'), true);
+
+  const backedOff = loadScript({
+    href: 'https://re0.me/',
+    values: { ah_points_last_at: Date.now() - 23 * 3600 * 1000, ah_points_pending: true, ah_points_attempts: 3 },
+  });
+  backedOff.api.maybeStartPointsCheck();
+  assert.equal(backedOff.storage.get('ah_points_pending'), true); // 退避期内不再重试导航
+});
+
+test('账户页待上报时回传积分快照、清 pending 并记录快照文案', async () => {
+  const { api, calls, storage } = loadScript({
+    href: 'https://re0.me/manager/account',
+    text: ACCOUNT_TEXT,
+    values: {
+      audioHubUrl: 'http://localhost:8000',
+      refillToken: 'secret-token',
+      ah_points_pending: true,
+    },
+    responses: [{ status: 200, body: { success: true, data: { delta: null, notified: true } } }],
+  });
+  await api.maybeReportPoints();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'http://localhost:8000/api/lackfill/re0_points');
+  assert.deepEqual(JSON.parse(calls[0].data), {
+    balance: 2944,
+    rollover: 1000,
+    weekly_used_percent: 0,
+    weekly_quota_raw: '1400 / 1400',
+    vip: '长期VIP',
+  });
+  assert.equal(storage.get('ah_points_pending'), false);
+  assert.equal(storage.get('ah_points_attempts'), 0);
+  assert.ok(String(storage.get('ah_points_last_text')).includes('可用 2944'));
+});
+
+test('积分上报失败累计尝试，3 次后退避 24 小时', async () => {
+  const { api, storage } = loadScript({
+    href: 'https://re0.me/manager/account',
+    text: ACCOUNT_TEXT,
+    values: {
+      audioHubUrl: 'http://localhost:8000',
+      refillToken: 'secret-token',
+      ah_points_pending: true,
+    },
+    responses: [
+      { status: 500, body: { detail: 'boom' } },
+      { status: 500, body: { detail: 'boom' } },
+      { status: 500, body: { detail: 'boom' } },
+    ],
+  });
+  await api.maybeReportPoints();
+  await api.maybeReportPoints();
+  await api.maybeReportPoints();
+  assert.equal(storage.get('ah_points_pending'), false); // 3 次后退避，不再自动重试
+  assert.equal(storage.get('ah_points_attempts'), 0);
+  const lastAt = Number(storage.get('ah_points_last_at'));
+  const remaining = lastAt - (Date.now() - 7 * 24 * 3600 * 1000);
+  assert.ok(Math.abs(remaining - 24 * 3600 * 1000) < 5 * 60 * 1000); // 约 24h 后重新到期
 });
