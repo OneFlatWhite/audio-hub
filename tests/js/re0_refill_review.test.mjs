@@ -314,7 +314,7 @@ test('待机也上报心跳、脚本版本和当前阶段', async () => {
   assert.equal(body.status, 'waiting');
   assert.equal(body.stage, 'resource');
   assert.equal(body.auto_running, false);
-  assert.equal(body.script_version, '1.1.0');
+  assert.equal(body.script_version, '1.2.0');
 });
 
 test('暂停原因在后续待机心跳中保留', async () => {

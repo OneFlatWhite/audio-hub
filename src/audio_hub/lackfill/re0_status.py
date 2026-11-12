@@ -104,3 +104,55 @@ async def eligible_for_ay(conn, tmdb_id: int) -> bool:
     )
     row = await cur.fetchone()
     return bool(row and (row["status"] == "not_found" or (row["status"] == "failed" and row["attempts"] >= 3)))
+
+
+# ── 积分巡检（油猴每周上报 /manager/account 页数据） ──────────────
+
+_POINTS_KEY = "__lackfill_re0_points"
+_POINTS_KEEP = 104  # 约 2 年的周报
+
+
+async def points_history(conn) -> dict:
+    """已存积分上报：{"latest": 最新一条 | None, "history": [...]}。损坏数据视为空。"""
+    cur = await conn.execute("SELECT value FROM app_settings WHERE key = ?", (_POINTS_KEY,))
+    row = await cur.fetchone()
+    if row is None:
+        return {"latest": None, "history": []}
+    try:
+        value = json.loads(row["value"])
+        if not isinstance(value, dict) or not isinstance(value.get("history"), list):
+            raise TypeError("invalid points state")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {"latest": None, "history": []}
+    return value
+
+
+async def save_points(conn, payload: dict, now: str) -> dict:
+    """追加一条积分上报并返回 {entry, prev, delta}；字段白名单化，余额可空。"""
+    state = await points_history(conn)
+    prev = state["latest"]
+    entry = {
+        "at": now,
+        "balance": payload.get("balance"),
+        "rollover": payload.get("rollover"),
+        "weekly_used_percent": payload.get("weekly_used_percent"),
+        "weekly_quota_raw": str(payload.get("weekly_quota_raw") or "")[:40],
+        "vip": str(payload.get("vip") or "")[:20],
+    }
+    state["history"].append(entry)
+    state["history"] = state["history"][-_POINTS_KEEP:]
+    state["latest"] = entry
+    await conn.execute(
+        """INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""",
+        (_POINTS_KEY, json.dumps(state, ensure_ascii=False), now),
+    )
+    await conn.commit()
+    delta = None
+    if (
+        prev is not None
+        and entry["balance"] is not None
+        and prev.get("balance") is not None
+    ):
+        delta = entry["balance"] - prev["balance"]
+    return {"entry": entry, "prev": prev, "delta": delta}

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         audio-hub Re0 缺集回填
 // @namespace    https://github.com/OneFlatWhite/audio-hub
-// @version      1.1.0
-// @description  从 audio-hub 缺集队列获取任务，在 Re0 搜索并回填 115 分享链接或 ed2k 离线指令。无需 MoviePilot。
+// @version      1.2.0
+// @description  从 audio-hub 缺集队列获取任务，在 Re0 搜索并回填 115 分享链接或 ed2k 离线指令；每周自动巡检账户页积分并回传周报。无需 MoviePilot。
 // @author       OneFlatWhite
 // @match        *://re0.me/*
 // @match        *://www.re0.me/*
@@ -33,9 +33,13 @@
   const MAX_SESSION_PAGES = 30;
   const MAX_TASK_STEPS = 8;
   const MAX_TASK_FAILURES = 3;
+  const POINTS_WEEK_MS = 7 * 24 * 3600 * 1000;
+  const POINTS_BACKOFF_MS = 24 * 3600 * 1000;
+  const ACCOUNT_URL = 'https://re0.me/manager/account';
   const API_QUEUE = '/api/lackfill/refill_queue';
   const API_SUBMIT = '/api/lackfill/refill_submit';
   const API_STATUS = '/api/lackfill/refill_status';
+  const API_POINTS = '/api/lackfill/re0_points';
 
   let queue = [];
   let autoRunning = GM_getValue('autoRunning', false);
@@ -165,6 +169,73 @@
       || /Cloudflare[\s\S]*Ray ID/i.test(text);
   }
 
+  // ── 每周积分巡检：/manager/account 快照解析与上报 ──────────────
+
+  function readPointsPage() {
+    const clean = String(document.body?.textContent || '').replace(/\u00a0/g, ' ');
+    const num = (value) => (value == null ? null : Number(String(value).replace(/,/g, '')));
+    let match = clean.match(/([0-9][0-9,]*)\s*可用积分/);
+    const balance = match ? num(match[1]) : null;
+    match = clean.match(/未使用完累积额度[：:]\s*([0-9][0-9,]*)/);
+    const rollover = match ? num(match[1]) : null;
+    match = clean.match(/([0-9]{1,3})\s*%\s*每周免费额度/);
+    const weekly_used_percent = match ? Number(match[1]) : null;
+    let weekly_quota_raw = '';
+    const anchor = clean.indexOf('每周免费额度');
+    if (anchor >= 0) {
+      const seg = clean.slice(anchor, anchor + 120).match(/([0-9][0-9,]*)\s*\/\s*([0-9][0-9,]*)/);
+      if (seg) weekly_quota_raw = `${seg[1]} / ${seg[2]}`;
+    }
+    const vip = /长期\s*VIP/.test(clean) ? '长期VIP' : '';
+    return { balance, rollover, weekly_used_percent, weekly_quota_raw, vip };
+  }
+
+  function pointsDue() {
+    return Date.now() - Number(GM_getValue('ah_points_last_at', 0)) >= POINTS_WEEK_MS;
+  }
+
+  function maybeStartPointsCheck() {
+    if (busy || getCur()) return; // 绝不打断在途任务
+    if (!isRe0Host(location.hostname) || location.pathname === '/manager/account') return;
+    const pending = Boolean(GM_getValue('ah_points_pending', false));
+    const due = pointsDue();
+    if (!pending && !due) return;
+    if (pending && !due && Number(GM_getValue('ah_points_attempts', 0)) >= 3) return; // 退避中
+    GM_setValue('ah_points_pending', true);
+    log('开始每周积分巡检（/manager/account）');
+    location.href = ACCOUNT_URL;
+  }
+
+  async function maybeReportPoints() {
+    if (!GM_getValue('ah_points_pending', false)) return; // 用户自己浏览账户页：不动作
+    if (isChallenge() && !(await waitForChallenge())) return; // 等人工过盾，pending 保留
+    try {
+      const points = readPointsPage();
+      if (points.balance === null) throw new Error('积分页解析失败，页面结构可能变化');
+      await request(API_POINTS, { method: 'POST', body: points });
+      GM_setValue('ah_points_pending', false);
+      GM_setValue('ah_points_attempts', 0);
+      GM_setValue('ah_points_last_at', Date.now());
+      GM_setValue('ah_points_last_text',
+        `可用 ${points.balance}`
+        + (points.weekly_quota_raw ? ` · 每周 ${points.weekly_quota_raw}` : '')
+        + (points.weekly_used_percent != null ? ` · 已用 ${points.weekly_used_percent}%` : '')
+        + (points.rollover != null ? ` · 结转 ${points.rollover}` : ''));
+      log(`积分上报成功：可用 ${points.balance}`);
+    } catch (e) {
+      const attempts = Number(GM_getValue('ah_points_attempts', 0)) + 1;
+      GM_setValue('ah_points_attempts', attempts);
+      log(`积分上报失败（第 ${attempts} 次）：${e.message}`);
+      if (attempts >= 3) {
+        // 连败退避：清 pending，24h 后重新到期再试
+        GM_setValue('ah_points_pending', false);
+        GM_setValue('ah_points_attempts', 0);
+        GM_setValue('ah_points_last_at', Date.now() - POINTS_WEEK_MS + POINTS_BACKOFF_MS);
+      }
+    }
+    location.href = 'https://re0.me/';
+  }
+
   function requiredPointsList(root = document.body) {
     const text = root?.textContent || '';
     return [...text.matchAll(/需要使用\s*(\d+)\s*积分/g)]
@@ -254,7 +325,7 @@
         stage: task?.stage || '',
         attempts: task ? failCount(task) : 0,
         auto_running: autoRunning,
-        script_version: '1.1.0',
+        script_version: '1.2.0',
         queue_count: queue.length,
       },
     });
@@ -387,6 +458,10 @@
 
   async function onPageLoad() {
     const cur = getCur();
+    if (isRe0Host(location.hostname) && location.pathname === '/manager/account') {
+      await maybeReportPoints();
+      return;
+    }
     if (!cur || (!autoRunning && !cur.manual)) return;
     if (isChallenge() && !(await waitForChallenge())) return;
 
@@ -604,6 +679,11 @@
       busy = false;
       log('当前任务已清除，可重新选择');
     }, true));
+    actions.appendChild(button('立即查积分', () => {
+      if (busy) { log('当前有任务在跑，稍后再查'); return; }
+      GM_setValue('ah_points_pending', true);
+      location.href = ACCOUNT_URL;
+    }, true));
     body.appendChild(actions);
 
     const setup = element('div');
@@ -638,6 +718,14 @@
     }));
     body.appendChild(setup);
     body.appendChild(element('div', 'muted', '浏览器需保持 Re0 页面打开；Cloudflare 与付费积分只转人工，不自动绕过。'));
+    const pointsInfo = element('div', 'muted');
+    pointsInfo.id = 'ah-points';
+    const lastAt = Number(GM_getValue('ah_points_last_at', 0));
+    const lastText = String(GM_getValue('ah_points_last_text', '') || '');
+    pointsInfo.textContent = lastAt && lastText
+      ? `积分快照（${new Date(lastAt).toLocaleDateString()}）：${lastText}`
+      : '积分快照：尚无上报（每周自动巡检一次）';
+    body.appendChild(pointsInfo);
     const taskList = element('div');
     taskList.id = 'ah-tasks';
     body.appendChild(taskList);
@@ -683,6 +771,7 @@
         if (autoRunning) await pause(e.message, 'failed');
         else log(`队列或心跳更新失败：${e.message}`);
       }
+      maybeStartPointsCheck();
     }, POLL_MS);
   }
 

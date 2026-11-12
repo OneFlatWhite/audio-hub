@@ -55,6 +55,16 @@ class RefillStatus(BaseModel):
     queue_count: int = Field(default=0, ge=0)
 
 
+class RefillPoints(BaseModel):
+    """油猴每周从 /manager/account 页解析出的积分快照；数值解析失败允许为空。"""
+
+    balance: int | None = Field(default=None, ge=0)
+    rollover: int | None = Field(default=None, ge=0)
+    weekly_used_percent: int | None = Field(default=None, ge=0, le=100)
+    weekly_quota_raw: str = Field(default="", max_length=40)
+    vip: str = Field(default="", max_length=20)
+
+
 async def _require_refill_key(
     config=Depends(get_config),
     provided: str | None = Header(default=None, alias="X-AudioHub-Refill-Key"),
@@ -518,3 +528,60 @@ async def refill_status(
         level="warning",
     ))
     return {"success": True}
+
+
+def _hours_between(start_iso: str, end_iso: str) -> float:
+    try:
+        delta = datetime.fromisoformat(end_iso) - datetime.fromisoformat(start_iso)
+    except (TypeError, ValueError):
+        return 0.0
+    return delta.total_seconds() / 3600
+
+
+@router.post("/api/lackfill/re0_points")
+async def refill_points_report(
+    request: Request,
+    body: RefillPoints,
+    _auth: None = Depends(_require_refill_key),
+    db=Depends(get_db),
+):
+    """油猴每周积分上报：落库留痕；距上一条 ≥20h 才发通知（周报节流，手点重试不刷屏）。"""
+    now = datetime.now().isoformat()
+    saved = await re0_status.save_points(db, body.model_dump(), now)
+    entry, prev, delta = saved["entry"], saved["prev"], saved["delta"]
+    fresh = prev is None or _hours_between(str(prev.get("at") or ""), now) >= 20
+    if fresh:
+        parts = []
+        if entry["balance"] is not None:
+            parts.append(f"可用 {entry['balance']}")
+        if delta is not None:
+            parts.append(f"较上次 {'+' if delta >= 0 else ''}{delta}")
+        if entry["rollover"] is not None:
+            parts.append(f"累积结转 {entry['rollover']}")
+        if entry["weekly_quota_raw"]:
+            parts.append(f"每周额度 {entry['weekly_quota_raw']}")
+        if entry["weekly_used_percent"] is not None:
+            parts.append(f"已用 {entry['weekly_used_percent']}%")
+        await request.app.state.notifier.emit(Event(
+            kind="lackfill_refill",
+            site="re0.me",
+            title="Re0 积分周报" if prev is not None else "Re0 积分基线",
+            detail={
+                "status": "points",
+                "summary": "；".join(parts) or "已记录快照",
+                "balance": entry["balance"],
+                "delta": delta,
+                "rollover": entry["rollover"],
+                "weekly_quota_raw": entry["weekly_quota_raw"],
+                "weekly_used_percent": entry["weekly_used_percent"],
+                "at": entry["at"],
+            },
+            level="info",
+        ))
+    return {"success": True, "data": {"delta": delta, "notified": fresh}}
+
+
+@router.get("/api/lackfill/re0_points")
+async def refill_points_view(_user: None = Depends(require_user), db=Depends(get_db)):
+    """最近积分快照与历史（登录用户可看，便于页面/排查）。"""
+    return {"success": True, "data": await re0_status.points_history(db)}
