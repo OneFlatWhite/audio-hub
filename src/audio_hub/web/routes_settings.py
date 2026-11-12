@@ -381,3 +381,53 @@ def build_settings_groups(config) -> list[dict]:
         }
         for action, title, note, keys, _ in _GROUPS
     ]
+
+
+def lackfill_settings_sections(config) -> list[dict]:
+    """补缺集页设置抽屉的渲染数据：主链展开，通道细节折叠 + 状态摘要。
+
+    FRONTEND-RULES §1.3（配置跟着使用走）+ §2.2（低频/高级配置默认折叠）。
+    字段仍由 LACKFILL_SPECS 驱动、保存仍走 POST /settings/lackfill 单端点，
+    这里只按 key 前缀分桶，不复制 spec。
+    """
+    group = next(
+        (g for g in build_settings_groups(config) if g["action"] == "/settings/lackfill"),
+        None,
+    )
+    if group is None:
+        return []
+    lf = config.lackfill
+
+    def bucket(*prefixes: str) -> list[dict]:
+        keys = tuple(prefixes)
+        return [f for f in group["fields"] if f["key"].startswith(keys)]
+
+    # ui_url 可能带 userinfo(gui:password@host)——旧布局该字段在设置页,
+    # 迁到 /lackfill 后直接回显会把凭据写进 DOM。渲染前统一脱敏。
+    from ..lackfill import re0_browser as _re0_browser
+    for f in group["fields"]:
+        if f["key"] == "lackfill_re0_browser_ui_url" and f.get("text"):
+            f["text"] = _re0_browser.public_ui_url(f["text"])
+
+    main = [
+        f for f in group["fields"]
+        if not f["key"].startswith(("lackfill_ay_", "lackfill_sa_", "lackfill_wecom",
+                                    "lackfill_re0_", "lackfill_refill_"))
+    ]
+    return [
+        {"id": "main", "title": "主链（必配）", "open": True,
+         "status": "Emby/115 就绪" if (lf.emby_url and lf.p115_cookie) else "待配置",
+         "fields": main},
+        {"id": "ay", "title": "爱影 API · 限额补充", "open": False,
+         "status": "已配置" if lf.ay_api_token else "未配置（可选）",
+         "fields": bucket("lackfill_ay_")},
+        {"id": "sa", "title": "SA 备链（高级）", "open": False,
+         "status": "已配置" if lf.sa_base_url else "未配置（仅主链失败时需要）",
+         "fields": bucket("lackfill_sa_", "lackfill_wecom")},
+        {"id": "re0", "title": "Re0 主源 · NAS 浏览器",
+         # 令牌未配置时展开:回填令牌有 minlength=32 的浏览器必填,
+         # 折叠态下校验失败会指向不可见输入框,违反 §2.2 折叠不藏必填
+         "open": not lf.refill_api_key,
+         "status": "已启用" if lf.re0_browser_enabled else "未启用",
+         "fields": bucket("lackfill_re0_", "lackfill_refill_")},
+    ]

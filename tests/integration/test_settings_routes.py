@@ -776,13 +776,29 @@ class TestNotifyPush:
 
 # ── lackfill（缺集补齐）设置组 ──────────────────────────────
 class TestLackfillGroup:
-    def test_page_renders_lackfill_group(self, client):
+    def test_settings_page_points_to_lackfill_drawer(self, client):
+        """FRONTEND-RULES §1.3:配置跟着使用走——设置页不再渲染该组,只留指引卡。"""
         _setup_admin(client)
         page = client.get("/settings")
+        assert page.status_code == 200
+        assert 'action="/settings/lackfill"' not in page.text
+        assert 'name="lackfill_emby_url"' not in page.text
+        assert "/lackfill" in page.text and "补缺集" in page.text
+
+    def test_lackfill_page_renders_settings_drawer(self, client):
+        """补缺集页设置抽屉:主链展开,爱影/SA/Re0 折叠,保存仍走原端点。"""
+        _setup_admin(client)
+        page = client.get("/lackfill")
         assert page.status_code == 200
         assert 'action="/settings/lackfill"' in page.text
         assert 'name="lackfill_enabled"' in page.text
         assert 'name="lackfill_emby_url"' in page.text
+        assert 'name="lackfill_sa_base_url"' in page.text
+        assert 'name="lackfill_ay_api_url"' in page.text
+        assert 'name="lackfill_re0_browser_enabled"' in page.text
+        # 主链区块默认展开,通道区块默认折叠(details)
+        assert "主链（必配）" in page.text
+        assert page.text.count("<details") >= 2
 
     def test_save_lackfill_applies_without_restart(self, client):
         """lackfill 组全量 SCOPE_HOT：保存即热生效，无重启标记。"""
@@ -814,7 +830,7 @@ class TestLackfillGroup:
         assert app.state.config.lackfill.emby_api_key == "EMBY_SECRET_123"
         overrides = asyncio.run(store.load_overrides(app.state.db))
         assert "EMBY_SECRET_123" not in str(overrides)
-        page = client.get("/settings")
+        page = client.get("/lackfill")   # 字段已迁往补缺集页设置抽屉
         assert "EMBY_SECRET_123" not in page.text
         # 留空提交不覆盖已保存的凭据（带上另一字段避免「无变更」短路）
         resp2 = _post_settings(client, "/settings/lackfill", {
@@ -858,7 +874,7 @@ class TestLackfillGroup:
         assert "REFILL_SECRET_1234567890abcdef1234567890" not in overrides["lackfill_refill_api_key"]
         page = client.get("/settings")
         assert "REFILL_SECRET_1234567890abcdef1234567890" not in page.text
-        assert 'name="lackfill_refill_api_key"' in page.text
+        assert 'name="lackfill_refill_api_key"' in client.get("/lackfill").text
 
     def test_re0_install_entry_and_static_script(self, client):
         _setup_admin(client)
@@ -949,7 +965,7 @@ class TestLackfillGroup:
         overrides = asyncio.run(store.load_overrides(app.state.db))
         assert "CALLBACK_SIGNING_SECRET_123456" not in str(overrides)
         assert "AES_SECRET_1234567890abcdef1234567890" not in str(overrides)
-        page = client.get("/settings")
+        page = client.get("/lackfill")   # SA 字段已迁往补缺集页设置抽屉
         assert 'name="lackfill_sa_callback_url"' in page.text
         assert "CALLBACK_SIGNING_SECRET_123456" not in page.text
         assert "AES_SECRET_1234567890abcdef1234567890" not in page.text

@@ -28,6 +28,7 @@ from ..lackfill import (
 )
 from ..lackfill.refill import ed2k_package_name, normalize_resource_links, resource_identity
 from ..notify.base import Event
+from . import routes_settings as settings_routes
 from .deps import get_config, get_db, require_admin, require_admin_csrf, require_user, verify_csrf
 from .routes_pages import _common
 
@@ -150,6 +151,8 @@ async def _render_lackfill(
         "ay_status": await ay.quota_status(db),
         "cloud_items": await cloud.list_by_status(db, "waiting", "ready", "failed"),
         "cloud_enabled": cfg.cloud_verify_enabled,
+        # 设置抽屉:配置跟使用走(FRONTEND-RULES §1.3),主链展开/通道折叠
+        "settings_sections": settings_routes.lackfill_settings_sections(config),
         "new_refill_token": new_refill_token,
         "flash_ok": _flash(request, "ok"),
         "flash_err": _flash(request, "err"),

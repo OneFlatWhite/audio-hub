@@ -36,11 +36,10 @@
   <a href="#set-session">会话</a>
 </nav>
 
-{# ── 可编辑设置（由 settings_store 的 SPEC 驱动，模板不写死字段名）── #}
+{# ── 可编辑设置（由 settings_store 的 SPEC 驱动，模板不写死字段名）──
+   缺集补齐组已按 FRONTEND-RULES §1.3「配置跟着使用走」迁往 /lackfill 页，
+   路由层已从 groups 里滤掉,页面只剩指引卡。 #}
 {% for g in groups %}
-{# 嵌套 for 中内层 loop 会遮蔽外层，故先把外层序号存下来。
-   v1 曾写成 g.loop_index（不存在的属性），会让各组字段 id 重复，
-   label 的 for 错配到别的控件 —— 点击标签会操作错误的输入框。 #}
 {% set gi = loop.index0 %}
 <div class="panel" id="set-g{{ gi }}">
   <h2>{{ g.title }}</h2>
@@ -49,63 +48,9 @@
   {% if g.fields %}
   <form method="post" action="{{ g.action }}">
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
-
-    {% for f in g.fields %}
-    {% set fid = 'fld-' ~ gi ~ '-' ~ loop.index0 %}
-    <div class="setrow">
-      <div class="setlabel">
-        <label for="{{ fid }}">{{ f.label }}</label>
-        <span class="scope {{ 'scope-hot' if f.hot else 'scope-restart' }}"
-              title="{{ '保存后立即生效' if f.hot else '保存后需重启服务才生效' }}">
-          {{- '热生效' if f.hot else '需重启' -}}
-        </span>
-        {% if f.hint %}<div class="hint">{{ f.hint }}</div>{% endif %}
-      </div>
-
-      <div class="setctl">
-        {# bool 用 select 而非 checkbox：checkbox 取消勾选时浏览器
-           根本不发送该字段，而本模块把「未提交」视为「不修改」，
-           会导致取消勾选被静默忽略。select 永远发送一个值。 #}
-        {% if f.kind == 'bool' %}
-        <select name="{{ f.key }}" id="{{ fid }}">
-          <option value="1" {{ 'selected' if f.checked }}>{{ f.on_label }}</option>
-          <option value="0" {{ 'selected' if not f.checked }}>{{ f.off_label }}</option>
-        </select>
-
-        {% elif f.kind == 'int' or f.kind == 'float' %}
-        {# 可空数值：不加 required，空框提交＝清除站点覆盖。
-           注意这与「未提交＝不修改」不冲突：字段始终被提交，只是值为空。 #}
-        <input type="number" name="{{ f.key }}" id="{{ fid }}" value="{{ f.text }}"
-               step="{{ f.step }}"
-               {% if f.lo is not none %}min="{{ f.lo }}"{% endif %}
-               {% if f.hi is not none %}max="{{ f.hi }}"{% endif %}
-               {% if f.nullable %}placeholder="留空＝使用全局默认"{% else %}required{% endif %}>
-
-        {% elif f.kind == 'list' %}
-        {# 逗号分隔的文本框；合法值在 hint 里列出，后端逐项校验 #}
-        <input type="text" name="{{ f.key }}" id="{{ fid }}" value="{{ f.text }}"
-               class="mono" spellcheck="false">
-
-        {% elif f.kind == 'secret' %}
-        {# 只写不读：输入框永远为空，留空表示不修改 #}
-        <input type="password" name="{{ f.key }}" id="{{ fid }}" value=""
-               autocomplete="off" placeholder="{{ f.placeholder }}">
-
-        {% elif f.choices %}
-        <select name="{{ f.key }}" id="{{ fid }}">
-          {% for c in f.choices %}
-          <option value="{{ c }}" {{ 'selected' if c == f.value }}>{{ c }}</option>
-          {% endfor %}
-        </select>
-
-        {% else %}
-        <input type="text" name="{{ f.key }}" id="{{ fid }}" value="{{ f.text }}"
-               {% if f.minlength %}required{% endif %}>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
-
+    {% set fields = g.fields %}
+    {% set gid = 'fld-' ~ gi %}
+    {% include "_settings_fields.html" %}
     <button class="btn-primary" type="submit"
             {% if g.action == '/settings/general' %}
             data-confirm="保存运行参数。注意：切到「实跑」会在重启后真实下载并占用 PT 站配额。确认继续？"
@@ -126,6 +71,12 @@
   {% endif %}
 </div>
 {% endfor %}
+
+<div class="panel" id="set-lackfill-pointer">
+  <h2>缺集补齐(Emby / TMDB / 115 / 爱影 / Re0)</h2>
+  <p class="hint">这组配置已搬到它被使用的地方 —— 在<a href="/lackfill"><b>补缺集页的「设置」</b></a>填写,
+    主链凭据默认展开,爱影 / SA 备链 / Re0 浏览器细节折叠,不用时完全不占注意力。</p>
+</div>
 
 {# ── qBittorrent 指引卡（v0.6.0：可编辑表单已撤下）─────────────
    旧表单把改动写进 config.qbittorrent + app_settings，而运行时的权威源是

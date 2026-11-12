@@ -1,0 +1,55 @@
+{# ── 设置字段行渲染(局部)─────────────────────────────────────
+   参数:fields(字段 dict 列表,_field() 产物)、gid(字段 id 前缀,页面内唯一即可)。
+   被 settings.html(系统设置组)与 lackfill.html(补缺集设置抽屉)共用。
+   FRONTEND-RULES §2.1:label 强制关联;bool 用 select(取消勾选若用 checkbox
+   根本不提交该字段,而覆盖层语义是「未提交=不修改」,会被静默忽略)。 #}
+{% for f in fields %}
+{% set fid = gid ~ '-' ~ loop.index0 %}
+<div class="setrow">
+  <div class="setlabel">
+    <label for="{{ fid }}">{{ f.label }}</label>
+    <span class="scope {{ 'scope-hot' if f.hot else 'scope-restart' }}"
+          title="{{ '保存后立即生效' if f.hot else '保存后需重启服务才生效' }}">
+      {{- '热生效' if f.hot else '需重启' -}}
+    </span>
+    {% if f.hint %}<div class="hint">{{ f.hint }}</div>{% endif %}
+  </div>
+
+  <div class="setctl">
+    {% if f.kind == 'bool' %}
+    <select name="{{ f.key }}" id="{{ fid }}">
+      <option value="1" {{ 'selected' if f.checked }}>{{ f.on_label }}</option>
+      <option value="0" {{ 'selected' if not f.checked }}>{{ f.off_label }}</option>
+    </select>
+
+    {% elif f.kind == 'int' or f.kind == 'float' %}
+    {# 可空数值:空框提交=清除覆盖;与「未提交=不修改」不冲突(字段始终提交) #}
+    <input type="number" name="{{ f.key }}" id="{{ fid }}" value="{{ f.text }}"
+           step="{{ f.step }}"
+           {% if f.lo is not none %}min="{{ f.lo }}"{% endif %}
+           {% if f.hi is not none %}max="{{ f.hi }}"{% endif %}
+           {% if f.nullable %}placeholder="留空＝使用全局默认"{% else %}required{% endif %}>
+
+    {% elif f.kind == 'list' %}
+    <input type="text" name="{{ f.key }}" id="{{ fid }}" value="{{ f.text }}"
+           class="mono" spellcheck="false">
+
+    {% elif f.kind == 'secret' %}
+    {# 只写不读:输入框永远为空,留空表示不修改 #}
+    <input type="password" name="{{ f.key }}" id="{{ fid }}" value=""
+           autocomplete="off" placeholder="{{ f.placeholder }}">
+
+    {% elif f.choices %}
+    <select name="{{ f.key }}" id="{{ fid }}">
+      {% for c in f.choices %}
+      <option value="{{ c }}" {{ 'selected' if c == f.value }}>{{ c }}</option>
+      {% endfor %}
+    </select>
+
+    {% else %}
+    <input type="text" name="{{ f.key }}" id="{{ fid }}" value="{{ f.text }}"
+           {% if f.minlength %}required{% endif %}>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}

@@ -514,7 +514,11 @@ async def settings_page(
         # ok/err 经文案表翻译；表里没有的键（如 SettingsError 的原文）原样展示
         "ok": ok, "flash_ok": _flash(request, "ok"),
         "err": _flash(request, "err"),
-        "groups": routes_settings.build_settings_groups(config),
+        "groups": [
+            g for g in routes_settings.build_settings_groups(config)
+            # 缺集补齐组按 FRONTEND-RULES §1.3 迁往 /lackfill 页的设置抽屉
+            if g["action"] != "/settings/lackfill"
+        ],
         "default_downloader": dl_info,
         # 凭据只写不读：仅暴露是否已配置，绝不回显明文或密文。
         # 由 settings_store.credential_status 按站点类型判断所需凭据 ——

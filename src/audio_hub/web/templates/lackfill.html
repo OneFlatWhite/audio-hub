@@ -12,9 +12,9 @@
 </div>
 {% endif %}
 {% if not enabled %}
-<div class="flash err">缺集补齐未启用：请在<a href="/settings">设置页</a>的「缺集补齐」分组启用并填写 Emby / TMDB 凭据，保存后立即生效。</div>
+<div class="flash err">缺集补齐未启用：在<a href="#lackfill-settings">下方「设置」</a>里启用并填写 Emby / TMDB 凭据，保存后立即生效。</div>
 {% elif not configured %}
-<div class="flash err">凭据未配齐：请在设置页填写 <code>emby_url</code> / <code>emby_api_key</code> / <code>tmdb_api_key</code> 三项。</div>
+<div class="flash err">凭据未配齐：在<a href="#lackfill-settings">下方「设置 · 主链」</a>填写 Emby 地址/Key 与 TMDB Key 三项。</div>
 {% endif %}
 
 <div class="cards" style="margin-bottom:18px">
@@ -30,6 +30,42 @@
     <input type="hidden" name="csrf_token" value="{{ csrf }}">
     <button class="btn-sm" type="submit" title="扫描一轮（预算 {{ max_round_shows }} 部，逐季对照 TMDB）" {{ 'disabled' if not enabled or not configured }}>立即扫描</button>
   </form>
+</div>
+
+{# ── 设置抽屉：配置跟着使用走（FRONTEND-RULES §1.3/§2.2）────────
+   主链默认展开；爱影/SA/Re0 折叠并带状态摘要。仍提交到
+   POST /settings/lackfill 单端点——折叠的 <details> 里的控件
+   照常随表单提交，保存语义与旧设置页完全一致。 #}
+<div class="panel" id="lackfill-settings" style="margin-bottom:18px">
+  <div class="section-head">
+    <h2>设置</h2>
+    <span class="pill low">全部热生效 · 保存即用</span>
+  </div>
+  {% if settings_sections %}
+  <form method="post" action="/settings/lackfill">
+    <input type="hidden" name="csrf_token" value="{{ csrf }}">
+    {% for sec in settings_sections %}
+    {% if sec.open %}
+    <div style="margin:6px 0 14px">
+      <div class="section-head"><h3 style="margin:0">{{ sec.title }}</h3>
+        <span class="muted">{{ sec.status }}</span></div>
+      {% set fields = sec.fields %}{% set gid = 'lf-' ~ sec.id %}
+      {% include "_settings_fields.html" %}
+    </div>
+    {% else %}
+    <details style="margin:6px 0">
+      <summary style="cursor:pointer;padding:6px 0"><b>{{ sec.title }}</b>
+        <span class="muted"> — {{ sec.status }}</span></summary>
+      <div style="padding-top:6px">
+        {% set fields = sec.fields %}{% set gid = 'lf-' ~ sec.id %}
+        {% include "_settings_fields.html" %}
+      </div>
+    </details>
+    {% endif %}
+    {% endfor %}
+    <button class="btn-primary" type="submit">保存补缺集设置</button>
+  </form>
+  {% endif %}
 </div>
 
 <div class="panel" style="margin-bottom:18px">
