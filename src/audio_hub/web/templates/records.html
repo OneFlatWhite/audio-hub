@@ -32,7 +32,10 @@
     <tbody>
     {% for t in tasks %}
       <tr>
-        <td class="trunc" title="{{ t.title }}">{{ t.title }}</td>
+        <td class="trunc" title="{{ t.title }}">{{ t.title }}
+          {# 同一实体一处主视图:从这里可跳回它的订阅详情(§1.4) #}
+          {% if t.watch_id %}<a class="hint" href="/watchlist/{{ t.watch_id }}">订阅 ↗</a>{% endif %}
+        </td>
         <td class="mono">{{ t.site }}</td>
         <td class="nowrap"><span class="pill {{ 'low' if t.state == 'failed' else ('high' if t.state in ['completed','notified','routed'] else '') }}">{{ t.state|state_zh }}</span>
           {% if t.state in ('dispatched', 'downloading') %}
