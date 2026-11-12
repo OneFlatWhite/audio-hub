@@ -4,45 +4,65 @@
 {% block h1 %}总览{% endblock %}
 
 {% block content %}
-{# ── 订阅区：订阅引擎的健康度一眼读完 ── #}
-<div class="section-label">订阅</div>
-<div class="cards">
-  <div class="card"><div class="n">{{ subs.active }}</div><div class="l"><a href="/watchlist">订阅中</a> / 共 {{ watchlist_count }}（启用 {{ enabled_count }}）</div></div>
-  <div class="card ok"><div class="n">{{ subs.completed }}</div><div class="l">已完成订阅</div></div>
-  <div class="card {{ 'warn' if review_count }}"><div class="n">{{ review_count }}</div><div class="l"><a href="/review">待审</a></div></div>
-  <div class="card"><div class="n">{{ subs.today_hits }}</div><div class="l">今日命中</div></div>
-  <div class="card">
-    <div class="n" style="font-size:18px">
-      {%- if subs.pending_search %}即将
-      {%- elif subs.next_search_local %}{{ subs.next_search_local }}
-      {%- else %}—{% endif %}
-    </div>
-    <div class="l">下次搜索（每 {{ subs.interval_minutes }} 分钟）</div>
-  </div>
+{# ── 上手引导:三步全部完成前显示(FRONTEND-RULES §2.5 空状态=引导卡)── #}
+{% set sites_done = sites|selectattr('state','in',('ok','disabled','circuit_open'))|list %}
+{% set dl_done = downloaders|selectattr('state','eq','ok')|list %}
+{% set subs_done = (subs.active + subs.completed + watchlist_count) > 0 %}
+{% if not (sites_done and dl_done and subs_done) %}
+<div class="panel" style="margin-bottom:16px;border-left:3px solid var(--accent)">
+  <h2>从这里开始</h2>
+  <table>
+    <tbody>
+      <tr>
+        <td class="nowrap">{{ '✅' if sites_done else '①' }} 站点凭据</td>
+        <td>{{ '已认证 ' ~ sites_done|length ~ ' 个站点' if sites_done else '填 PT 站的 RSS/Cookie/令牌并通过「测试认证」' }}</td>
+        <td><a class="btn-sm" href="/sites">站点中心 →</a></td>
+      </tr>
+      <tr>
+        <td class="nowrap">{{ '✅' if dl_done else '②' }} 下载器</td>
+        <td>{{ '已连通 ' ~ dl_done|length ~ ' 个实例' if dl_done else '填 qBittorrent/Transmission 地址凭据并通过「测试连接」' }}</td>
+        <td><a class="btn-sm" href="/downloaders">下载器中心 →</a></td>
+      </tr>
+      <tr>
+        <td class="nowrap">{{ '✅' if subs_done else '③' }} 第一个订阅</td>
+        <td>{{ '已有订阅在跑' if subs_done else '到发现墙一键订阅歌手/专辑/有声书,或手动添加' }}</td>
+        <td><a class="btn-sm" href="/discover">去发现墙 →</a></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="hint">三步完成后本卡自动消失。当前为
+    <b>{{ 'DRY-RUN 空跑(只记录不真实下载)' if dry_run else '实跑(会真实派发下载)' }}</b>;
+    切换开关在 设置 → 运行参数。剧集缺集补齐在<a href="/lackfill">补缺集页</a>单独配置。</p>
 </div>
+{% endif %}
 
-{# ── 下载区：任务与质量闸口 ── #}
-<div class="section-label">下载与质量</div>
+{# ── 内容:两行收敛(原 3 组 12 卡),次要信息降级为摘要行 ── #}
+<div class="section-label">内容</div>
 <div class="cards">
+  <div class="card"><div class="n">{{ subs.active }}</div><div class="l"><a href="/watchlist">订阅中</a>（共 {{ watchlist_count }}）</div></div>
+  <div class="card {{ 'warn' if review_count }}"><div class="n">{{ review_count }}</div><div class="l"><a href="/review">待我确认</a></div></div>
+  <div class="card"><div class="n">{{ subs.today_hits }}</div><div class="l">今日命中</div></div>
+  <div class="card ok"><div class="n">{{ subs.completed }}</div><div class="l">已完成订阅</div></div>
+  {% if disk %}
+  <div class="card {{ 'err' if disk.used_pct > 90 else ('warn' if disk.used_pct > 75 else '') }}">
+    <div class="n">{{ disk.free_gb }} GB</div><div class="l">磁盘剩余（已用 {{ disk.used_pct }}%）</div></div>
+  {% endif %}
+</div>
+<p class="hint" style="margin:4px 0 14px">
+  下次搜索 {{ subs.next_search_local or '—' }}（每 {{ subs.interval_minutes }} 分钟
+  {%- if subs.pending_search %}，有订阅即将到期{% endif %}）
+  · <a href="/series">活跃连载 {{ series_active }}</a>
+  {%- if series_last_completed %} · 最近完结：{{ series_last_completed.name }}
+  {%- else %} · 尚无完结连载{% endif %}
+</p>
+
+<div class="section-label">下载与质量</div>
+<div class="cards" style="margin-bottom:16px">
   <div class="card ok"><div class="n">{{ by_state.get('dispatched', 0) }}</div><div class="l"><a href="/records?state=dispatched">已派发</a></div></div>
   <div class="card"><div class="n">{{ by_state.get('completed', 0) }}</div><div class="l"><a href="/records?state=completed">已完成</a></div></div>
   <div class="card {{ 'err' if failed_count }}"><div class="n">{{ failed_count }}</div><div class="l"><a href="/records?state=failed">失败</a></div></div>
   <div class="card {{ 'warn' if quarantine_held }}"><div class="n">{{ quarantine_held }}</div><div class="l"><a href="/quarantine">隔离区待处理</a></div></div>
-  <div class="card"><div class="n">{{ hr_pending }}</div><div class="l"><a href="/seeding">H&amp;R 未达标</a>（做种中）</div></div>
-  <div class="card"><div class="n">{{ series_active }}</div><div class="l"><a href="/series">活跃连载</a>
-    {%- if series_last_completed %} · 最近完结：<span title="{{ series_last_completed.name }}">{{ series_last_completed.name }}</span>
-    {%- else %} · 尚无完结连载{% endif %}</div></div>
-</div>
-
-{# ── 系统区：磁盘 + 下载器 ── #}
-<div class="section-label">系统</div>
-<div class="cards" style="margin-bottom:16px">
-  {% if disk %}
-  <div class="card {{ 'err' if disk.used_pct > 90 else ('warn' if disk.used_pct > 75 else '') }}">
-    <div class="n">{{ disk.free_gb }} GB</div>
-    <div class="l">系统盘 {{ disk.path }} 剩余（已用 {{ disk.used_pct }}%）</div>
-  </div>
-  {% endif %}
+  <div class="card"><div class="n">{{ hr_pending }}</div><div class="l"><a href="/seeding">H&amp;R 未达标</a></div></div>
 </div>
 
 <div class="panel">
@@ -138,17 +158,20 @@
     </button>
   </form>
   <span class="hint" style="margin-left:10px">当前模式：{{ 'DRY-RUN（不实际下载）' if dry_run else '实跑（会真实派发）' }}</span>
-  <div class="tbl-wrap" style="margin-top:12px">
   {% if by_state %}
-  <table>
-    <thead><tr><th>任务状态分布</th><th class="num">数量</th></tr></thead>
-    <tbody>
-    {% for st, n in by_state.items() %}
-      <tr><td>{{ st|state_zh }} <span class="hint mono">{{ st }}</span></td><td class="num">{{ n }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}<p class="empty">尚无任务记录</p>{% endif %}
-  </div>
+  <details style="margin-top:10px">
+    <summary class="hint" style="cursor:pointer">任务状态分布（{{ by_state.values()|sum }} 条记录）</summary>
+    <div class="tbl-wrap" style="margin-top:8px">
+    <table>
+      <thead><tr><th>任务状态分布</th><th class="num">数量</th></tr></thead>
+      <tbody>
+      {% for st, n in by_state.items() %}
+        <tr><td>{{ st|state_zh }} <span class="hint mono">{{ st }}</span></td><td class="num">{{ n }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </details>
+  {% endif %}
 </div>
 {% endblock %}

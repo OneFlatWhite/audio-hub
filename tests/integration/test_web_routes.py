@@ -106,6 +106,17 @@ class TestSetup:
         # 已登录：能访问 dashboard
         assert client.get("/dashboard").status_code == 200
 
+    def test_dashboard_onboarding_shown_until_steps_done(self, client):
+        """全新实例:三步引导卡显示(站点/下载器/订阅,带跳转)。"""
+        _setup_admin(client)
+        page = client.get("/dashboard").text
+        assert "从这里开始" in page
+        assert "站点凭据" in page and "/sites" in page
+        assert "下载器" in page and "/downloaders" in page
+        assert "第一个订阅" in page and "/discover" in page
+        # DRY-RUN 语义在引导卡里明说,不让人猜
+        assert "DRY-RUN" in page
+
     def test_setup_blocked_after_user_exists(self, client):
         _setup_admin(client)
         resp = client.get("/setup", follow_redirects=False)
